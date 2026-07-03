@@ -13,7 +13,7 @@ export default defineConfig({
     viteReact(),
     tailwindcss(),
     // Nitro defaults to the node-server preset -> builds .output/server/index.mjs
-    nitro(),
+    nitro({ preset: "netlify" }),
   ],
   environments: {
     ssr: { build: { rollupOptions: { input: "./src/server.ts" } } },
