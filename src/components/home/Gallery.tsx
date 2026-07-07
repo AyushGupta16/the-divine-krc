@@ -45,11 +45,7 @@ export function Gallery() {
 
         <div className="grid grid-cols-2 md:grid-cols-4 auto-rows-[140px] md:auto-rows-[200px] gap-3">
           {items.map((it, i) => (
-            <Reveal
-              key={i}
-              delay={i * 60}
-              className={`overflow-hidden ${it.span}`}
-            >
+            <Reveal key={i} delay={i * 60} className={`overflow-hidden ${it.span}`}>
               <img
                 src={it.src}
                 alt={it.alt}

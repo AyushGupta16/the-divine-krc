@@ -10,10 +10,7 @@ const stats = [
 
 export function About() {
   return (
-    <section
-      id="about"
-      className="bg-ivory px-6 md:px-10 py-24 md:py-32 relative"
-    >
+    <section id="about" className="bg-ivory px-6 md:px-10 py-24 md:py-32 relative">
       <div className="mx-auto max-w-6xl grid md:grid-cols-12 gap-12 md:gap-16 items-center">
         <Reveal className="md:col-span-6 order-2 md:order-1">
           <div className="relative">
@@ -39,7 +36,7 @@ export function About() {
             <div className="flex items-center gap-3">
               <span className="h-px w-10 bg-gold" />
               <span className="text-gold text-[11px] uppercase tracking-[0.4em] font-semibold">
-                The Heritage
+                The Divine KRC
               </span>
             </div>
           </Reveal>
@@ -47,15 +44,14 @@ export function About() {
             <h2 className="font-display text-4xl md:text-5xl text-obsidian leading-[1.05] text-balance">
               A sanctuary in the
               <br />
-              <span className="italic text-gold">heart of Noida.</span>
+              <span className="italic text-gold">heart of Greater Noida.</span>
             </h2>
           </Reveal>
           <Reveal delay={160}>
             <p className="text-warm-gray text-base leading-relaxed max-w-lg">
-              The Divine KRC blends sophisticated urban design with the timeless
-              warmth of Indian hospitality. Minutes from India ExpoMart, Pari
-              Chowk Metro, and Knowledge Park, we are a tranquil retreat
-              designed for the discerning traveller — business, family, or
+              The Divine KRC blends sophisticated urban design with the timeless warmth of Indian
+              hospitality. Minutes from India ExpoMart, Pari Chowk Metro, and Knowledge Park, we are
+              a tranquil retreat designed for the discerning traveller — business, family, or
               celebration.
             </p>
           </Reveal>
@@ -63,9 +59,7 @@ export function About() {
             <div className="grid grid-cols-2 gap-x-8 gap-y-6 pt-6 border-t border-stone-200 mt-8 max-w-md">
               {stats.map((s) => (
                 <div key={s.l}>
-                  <div className="font-display text-3xl md:text-4xl text-obsidian">
-                    {s.v}
-                  </div>
+                  <div className="font-display text-3xl md:text-4xl text-obsidian">{s.v}</div>
                   <div className="text-[10px] uppercase tracking-[0.25em] text-warm-gray/80 mt-1">
                     {s.l}
                   </div>

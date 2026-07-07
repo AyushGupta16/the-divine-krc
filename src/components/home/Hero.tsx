@@ -21,7 +21,7 @@ export function Hero() {
           <div className="flex items-center gap-3">
             <span className="h-px w-10 bg-gold" />
             <span className="text-gold text-[10px] md:text-[11px] uppercase tracking-[0.4em] font-semibold">
-              Boutique Hotel · Greater Noida
+              Banquet Hotel · Greater Noida
             </span>
           </div>
           <h1 className="font-display text-ivory text-5xl sm:text-6xl md:text-7xl lg:text-[5.5rem] leading-[1.02] italic text-balance">
@@ -30,8 +30,8 @@ export function Hero() {
             <span className="text-gold not-italic">Regal Comfort.</span>
           </h1>
           <p className="text-ivory/75 text-base md:text-lg font-light leading-relaxed max-w-xl">
-            A refined boutique sanctuary moments from Pari Chowk — where the
-            rhythm of Greater Noida meets timeless, attentive hospitality.
+            A refined boutique sanctuary moments from Pari Chowk — where the rhythm of Greater Noida
+            meets timeless, attentive hospitality.
           </p>
           <div className="flex flex-wrap items-center gap-5 pt-2">
             <a

@@ -4,7 +4,7 @@ import { Reveal } from "./Reveal";
 
 const PHONE = "+918707368307";
 const WHATSAPP = `https://wa.me/918707368307?text=${encodeURIComponent(
-  "Hi Divine KRC, I'd like to book a room. Please share availability."
+  "Hi Divine KRC, I'd like to book a room. Please share availability.",
 )}`;
 
 const rooms = [
@@ -26,10 +26,7 @@ const rooms = [
 
 export function Rooms() {
   return (
-    <section
-      id="rooms"
-      className="bg-obsidian text-ivory px-6 md:px-10 py-24 md:py-32"
-    >
+    <section id="rooms" className="bg-obsidian text-ivory px-6 md:px-10 py-24 md:py-32">
       <div className="mx-auto max-w-7xl">
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6 mb-14 md:mb-20">
           <Reveal>
@@ -83,13 +80,16 @@ export function Rooms() {
                 </div>
                 <div className="space-y-1.5">
                   <h3 className="font-display text-2xl">{r.name}</h3>
-                  <p className="text-[11px] text-ivory/50 uppercase tracking-[0.18em]">
-                    {r.note}
-                  </p>
+                  <p className="text-[11px] text-ivory/50 uppercase tracking-[0.18em]">{r.note}</p>
                   <div className="flex items-end justify-between pt-3">
                     <div>
-                      <div className="text-[10px] text-ivory/40 uppercase tracking-[0.25em]">From</div>
-                      <div className="font-display text-xl text-gold">{r.price}<span className="text-ivory/40 text-xs ml-1">/ night</span></div>
+                      <div className="text-[10px] text-ivory/40 uppercase tracking-[0.25em]">
+                        From
+                      </div>
+                      <div className="font-display text-xl text-gold">
+                        {r.price}
+                        <span className="text-ivory/40 text-xs ml-1">/ night</span>
+                      </div>
                     </div>
                     <span className="text-gold text-[11px] uppercase tracking-[0.22em] border-b border-gold/40 pb-0.5 group-hover:border-gold transition-colors">
                       Details →

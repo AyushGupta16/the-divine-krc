@@ -21,8 +21,9 @@ export function Footer() {
           <div className="md:col-span-3 space-y-4">
             <div className="text-gold text-[10px] uppercase tracking-[0.3em] font-semibold">Visit</div>
             <p className="text-sm leading-relaxed text-ivory/70">
-              Knowledge Park II,<br />
-              Near Pari Chowk,<br />
+              A 023, Kyampur,<br />
+              {/* Sector Omicron I<br /> */}
+              Sector Omicron I, Near Pari Chowk,<br />
               Greater Noida, UP 201310
             </p>
           </div>

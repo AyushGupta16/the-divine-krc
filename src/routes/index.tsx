@@ -45,13 +45,13 @@ function Index() {
       <Hero />
       <AvailabilityBar />
       <About />
+      <Gallery />
       <Rooms />
       <Amenities />
       <PartyHall />
       <Dining />
       <Landmarks />
       <Testimonials />
-      <Gallery />
       <FinalCTA />
       <Footer />
     </main>

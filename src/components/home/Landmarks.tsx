@@ -1,12 +1,12 @@
 import { Reveal } from "./Reveal";
 
 const places = [
-  { t: "India ExpoMart", d: "Global trade & exhibitions", dist: "5 min drive" },
-  { t: "Pari Chowk Metro", d: "Aqua Line · NCR connectivity", dist: "3 min drive" },
-  { t: "Gautam Buddha University", d: "Knowledge Park III", dist: "8 min drive" },
-  { t: "Sharda University", d: "Knowledge Park II", dist: "10 min drive" },
-  { t: "Grand Venice Mall", d: "Shopping & leisure", dist: "12 min drive" },
-  { t: "Jewar Airport (NIA)", d: "Upcoming international hub", dist: "35 min drive" },
+  { t: "India ExpoMart", d: "Global trade & exhibitions", dist: "15 min drive" },
+  { t: "Pari Chowk Metro", d: "Aqua Line · NCR connectivity", dist: "10 min drive" },
+  { t: "Gautam Buddha University", d: "Knowledge Park III", dist: "15 min drive" },
+  { t: "Sharda University", d: "Knowledge Park II", dist: "15 min drive" },
+  { t: "Grand Venice Mall", d: "Shopping & leisure", dist: "5 min drive" },
+  { t: "Jewar Airport (NIA)", d: "International Airport and Hub", dist: "45 min drive" },
 ];
 
 export function Landmarks() {
