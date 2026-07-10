@@ -12,7 +12,35 @@ import { Testimonials } from "@/components/home/Testimonials";
 import { Gallery } from "@/components/home/Gallery";
 import { FinalCTA } from "@/components/home/FinalCTA";
 import { Footer } from "@/components/home/Footer";
-import heroExterior from "@/assets/hero.jpg";
+
+const SITE_URL = "https://thedivinekrc.in";
+const OG_IMAGE = `${SITE_URL}/og-image.jpg`;
+
+const hotelSchema = {
+  "@context": "https://schema.org",
+  "@type": "Hotel",
+  name: "The Divine KRC",
+  description:
+    "A boutique hotel and multi-cuisine restaurant near Pari Chowk, Greater Noida. Premium rooms, signature dining, and warm Indian hospitality.",
+  url: SITE_URL,
+  image: OG_IMAGE,
+  telephone: "+91-87073-68307",
+  email: "thedivinekrc@gmail.com",
+  priceRange: "₹₹",
+  address: {
+    "@type": "PostalAddress",
+    streetAddress: "FH78+HH3, A 023, Kyampur, Sector Omicron I, Near Pari Chowk, Dadha",
+    addressLocality: "Greater Noida",
+    addressRegion: "Uttar Pradesh",
+    postalCode: "201310",
+    addressCountry: "IN",
+  },
+  geo: {
+    "@type": "GeoCoordinates",
+    latitude: "28.463844253163877",
+    longitude: "77.5664181629228",
+  },
+};
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -30,9 +58,17 @@ export const Route = createFileRoute("/")({
           "Refined rooms, signature dining and attentive service near Pari Chowk Metro, ExpoMart and Knowledge Park.",
       },
       { property: "og:type", content: "website" },
-      { property: "og:image", content: heroExterior },
+      { property: "og:url", content: SITE_URL },
+      { property: "og:image", content: OG_IMAGE },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:image", content: heroExterior },
+      { name: "twitter:image", content: OG_IMAGE },
+    ],
+    links: [{ rel: "canonical", href: SITE_URL }],
+    scripts: [
+      {
+        type: "application/ld+json",
+        children: JSON.stringify(hotelSchema),
+      },
     ],
   }),
   component: Index,
