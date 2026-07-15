@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import logo from "@/assets/krc-logo.jpg";
 
 export function Footer() {
@@ -54,6 +55,7 @@ export function Footer() {
             <a href="#" className="hover:text-gold transition-colors">Privacy</a>
             <a href="#" className="hover:text-gold transition-colors">Terms</a>
             <a href="#" className="hover:text-gold transition-colors">Best Rate Guarantee</a>
+            <Link to="/admin/login" className="hover:text-gold transition-colors">Staff Login</Link>
           </div>
         </div>
       </div>
