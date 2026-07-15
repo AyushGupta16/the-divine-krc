@@ -1,6 +1,17 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
-import { Menu, LogOut, ChevronDown, ChevronsLeft, UserPlus, Check, X } from "lucide-react";
+import {
+  Menu,
+  LogOut,
+  ChevronDown,
+  ChevronsLeft,
+  UserPlus,
+  Check,
+  X,
+  Bell,
+  Search,
+  Plus,
+} from "lucide-react";
 
 import krcLogo from "@/assets/krc-logo.jpg";
 import {
@@ -256,6 +267,79 @@ function SidebarAccount({
   );
 }
 
+function greetingFor(date: Date): string {
+  const h = date.getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+/** Header title block — a personalised greeting on the dashboard, else the page title. */
+function HeaderTitle({ isDashboard, user }: { isDashboard: boolean; user: SessionUser | null }) {
+  const pageTitle = useRouterState({
+    select: (s) => titleForPath(s.location.pathname),
+  });
+
+  if (!isDashboard) {
+    return (
+      <h1 className="truncate font-display text-lg font-semibold text-obsidian sm:text-xl">
+        {pageTitle}
+      </h1>
+    );
+  }
+
+  const now = new Date();
+  const firstName = user?.name?.trim().split(/\s+/)[0] ?? "there";
+  const dateLine = now.toLocaleDateString("en-IN", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+  return (
+    <div className="min-w-0">
+      <div className="truncate font-display text-lg font-semibold leading-tight text-obsidian sm:text-xl">
+        {greetingFor(now)}, {firstName}
+      </div>
+      <div className="hidden truncate text-[11px] tracking-[0.01em] text-[#7a746a] sm:block">
+        {dateLine} · 14 rooms · 1 party hall
+      </div>
+    </div>
+  );
+}
+
+/** Global header actions — notifications, search, new booking. */
+function HeaderActions() {
+  return (
+    <div className="ml-auto flex items-center gap-2">
+      <button
+        type="button"
+        aria-label="Notifications"
+        className="relative flex size-10 items-center justify-center rounded-[5px] border border-[#eae4d6] bg-white text-warm-gray transition-colors hover:bg-black/[0.03]"
+      >
+        <Bell className="size-[17px]" />
+        <span className="absolute -right-1.5 -top-1.5 flex size-[18px] items-center justify-center rounded-full bg-[#b4553f] text-[10px] font-bold text-white">
+          3
+        </span>
+      </button>
+      <button
+        type="button"
+        aria-label="Search bookings, guests"
+        className="flex size-10 items-center justify-center rounded-[5px] border border-[#eae4d6] bg-white text-warm-gray transition-colors hover:bg-black/[0.03]"
+      >
+        <Search className="size-[17px]" />
+      </button>
+      <Link
+        to="/admin/bookings"
+        aria-label="New booking"
+        className="flex size-10 items-center justify-center rounded-[5px] bg-gold text-obsidian transition-opacity hover:opacity-90"
+      >
+        <Plus className="size-[18px]" strokeWidth={2.4} />
+      </Link>
+    </div>
+  );
+}
+
 /** Fixed bottom navigation for mobile — primary destinations + a "More" FAB. */
 function BottomNav({ onMore }: { onMore: () => void }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -301,8 +385,8 @@ function BottomNav({ onMore }: { onMore: () => void }) {
 export function AdminShell({ user, counts = {} }: { user: SessionUser | null; counts?: Counts }) {
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const pageTitle = useRouterState({
-    select: (s) => titleForPath(s.location.pathname),
+  const isDashboard = useRouterState({
+    select: (s) => (s.location.pathname.replace(/\/$/, "") || "/admin") === "/admin",
   });
 
   // Restore + persist the collapsed preference (client-only to avoid SSR flash).
@@ -370,9 +454,8 @@ export function AdminShell({ user, counts = {} }: { user: SessionUser | null; co
             />
           </button>
 
-          <h1 className="font-display text-lg font-semibold text-obsidian sm:text-xl">
-            {pageTitle}
-          </h1>
+          <HeaderTitle isDashboard={isDashboard} user={user} />
+          <HeaderActions />
         </header>
 
         {/* Page content */}

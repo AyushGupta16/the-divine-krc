@@ -9,8 +9,5 @@ export const Route = createFileRoute("/admin/")({
 
 function AdminDashboard() {
   const { dashboard } = Route.useLoaderData();
-  const { adminUser } = Route.useRouteContext();
-  // First name keeps the greeting personal ("Good morning, KRC").
-  const firstName = adminUser?.name?.trim().split(/\s+/)[0] ?? "there";
-  return <Dashboard data={dashboard} userName={firstName} />;
+  return <Dashboard data={dashboard} />;
 }

@@ -215,22 +215,14 @@ function RevenueCard({ periods }: { periods: RevenuePeriod[] }) {
 
   return (
     <Card>
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="font-display text-lg font-semibold">Revenue</h2>
           <div className="mt-[3px] text-[11px] tracking-[0.06em] text-[#a49d8d]">
             {period.rangeLabel}
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="hidden text-right sm:block">
-            <div className="font-display text-[27px] font-semibold leading-none">
-              {period.total}
-            </div>
-            <div className="mt-1 text-[11.5px] font-semibold tracking-[0.02em] text-[#5a8a5a]">
-              {period.delta}
-            </div>
-          </div>
+        <div className="flex flex-1 justify-center">
           <div className="flex rounded-md border border-[#eae4d6] p-0.5">
             {periods.map((p) => (
               <button
@@ -247,6 +239,12 @@ function RevenueCard({ periods }: { periods: RevenuePeriod[] }) {
                 {p.switchLabel}
               </button>
             ))}
+          </div>
+        </div>
+        <div className="hidden text-right sm:block">
+          <div className="font-display text-[27px] font-semibold leading-none">{period.total}</div>
+          <div className="mt-1 text-[11.5px] font-semibold tracking-[0.02em] text-[#5a8a5a]">
+            {period.delta}
           </div>
         </div>
       </div>
@@ -398,53 +396,19 @@ function ArrivalsCard({ items }: { items: ArrivalItem[] }) {
   );
 }
 
-// ── Greeting ──────────────────────────────────────────────────────────────
-
-function greetingFor(date: Date): string {
-  const h = date.getHours();
-  if (h < 12) return "Good morning";
-  if (h < 17) return "Good afternoon";
-  return "Good evening";
-}
-
-function Greeting({ name }: { name: string }) {
-  const now = new Date();
-  const dateLine = now.toLocaleDateString("en-IN", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-  return (
-    <div>
-      <h1 className="font-display text-2xl font-semibold leading-tight">
-        {greetingFor(now)}, {name}
-      </h1>
-      <p className="mt-1 text-[12px] tracking-[0.01em] text-[#7a746a]">
-        {dateLine} · 14 rooms · 1 party hall
-      </p>
-    </div>
-  );
-}
-
 // ── Page ──────────────────────────────────────────────────────────────────
 
-export function Dashboard({
-  data,
-  userName,
-}: {
-  data: DashboardData;
-  userName: string;
-}) {
+// The greeting/date line lives in the shell header (see AdminShell), so the body
+// carries only the panels — kept to a single desktop screen with tight gaps.
+export function Dashboard({ data }: { data: DashboardData }) {
   return (
-    <div className="flex flex-col gap-[18px] p-4 pb-10 sm:p-6">
-      <Greeting name={userName} />
+    <div className="flex flex-col gap-4 p-4 sm:p-5">
       <StatCards data={data} />
-      <div className="grid grid-cols-1 gap-[18px] lg:grid-cols-[380px_1fr]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[380px_1fr]">
         <OccupancyCard occupancy={data.occupancy} />
         <RevenueCard periods={data.revenue} />
       </div>
-      <div className="grid grid-cols-1 gap-[18px] lg:grid-cols-[1fr_380px]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_380px]">
         <ActivityCard items={data.activity} />
         <ArrivalsCard items={data.arrivals} />
       </div>
