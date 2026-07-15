@@ -101,3 +101,98 @@ export interface PartyHallEnquiry {
   amount: number;
   advancePaid: number;
 }
+
+// ── Admin dashboard (PR #3) ──────────────────────────────────────────────
+// Shapes for the dashboard screen. The mock data layer seeds figures that
+// mirror `Admin Dashboard.dc.html`; a real DB swap keeps these signatures.
+
+export interface CheckInStat {
+  total: number;
+  arrived: number;
+  pending: number;
+}
+
+export interface CheckOutStat {
+  total: number;
+  settled: number;
+  late: number;
+}
+
+export interface ArrivalsStat {
+  total: number;
+  /** Next arrival time + label, e.g. "2:30 PM" · "Sharma +2". */
+  nextTime: string;
+  nextLabel: string;
+}
+
+export interface RoomTypeOccupancy {
+  occupied: number;
+  total: number;
+}
+
+export interface Occupancy {
+  occupied: number;
+  total: number;
+  /** Whole-percent occupancy for tonight. */
+  pct: number;
+  deluxe: RoomTypeOccupancy;
+  deluxeBalcony: RoomTypeOccupancy;
+  vacant: number;
+  /** Free-text party-hall status line, e.g. "Booked 22 Aug". */
+  partyHall: string;
+}
+
+export type RevenuePeriodKey = "7d" | "30d" | "12m";
+
+export interface RevenuePeriod {
+  key: RevenuePeriodKey;
+  /** Toggle button text, e.g. "7 days". */
+  switchLabel: string;
+  /** Sub-title under "Revenue", e.g. "Mon 7 Jul – Sun 13 Jul". */
+  rangeLabel: string;
+  /** Pre-formatted total, e.g. "₹2.14L". */
+  total: string;
+  /** Trend line, e.g. "▲ 12.4% vs prev". */
+  delta: string;
+  /** One entry per bar; heights are derived client-side from `value`. */
+  bars: { label: string; value: number }[];
+}
+
+export type ActivityKind =
+  | "check_in"
+  | "enquiry"
+  | "payment"
+  | "cancellation";
+
+export interface ActivityItem {
+  id: string;
+  kind: ActivityKind;
+  /** May contain **bold** segments delimited by `*`. */
+  title: string;
+  meta: string;
+}
+
+export interface ArrivalItem {
+  id: string;
+  initials: string;
+  name: string;
+  /** Extra party size, e.g. "+2"; omitted for solo arrivals. */
+  extra?: string;
+  roomType: string;
+  nights: number;
+  time: string;
+  /** Assigned room number, or "unassigned". */
+  assignment: string;
+  assigned: boolean;
+}
+
+export interface DashboardData {
+  checkInsToday: CheckInStat;
+  checkOutsToday: CheckOutStat;
+  expectedArrivals: ArrivalsStat;
+  unassignedRooms: number;
+  occupancy: Occupancy;
+  revenue: RevenuePeriod[];
+  activity: ActivityItem[];
+  arrivals: ArrivalItem[];
+}

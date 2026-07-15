@@ -4,7 +4,13 @@
 // It is intentionally the single choke point every route/loader reads through,
 // so swapping to a real database later is a one-file change.
 
-import type { Booking, Guest, PartyHallEnquiry, RoomType } from "@/types/booking";
+import type {
+  Booking,
+  DashboardData,
+  Guest,
+  PartyHallEnquiry,
+  RoomType,
+} from "@/types/booking";
 import { computeTotalBill } from "@/lib/booking-math";
 
 export interface RoomTypeInfo {
@@ -243,4 +249,154 @@ export async function getAvailableRoomCount(
     if (b.checkIn <= onDate && onDate < b.checkOut) occupied.add(b.roomNo);
   }
   return ROOM_NUMBERS.length - occupied.size;
+}
+
+/**
+ * Everything the admin dashboard renders, in one round-trip. Figures are seeded
+ * to mirror `Admin Dashboard.dc.html`; `unassignedRooms` is derived from the
+ * live booking set so the "needs allocation" nudge stays truthful. When this
+ * swaps to a real DB these become aggregate queries behind the same signature.
+ */
+export async function getDashboardData(): Promise<DashboardData> {
+  const unassignedRooms = BOOKINGS.filter(
+    (b) => b.roomNo === null && OCCUPYING_STATUSES.has(b.status),
+  ).length;
+
+  return {
+    checkInsToday: { total: 12, arrived: 4, pending: 8 },
+    checkOutsToday: { total: 8, settled: 5, late: 3 },
+    expectedArrivals: { total: 5, nextTime: "2:30 PM", nextLabel: "Sharma +2" },
+    unassignedRooms,
+    occupancy: {
+      occupied: 9,
+      total: 14,
+      pct: 64,
+      deluxe: { occupied: 6, total: 10 },
+      deluxeBalcony: { occupied: 3, total: 4 },
+      vacant: 5,
+      partyHall: "Booked 22 Aug",
+    },
+    revenue: [
+      {
+        key: "7d",
+        switchLabel: "7 days",
+        rangeLabel: "Mon 7 Jul – Sun 13 Jul",
+        total: "₹2.14L",
+        delta: "▲ 12.4% vs prev",
+        bars: [
+          { label: "Mon", value: 40 },
+          { label: "Tue", value: 62 },
+          { label: "Wed", value: 48 },
+          { label: "Thu", value: 78 },
+          { label: "Fri", value: 96 },
+          { label: "Sat", value: 88 },
+          { label: "Sun", value: 66 },
+        ],
+      },
+      {
+        key: "30d",
+        switchLabel: "30 days",
+        rangeLabel: "Last 30 days",
+        total: "₹9.3L",
+        delta: "▲ 8.1% vs prev",
+        bars: [
+          { label: "W1", value: 58 },
+          { label: "W2", value: 72 },
+          { label: "W3", value: 64 },
+          { label: "W4", value: 92 },
+        ],
+      },
+      {
+        key: "12m",
+        switchLabel: "12 months",
+        rangeLabel: "Aug 2025 – Jul 2026",
+        total: "₹1.08Cr",
+        delta: "▲ 21.6% vs prev",
+        bars: [
+          { label: "A", value: 52 },
+          { label: "S", value: 60 },
+          { label: "O", value: 74 },
+          { label: "N", value: 82 },
+          { label: "D", value: 96 },
+          { label: "J", value: 70 },
+          { label: "F", value: 64 },
+          { label: "M", value: 72 },
+          { label: "A", value: 80 },
+          { label: "M", value: 68 },
+          { label: "J", value: 58 },
+          { label: "J", value: 88 },
+        ],
+      },
+    ],
+    activity: [
+      {
+        id: "act-1",
+        kind: "check_in",
+        title: "Checked in *Priya Nair* to *Deluxe Balcony 204*",
+        meta: "2 min ago · 2 nights · ₹3,400 paid",
+      },
+      {
+        id: "act-2",
+        kind: "enquiry",
+        title: "New *Party Hall* enquiry — 150 guests, tailored quote",
+        meta: "18 min ago · 22 Aug · advance pending",
+      },
+      {
+        id: "act-3",
+        kind: "payment",
+        title: "*₹1,700* UPI payment received — booking *#BK-2047*",
+        meta: "41 min ago · Classic 110",
+      },
+      {
+        id: "act-4",
+        kind: "cancellation",
+        title: "*#BK-2039* cancelled by guest — refund initiated",
+        meta: "1 hr ago · Deluxe Balcony 118",
+      },
+    ],
+    arrivals: [
+      {
+        id: "arr-1",
+        initials: "AS",
+        name: "Anil Sharma",
+        extra: "+2",
+        roomType: "Deluxe Balcony",
+        nights: 2,
+        time: "2:30 PM",
+        assignment: "unassigned",
+        assigned: false,
+      },
+      {
+        id: "arr-2",
+        initials: "MK",
+        name: "Meera Krishnan",
+        roomType: "Classic",
+        nights: 3,
+        time: "3:00 PM",
+        assignment: "Room 112",
+        assigned: true,
+      },
+      {
+        id: "arr-3",
+        initials: "JT",
+        name: "John Thomas",
+        extra: "+1",
+        roomType: "Deluxe Balcony",
+        nights: 1,
+        time: "4:15 PM",
+        assignment: "Room 206",
+        assigned: true,
+      },
+      {
+        id: "arr-4",
+        initials: "SV",
+        name: "Sunita Verma",
+        roomType: "Classic",
+        nights: 4,
+        time: "6:00 PM",
+        assignment: "unassigned",
+        assigned: false,
+      },
+    ],
+  };
 }
