@@ -33,3 +33,7 @@ dist-ssr
 
 # Local Netlify folder
 .netlify
+
+# Design handoff package (reference only — not part of the app source)
+/Room booking system dashboard/
+/Room booking system dashboard.zip
