@@ -327,8 +327,8 @@ function ActivityRow({ item, last }: { item: ActivityItem; last: boolean }) {
 
 function ActivityCard({ items }: { items: ActivityItem[] }) {
   return (
-    <Card>
-      <div className="mb-1.5 flex items-center justify-between">
+    <Card className="flex min-h-0 flex-1 flex-col">
+      <div className="mb-1.5 flex shrink-0 items-center justify-between">
         <h2 className="font-display text-lg font-semibold">Recent activity</h2>
         <button
           type="button"
@@ -337,7 +337,7 @@ function ActivityCard({ items }: { items: ActivityItem[] }) {
           View all
         </button>
       </div>
-      <div className="flex flex-col">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {items.map((item, i) => (
           <ActivityRow key={item.id} item={item} last={i === items.length - 1} />
         ))}
@@ -380,14 +380,14 @@ function ArrivalRow({ item }: { item: ArrivalItem }) {
 
 function ArrivalsCard({ items }: { items: ArrivalItem[] }) {
   return (
-    <Card>
-      <div className="mb-3.5 flex items-center justify-between">
+    <Card className="flex min-h-0 flex-col lg:w-[580px] lg:shrink-0">
+      <div className="mb-3.5 flex shrink-0 items-center justify-between">
         <h2 className="font-display text-lg font-semibold">Arrivals queue</h2>
         <span className="rounded-full bg-[#f2e0dc] px-[9px] py-0.5 text-[10.5px] font-bold uppercase tracking-[0.1em] text-[#b4553f]">
           {items.length} today
         </span>
       </div>
-      <div className="flex flex-col gap-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
         {items.map((item) => (
           <ArrivalRow key={item.id} item={item} />
         ))}
@@ -402,13 +402,13 @@ function ArrivalsCard({ items }: { items: ArrivalItem[] }) {
 // carries only the panels — kept to a single desktop screen with tight gaps.
 export function Dashboard({ data }: { data: DashboardData }) {
   return (
-    <div className="flex flex-col gap-4 p-4 sm:p-5">
+    <div className="flex flex-col gap-4 p-4 sm:p-5 lg:h-[calc(100dvh-4rem)] lg:overflow-hidden">
       <StatCards data={data} />
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[380px_1fr]">
+      <div className="grid shrink-0 grid-cols-1 gap-4 lg:grid-cols-[380px_1fr]">
         <OccupancyCard occupancy={data.occupancy} />
         <RevenueCard periods={data.revenue} />
       </div>
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_380px]">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
         <ActivityCard items={data.activity} />
         <ArrivalsCard items={data.arrivals} />
       </div>
