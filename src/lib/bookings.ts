@@ -4,12 +4,7 @@
 // It is intentionally the single choke point every route/loader reads through,
 // so swapping to a real database later is a one-file change.
 
-import type {
-  Booking,
-  Guest,
-  PartyHallEnquiry,
-  RoomType,
-} from "@/types/booking";
+import type { Booking, Guest, PartyHallEnquiry, RoomType } from "@/types/booking";
 import { computeTotalBill } from "@/lib/booking-math";
 
 export interface RoomTypeInfo {
@@ -89,9 +84,7 @@ const GUESTS: Guest[] = [
   },
 ];
 
-function withTotal(
-  b: Omit<Booking, "totalBill">,
-): Booking {
+function withTotal(b: Omit<Booking, "totalBill">): Booking {
   return { ...b, totalBill: computeTotalBill(b.revenue) };
 }
 
@@ -232,4 +225,22 @@ export async function getPartyHallEnquiries(): Promise<PartyHallEnquiry[]> {
 
 export async function getRoomTypes(): Promise<RoomTypeInfo[]> {
   return ROOM_TYPES;
+}
+
+/** Statuses that hold a physical room off the market. */
+const OCCUPYING_STATUSES = new Set(["confirmed", "checked_in", "pending_payment"]);
+
+/**
+ * Physical rooms free on a given date (default today) — total inventory minus
+ * the assigned rooms held by an occupying booking whose stay covers that date.
+ */
+export async function getAvailableRoomCount(
+  onDate: string = new Date().toISOString().slice(0, 10),
+): Promise<number> {
+  const occupied = new Set<string>();
+  for (const b of BOOKINGS) {
+    if (!b.roomNo || !OCCUPYING_STATUSES.has(b.status)) continue;
+    if (b.checkIn <= onDate && onDate < b.checkOut) occupied.add(b.roomNo);
+  }
+  return ROOM_NUMBERS.length - occupied.size;
 }
