@@ -11,12 +11,17 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+/** Keys for dynamic count badges resolved by the shell. */
+export type CountKey = "bookings" | "rooms" | "guests";
+
 export interface NavItem {
   label: string;
   to: string;
   icon: LucideIcon;
   /** Match only on an exact path (used for the index route). */
   exact?: boolean;
+  /** When set, the shell renders a count badge from its `counts` map. */
+  countKey?: CountKey;
 }
 
 export interface NavGroup {
@@ -39,10 +44,10 @@ export const ADMIN_NAV: NavGroup[] = [
   {
     label: "Operations",
     items: [
-      { label: "Bookings", to: "/admin/bookings", icon: BookMarked },
-      { label: "Rooms", to: "/admin/rooms", icon: BedDouble },
+      { label: "Bookings", to: "/admin/bookings", icon: BookMarked, countKey: "bookings" },
+      { label: "Guests", to: "/admin/guests", icon: Users, countKey: "guests" },
+      { label: "Rooms", to: "/admin/rooms", icon: BedDouble, countKey: "rooms" },
       { label: "Party Hall", to: "/admin/party-hall", icon: PartyPopper },
-      { label: "Guests", to: "/admin/guests", icon: Users },
     ],
   },
   {
@@ -52,14 +57,27 @@ export const ADMIN_NAV: NavGroup[] = [
       { label: "Reports", to: "/admin/reports", icon: BarChart3 },
     ],
   },
-  {
-    label: "Account",
-    items: [{ label: "Settings", to: "/admin/settings", icon: Settings }],
-  },
+];
+
+/** Pinned to the sidebar footer, above the account chip. */
+export const SETTINGS_ITEM: NavItem = {
+  label: "Settings",
+  to: "/admin/settings",
+  icon: Settings,
+};
+
+/** Primary destinations surfaced in the mobile bottom navigation bar. */
+export const BOTTOM_NAV: NavItem[] = [
+  { label: "Home", to: "/admin", icon: LayoutDashboard, exact: true },
+  { label: "Bookings", to: "/admin/bookings", icon: BookMarked },
+  { label: "Rooms", to: "/admin/rooms", icon: BedDouble },
+  { label: "Calendar", to: "/admin/calendar", icon: CalendarDays },
 ];
 
 /** Flat list of every nav item, longest path first for title matching. */
-const FLAT_ITEMS = ADMIN_NAV.flatMap((g) => g.items).sort((a, b) => b.to.length - a.to.length);
+const FLAT_ITEMS = [...ADMIN_NAV.flatMap((g) => g.items), SETTINGS_ITEM].sort(
+  (a, b) => b.to.length - a.to.length,
+);
 
 /** Resolve the human page title for a given pathname. */
 export function titleForPath(pathname: string): string {

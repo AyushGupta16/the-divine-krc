@@ -1,12 +1,18 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { Link, Outlet, useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
-import { Menu, LogOut, ChevronDown, UserPlus, Check } from "lucide-react";
+import { Menu, LogOut, ChevronDown, ChevronsLeft, UserPlus, Check, X } from "lucide-react";
 
 import krcLogo from "@/assets/krc-logo.jpg";
-import { ADMIN_NAV, titleForPath, type NavItem } from "@/components/admin/admin-nav";
+import {
+  ADMIN_NAV,
+  BOTTOM_NAV,
+  SETTINGS_ITEM,
+  titleForPath,
+  type CountKey,
+  type NavItem,
+} from "@/components/admin/admin-nav";
 import { logoutFn, type SessionUser } from "@/lib/auth";
 import { cn } from "@/lib/utils";
-import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,76 +22,124 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+const COLLAPSE_KEY = "krc-admin-sidebar-collapsed";
+type Counts = Partial<Record<CountKey, number>>;
+
 function isActive(pathname: string, item: NavItem): boolean {
   const path = pathname.replace(/\/$/, "") || "/admin";
   return item.exact ? path === item.to : path === item.to || path.startsWith(item.to + "/");
 }
 
 /** The brand crest + wordmark shown at the top of the sidebar. */
-function SidebarBrand() {
+function SidebarBrand({ collapsed }: { collapsed: boolean }) {
   return (
-    <div className="flex items-center gap-3 px-6 py-6">
-      <img src={krcLogo} alt="The Divine KRC crest" className="h-10 w-10 shrink-0 object-contain" />
-      <span className="whitespace-pre-line font-display text-[11px] italic uppercase leading-tight tracking-[0.25em] text-gold-soft">
-        {"THE\nDIVINE\nKRC"}
-      </span>
+    <div className="mb-4 flex items-center gap-3 border-b border-gold/15 px-2 pb-5">
+      <img
+        src={krcLogo}
+        alt="The Divine KRC crest"
+        className="size-9 shrink-0 rounded-sm object-contain"
+      />
+      {!collapsed && (
+        <div className="min-w-0 leading-tight">
+          <div className="truncate font-display text-[12px] italic uppercase tracking-[0.22em] text-gold-soft">
+            The Divine KRC
+          </div>
+          <div className="truncate text-[10px] uppercase tracking-[0.14em] text-[#6d675c]">
+            Admin console
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-/** The navigation link list. `onNavigate` lets the mobile drawer close itself. */
-function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
-
+function NavRow({
+  item,
+  active,
+  collapsed,
+  count,
+  onNavigate,
+}: {
+  item: NavItem;
+  active: boolean;
+  collapsed: boolean;
+  count?: number;
+  onNavigate?: () => void;
+}) {
+  const Icon = item.icon;
   return (
-    <nav className="flex-1 overflow-y-auto px-3 pb-6">
-      {ADMIN_NAV.map((group) => (
-        <div key={group.label} className="mb-6">
-          <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#8a8479]">
-            {group.label}
-          </p>
-          <ul className="flex flex-col gap-0.5">
-            {group.items.map((item) => {
-              const active = isActive(pathname, item);
-              const Icon = item.icon;
-              return (
-                <li key={item.to}>
-                  <Link
-                    to={item.to}
-                    onClick={onNavigate}
-                    className={cn(
-                      "group flex items-center gap-3 rounded-md px-3 py-2.5 text-[13.5px] font-medium transition-colors",
-                      active
-                        ? "bg-gold/15 text-gold-soft"
-                        : "text-[#c9c3b6] hover:bg-white/5 hover:text-ivory",
-                    )}
-                  >
-                    <Icon
-                      className={cn(
-                        "size-[18px] shrink-0",
-                        active ? "text-gold" : "text-[#8a8479] group-hover:text-ivory",
-                      )}
-                    />
-                    {item.label}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      ))}
-    </nav>
+    <Link
+      to={item.to}
+      onClick={onNavigate}
+      title={collapsed ? item.label : undefined}
+      className={cn(
+        "flex items-center gap-3 rounded-[5px] px-[11px] py-[9px] text-[13px] transition-colors",
+        collapsed && "justify-center px-0",
+        active
+          ? "bg-gold/15 font-semibold text-gold"
+          : "font-normal text-ivory/60 hover:bg-white/5 hover:text-ivory",
+      )}
+    >
+      <Icon className="size-[17px] shrink-0" />
+      {!collapsed && <span className="truncate">{item.label}</span>}
+      {!collapsed && typeof count === "number" && count > 0 && (
+        <span className="ml-auto rounded-full bg-gold px-[7px] py-px text-[10.5px] font-bold text-obsidian">
+          {count}
+        </span>
+      )}
+    </Link>
   );
 }
 
-/** Full sidebar body — brand + nav + account chip — shared by rail and drawer. */
-function SidebarBody({ user, onNavigate }: { user: SessionUser | null; onNavigate?: () => void }) {
+/** Full sidebar body — brand + nav + settings + account — for rail and drawer. */
+function SidebarBody({
+  user,
+  collapsed,
+  counts,
+  onNavigate,
+}: {
+  user: SessionUser | null;
+  collapsed: boolean;
+  counts: Counts;
+  onNavigate?: () => void;
+}) {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+
   return (
-    <div className="flex h-full flex-col bg-obsidian text-ivory">
-      <SidebarBrand />
-      <div className="mx-6 mb-2 h-px bg-gold/20" />
-      <SidebarNav onNavigate={onNavigate} />
-      <SidebarAccount user={user} onNavigate={onNavigate} />
+    <div className="flex h-full flex-col overflow-hidden bg-obsidian px-4 py-[22px] text-ivory">
+      <SidebarBrand collapsed={collapsed} />
+
+      <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto">
+        {ADMIN_NAV.map((group) => (
+          <div key={group.label} className="flex flex-col gap-0.5">
+            {!collapsed && (
+              <p className="px-[10px] pb-2 pt-3 text-[10px] uppercase tracking-[0.22em] text-[#6d675c] first:pt-1">
+                {group.label}
+              </p>
+            )}
+            {group.items.map((item) => (
+              <NavRow
+                key={item.to}
+                item={item}
+                active={isActive(pathname, item)}
+                collapsed={collapsed}
+                count={item.countKey ? counts[item.countKey] : undefined}
+                onNavigate={onNavigate}
+              />
+            ))}
+          </div>
+        ))}
+      </nav>
+
+      <div className="mt-2 flex flex-col gap-0.5">
+        <NavRow
+          item={SETTINGS_ITEM}
+          active={isActive(pathname, SETTINGS_ITEM)}
+          collapsed={collapsed}
+          onNavigate={onNavigate}
+        />
+        <SidebarAccount user={user} collapsed={collapsed} onNavigate={onNavigate} />
+      </div>
     </div>
   );
 }
@@ -101,13 +155,15 @@ function initialsOf(user: SessionUser | null): string {
 /**
  * Account chip pinned to the sidebar footer. Opens an upward menu listing the
  * signed-in account, plus "Add account" (sign in as someone else) and
- * "Sign out".
+ * "Sign out". Collapses to just the avatar when the rail is collapsed.
  */
 function SidebarAccount({
   user,
+  collapsed,
   onNavigate,
 }: {
   user: SessionUser | null;
+  collapsed: boolean;
   onNavigate?: () => void;
 }) {
   const navigate = useNavigate();
@@ -129,29 +185,34 @@ function SidebarAccount({
   }
 
   return (
-    <div className="border-t border-gold/15 p-3">
+    <div className="mt-1">
       <DropdownMenu>
         <DropdownMenuTrigger
-          className="flex w-full items-center gap-2.5 rounded-md bg-white/5 px-2.5 py-2.5 text-left outline-none transition-colors hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-gold"
+          title={collapsed ? (user?.name ?? "Account") : undefined}
+          className={cn(
+            "flex w-full items-center gap-2.5 rounded-md bg-white/5 py-2.5 text-left outline-none transition-colors hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-gold",
+            collapsed ? "justify-center px-0" : "px-2.5",
+          )}
           aria-label="Account menu"
         >
           <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gold text-[12px] font-bold text-obsidian">
             {initialsOf(user)}
           </span>
-          <span className="min-w-0 flex-1 leading-tight">
-            <span className="block truncate text-[12.5px] font-semibold text-ivory">
-              {user?.name ?? "Admin"}
-            </span>
-            <span className="block truncate text-[10.5px] text-[#8a8479]">{user?.email ?? ""}</span>
-          </span>
-          <ChevronDown className="size-4 shrink-0 text-[#8a8479]" />
+          {!collapsed && (
+            <>
+              <span className="min-w-0 flex-1 leading-tight">
+                <span className="block truncate text-[12.5px] font-semibold text-ivory">
+                  {user?.name ?? "Admin"}
+                </span>
+                <span className="block truncate text-[10.5px] text-[#8a8479]">
+                  {user?.email ?? ""}
+                </span>
+              </span>
+              <ChevronDown className="size-4 shrink-0 text-[#8a8479]" />
+            </>
+          )}
         </DropdownMenuTrigger>
-        <DropdownMenuContent
-          side="top"
-          align="start"
-          sideOffset={8}
-          className="w-[--radix-dropdown-menu-trigger-width] min-w-56"
-        >
+        <DropdownMenuContent side="top" align="start" sideOffset={8} className="min-w-56">
           <DropdownMenuLabel className="text-[10px] uppercase tracking-[0.16em] text-warm-gray">
             Accounts
           </DropdownMenuLabel>
@@ -195,40 +256,119 @@ function SidebarAccount({
   );
 }
 
+/** Fixed bottom navigation for mobile — primary destinations + a "More" FAB. */
+function BottomNav({ onMore }: { onMore: () => void }) {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  return (
+    <nav className="fixed inset-x-0 bottom-0 z-40 flex h-[62px] items-stretch border-t border-gold/20 bg-obsidian px-0.5 md:hidden">
+      {BOTTOM_NAV.map((item) => {
+        const active = isActive(pathname, item);
+        const Icon = item.icon;
+        return (
+          <Link
+            key={item.to}
+            to={item.to}
+            className={cn(
+              "relative flex flex-1 flex-col items-center justify-center gap-[3px] transition-colors",
+              active ? "text-gold" : "text-ivory/60",
+            )}
+          >
+            {active && (
+              <span className="absolute top-0 left-1/2 h-[3px] w-[30px] -translate-x-1/2 rounded-b bg-gold" />
+            )}
+            <Icon className="size-5" />
+            <span className="text-[9.5px]">{item.label}</span>
+          </Link>
+        );
+      })}
+      <button
+        type="button"
+        onClick={onMore}
+        className="flex flex-1 flex-col items-center justify-center gap-[3px] text-ivory/60"
+      >
+        <Menu className="size-5" />
+        <span className="text-[9.5px]">More</span>
+      </button>
+    </nav>
+  );
+}
+
 /**
- * Admin console chrome: fixed obsidian sidebar (desktop) + a drawer on mobile,
- * with a sticky header carrying the page title (the account menu lives in the
- * sidebar footer). Renders the active route through `<Outlet />`.
+ * Admin console chrome: collapsible obsidian sidebar (rail on desktop, off-canvas
+ * drawer + bottom-nav/FAB on mobile) and a sticky header carrying the collapse
+ * toggle and page title. Renders the active route through `<Outlet />`.
  */
-export function AdminShell({ user }: { user: SessionUser | null }) {
-  const [mobileOpen, setMobileOpen] = useState(false);
+export function AdminShell({ user, counts = {} }: { user: SessionUser | null; counts?: Counts }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const pageTitle = useRouterState({
     select: (s) => titleForPath(s.location.pathname),
   });
 
+  // Restore + persist the collapsed preference (client-only to avoid SSR flash).
+  useEffect(() => {
+    if (localStorage.getItem(COLLAPSE_KEY) === "1") setCollapsed(true);
+  }, []);
+  useEffect(() => {
+    localStorage.setItem(COLLAPSE_KEY, collapsed ? "1" : "0");
+  }, [collapsed]);
+
+  const railWidth = collapsed ? "70px" : "236px";
+
   return (
-    <div className="min-h-screen bg-ivory font-sans text-obsidian">
-      {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 hidden w-64 md:block">
-        <SidebarBody user={user} />
+    <div
+      className="min-h-screen bg-ivory font-sans text-obsidian"
+      style={{ ["--rail-w" as string]: railWidth }}
+    >
+      {/* Desktop rail */}
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[var(--rail-w)] transition-[width] duration-200 md:block">
+        <SidebarBody user={user} collapsed={collapsed} counts={counts} />
       </aside>
 
-      <div className="flex min-h-screen flex-col md:pl-64">
+      {/* Mobile off-canvas drawer */}
+      <div
+        className={cn(
+          "fixed inset-0 z-50 bg-obsidian/50 transition-opacity md:hidden",
+          drawerOpen ? "opacity-100" : "pointer-events-none opacity-0",
+        )}
+        onClick={() => setDrawerOpen(false)}
+        aria-hidden={!drawerOpen}
+      />
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 w-[264px] shadow-2xl transition-transform duration-[260ms] md:hidden",
+          drawerOpen ? "translate-x-0" : "-translate-x-full",
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => setDrawerOpen(false)}
+          aria-label="Close navigation"
+          className="absolute right-3 top-4 z-10 flex size-8 items-center justify-center rounded-md text-ivory/70 hover:bg-white/10"
+        >
+          <X className="size-5" />
+        </button>
+        <SidebarBody
+          user={user}
+          collapsed={false}
+          counts={counts}
+          onNavigate={() => setDrawerOpen(false)}
+        />
+      </aside>
+
+      <div className="flex min-h-screen flex-col pb-[62px] transition-[padding] duration-200 md:pb-0 md:pl-[var(--rail-w)]">
         {/* Header */}
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-[#eae4d6] bg-ivory/90 px-4 backdrop-blur sm:px-6">
-          {/* Mobile drawer trigger */}
-          <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-            <SheetTrigger
-              className="flex size-9 items-center justify-center rounded-md text-obsidian transition-colors hover:bg-black/5 md:hidden"
-              aria-label="Open navigation"
-            >
-              <Menu className="size-5" />
-            </SheetTrigger>
-            <SheetContent side="left" className="w-64 border-0 p-0">
-              <SheetTitle className="sr-only">Navigation</SheetTitle>
-              <SidebarBody user={user} onNavigate={() => setMobileOpen(false)} />
-            </SheetContent>
-          </Sheet>
+        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-[#eae4d6] bg-ivory/90 px-4 backdrop-blur sm:px-6">
+          <button
+            type="button"
+            onClick={() => setCollapsed((v) => !v)}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className="hidden size-9 items-center justify-center rounded-md text-obsidian transition-colors hover:bg-black/5 md:flex"
+          >
+            <ChevronsLeft
+              className={cn("size-5 transition-transform", collapsed && "rotate-180")}
+            />
+          </button>
 
           <h1 className="font-display text-lg font-semibold text-obsidian sm:text-xl">
             {pageTitle}
@@ -240,6 +380,8 @@ export function AdminShell({ user }: { user: SessionUser | null }) {
           <Outlet />
         </main>
       </div>
+
+      <BottomNav onMore={() => setDrawerOpen(true)} />
     </div>
   );
 }
