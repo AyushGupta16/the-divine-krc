@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Link, Outlet, useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
-import { Menu, LogOut, ChevronDown } from "lucide-react";
+import { Menu, LogOut, ChevronDown, UserPlus, Check } from "lucide-react";
 
 import krcLogo from "@/assets/krc-logo.jpg";
 import { ADMIN_NAV, titleForPath, type NavItem } from "@/components/admin/admin-nav";
@@ -78,13 +78,14 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-/** Full sidebar body — brand + nav — shared by the desktop rail and the drawer. */
-function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
+/** Full sidebar body — brand + nav + account chip — shared by rail and drawer. */
+function SidebarBody({ user, onNavigate }: { user: SessionUser | null; onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col bg-obsidian text-ivory">
       <SidebarBrand />
       <div className="mx-6 mb-2 h-px bg-gold/20" />
       <SidebarNav onNavigate={onNavigate} />
+      <SidebarAccount user={user} onNavigate={onNavigate} />
     </div>
   );
 }
@@ -97,7 +98,18 @@ function initialsOf(user: SessionUser | null): string {
   return letters.toUpperCase();
 }
 
-function UserMenu({ user }: { user: SessionUser | null }) {
+/**
+ * Account chip pinned to the sidebar footer. Opens an upward menu listing the
+ * signed-in account, plus "Add account" (sign in as someone else) and
+ * "Sign out".
+ */
+function SidebarAccount({
+  user,
+  onNavigate,
+}: {
+  user: SessionUser | null;
+  onNavigate?: () => void;
+}) {
   const navigate = useNavigate();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -106,54 +118,87 @@ function UserMenu({ user }: { user: SessionUser | null }) {
     setBusy(true);
     await logoutFn();
     await router.invalidate();
+    onNavigate?.();
+    navigate({ to: "/admin/login" });
+  }
+
+  function addAccount() {
+    // Signing in with another account reuses the login screen.
+    onNavigate?.();
     navigate({ to: "/admin/login" });
   }
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        className="flex items-center gap-2.5 rounded-full py-1 pl-1 pr-2 outline-none transition-colors hover:bg-black/5 focus-visible:ring-2 focus-visible:ring-gold"
-        aria-label="Account menu"
-      >
-        <span className="flex size-9 items-center justify-center rounded-full bg-obsidian text-[12px] font-semibold text-gold-soft">
-          {initialsOf(user)}
-        </span>
-        <span className="hidden text-left sm:block">
-          <span className="block text-[13px] font-semibold leading-tight text-obsidian">
-            {user?.name ?? "Admin"}
-          </span>
-          <span className="block text-[11px] leading-tight text-warm-gray">
-            {user?.email ?? ""}
-          </span>
-        </span>
-        <ChevronDown className="hidden size-4 text-warm-gray sm:block" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel className="font-normal">
-          <span className="block text-sm font-semibold text-obsidian">{user?.name ?? "Admin"}</span>
-          <span className="block text-xs text-warm-gray">{user?.email}</span>
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          disabled={busy}
-          onSelect={(e) => {
-            e.preventDefault();
-            void signOut();
-          }}
-          className="cursor-pointer text-destructive focus:text-destructive"
+    <div className="border-t border-gold/15 p-3">
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          className="flex w-full items-center gap-2.5 rounded-md bg-white/5 px-2.5 py-2.5 text-left outline-none transition-colors hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-gold"
+          aria-label="Account menu"
         >
-          <LogOut className="size-4" />
-          {busy ? "Signing out…" : "Sign out"}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gold text-[12px] font-bold text-obsidian">
+            {initialsOf(user)}
+          </span>
+          <span className="min-w-0 flex-1 leading-tight">
+            <span className="block truncate text-[12.5px] font-semibold text-ivory">
+              {user?.name ?? "Admin"}
+            </span>
+            <span className="block truncate text-[10.5px] text-[#8a8479]">{user?.email ?? ""}</span>
+          </span>
+          <ChevronDown className="size-4 shrink-0 text-[#8a8479]" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          side="top"
+          align="start"
+          sideOffset={8}
+          className="w-[--radix-dropdown-menu-trigger-width] min-w-56"
+        >
+          <DropdownMenuLabel className="text-[10px] uppercase tracking-[0.16em] text-warm-gray">
+            Accounts
+          </DropdownMenuLabel>
+          <DropdownMenuItem className="gap-2.5" disabled>
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-gold text-[11px] font-bold text-obsidian">
+              {initialsOf(user)}
+            </span>
+            <span className="min-w-0 flex-1 leading-tight">
+              <span className="block truncate text-[12px] font-semibold text-obsidian">
+                {user?.name ?? "Admin"}
+              </span>
+              <span className="block truncate text-[10px] text-warm-gray">{user?.email}</span>
+            </span>
+            <Check className="size-4 shrink-0 text-gold" />
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="cursor-pointer"
+            onSelect={(e) => {
+              e.preventDefault();
+              addAccount();
+            }}
+          >
+            <UserPlus className="size-4" />
+            Add account
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={busy}
+            onSelect={(e) => {
+              e.preventDefault();
+              void signOut();
+            }}
+            className="cursor-pointer text-destructive focus:text-destructive"
+          >
+            <LogOut className="size-4" />
+            {busy ? "Signing out…" : "Sign out"}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
 
 /**
  * Admin console chrome: fixed obsidian sidebar (desktop) + a drawer on mobile,
- * with a sticky header carrying the page title and account menu. Renders the
- * active route through `<Outlet />`.
+ * with a sticky header carrying the page title (the account menu lives in the
+ * sidebar footer). Renders the active route through `<Outlet />`.
  */
 export function AdminShell({ user }: { user: SessionUser | null }) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -165,7 +210,7 @@ export function AdminShell({ user }: { user: SessionUser | null }) {
     <div className="min-h-screen bg-ivory font-sans text-obsidian">
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 hidden w-64 md:block">
-        <SidebarBody />
+        <SidebarBody user={user} />
       </aside>
 
       <div className="flex min-h-screen flex-col md:pl-64">
@@ -181,17 +226,13 @@ export function AdminShell({ user }: { user: SessionUser | null }) {
             </SheetTrigger>
             <SheetContent side="left" className="w-64 border-0 p-0">
               <SheetTitle className="sr-only">Navigation</SheetTitle>
-              <SidebarBody onNavigate={() => setMobileOpen(false)} />
+              <SidebarBody user={user} onNavigate={() => setMobileOpen(false)} />
             </SheetContent>
           </Sheet>
 
           <h1 className="font-display text-lg font-semibold text-obsidian sm:text-xl">
             {pageTitle}
           </h1>
-
-          <div className="ml-auto">
-            <UserMenu user={user} />
-          </div>
         </header>
 
         {/* Page content */}
