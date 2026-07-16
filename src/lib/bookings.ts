@@ -6,12 +6,18 @@
 
 import type {
   Booking,
+  BookingsPageData,
+  BookingStatus,
   DashboardData,
   Guest,
   PartyHallEnquiry,
   RoomType,
 } from "@/types/booking";
-import { computeTotalBill } from "@/lib/booking-math";
+import {
+  computeTotalBill,
+  computeTotalCollected,
+  formatINR,
+} from "@/lib/booking-math";
 
 export interface RoomTypeInfo {
   type: RoomType;
@@ -87,6 +93,76 @@ const GUESTS: Guest[] = [
     stays: 1,
     lifetimeValue: 3400,
     tier: "new",
+  },
+  {
+    id: "G-004",
+    name: "Meera Krishnan",
+    phone: "+91 98400 11223",
+    email: "meera.krishnan@example.com",
+    city: "Chennai",
+    stays: 4,
+    lifetimeValue: 32600,
+    tier: "gold",
+  },
+  {
+    id: "G-005",
+    name: "Rohit Kapoor",
+    phone: "+91 94140 66789",
+    email: "rohit.kapoor@example.com",
+    city: "Jaipur",
+    stays: 2,
+    lifetimeValue: 11800,
+    tier: "silver",
+  },
+  {
+    id: "G-006",
+    name: "Fatima Sheikh",
+    phone: "+91 90050 44120",
+    email: "fatima.sheikh@example.com",
+    city: "Lucknow",
+    stays: 2,
+    lifetimeValue: 9600,
+    tier: "silver",
+  },
+  {
+    id: "G-007",
+    name: "Deepak Rao",
+    phone: "+91 99490 33087",
+    email: "deepak.rao@example.com",
+    city: "Hyderabad",
+    stays: 1,
+    lifetimeValue: 3400,
+    tier: "new",
+  },
+  {
+    id: "G-008",
+    name: "Karan Malhotra",
+    phone: "+91 98150 90011",
+    email: "karan.malhotra@example.com",
+    city: "Chandigarh",
+    stays: 1,
+    lifetimeValue: 0,
+    tier: "new",
+  },
+  {
+    id: "G-009",
+    name: "Vikram Nair",
+    phone: "+91 90720 55340",
+    email: "vikram.nair@example.com",
+    city: "Kochi",
+    stays: 1,
+    lifetimeValue: 0,
+    tier: "new",
+  },
+  {
+    id: "G-010",
+    name: "Sunita Verma",
+    phone: "+91 98730 21980",
+    email: "sunita.verma@example.com",
+    city: "New Delhi",
+    stays: 3,
+    lifetimeValue: 18900,
+    tier: "silver",
   },
 ];
 
@@ -179,6 +255,202 @@ const BOOKINGS: Booking[] = [
     status: "pending_payment",
     createdAt: "2026-07-15T08:05:00.000Z",
   }),
+  withTotal({
+    id: "KRC-20260714-004",
+    guestId: "G-004",
+    roomNo: "112",
+    roomType: "deluxe",
+    checkIn: "2026-07-13",
+    checkOut: "2026-07-16",
+    urn: 3,
+    source: "booking_com",
+    mealPlan: "MAP",
+    revenue: {
+      room: 4500,
+      earlyCheckIn: 0,
+      lateCheckOut: 0,
+      other: 600,
+      discount: 0,
+      taxPct: 12,
+    },
+    collection: {
+      paidToHotel: 0,
+      otaCollection: 5712,
+      otaCommission: 856,
+      complimentary: 0,
+      pending: 0,
+    },
+    status: "checked_in",
+    createdAt: "2026-07-09T11:20:00.000Z",
+  }),
+  withTotal({
+    id: "KRC-20260711-005",
+    guestId: "G-005",
+    roomNo: "108",
+    roomType: "deluxe",
+    checkIn: "2026-07-11",
+    checkOut: "2026-07-13",
+    urn: 2,
+    source: "walk_in",
+    mealPlan: "EP",
+    revenue: {
+      room: 3000,
+      earlyCheckIn: 0,
+      lateCheckOut: 500,
+      other: 0,
+      discount: 0,
+      taxPct: 12,
+    },
+    collection: {
+      paidToHotel: 3920,
+      otaCollection: 0,
+      otaCommission: 0,
+      complimentary: 0,
+      pending: 0,
+    },
+    status: "checked_out",
+    createdAt: "2026-07-08T16:30:00.000Z",
+  }),
+  withTotal({
+    id: "KRC-20260710-006",
+    guestId: "G-006",
+    roomNo: "207",
+    roomType: "deluxe_balcony",
+    checkIn: "2026-07-10",
+    checkOut: "2026-07-12",
+    urn: 2,
+    source: "goibibo",
+    mealPlan: "CP",
+    revenue: {
+      room: 3400,
+      earlyCheckIn: 0,
+      lateCheckOut: 0,
+      other: 300,
+      discount: 0,
+      taxPct: 12,
+    },
+    collection: {
+      paidToHotel: 0,
+      otaCollection: 4144,
+      otaCommission: 622,
+      complimentary: 0,
+      pending: 0,
+    },
+    status: "checked_out",
+    createdAt: "2026-07-06T10:15:00.000Z",
+  }),
+  withTotal({
+    id: "KRC-20260714-007",
+    guestId: "G-007",
+    roomNo: "201",
+    roomType: "deluxe_balcony",
+    checkIn: "2026-07-16",
+    checkOut: "2026-07-18",
+    urn: 2,
+    source: "direct",
+    mealPlan: "EP",
+    revenue: {
+      room: 3400,
+      earlyCheckIn: 0,
+      lateCheckOut: 0,
+      other: 0,
+      discount: 0,
+      taxPct: 12,
+    },
+    collection: {
+      paidToHotel: 0,
+      otaCollection: 0,
+      otaCommission: 0,
+      complimentary: 0,
+      pending: 3808,
+    },
+    status: "confirmed",
+    createdAt: "2026-07-14T13:00:00.000Z",
+  }),
+  withTotal({
+    id: "KRC-20260715-008",
+    guestId: "G-008",
+    roomNo: null,
+    roomType: "deluxe",
+    checkIn: "2026-07-15",
+    checkOut: "2026-07-17",
+    urn: 2,
+    source: "agoda",
+    mealPlan: "EP",
+    revenue: {
+      room: 3000,
+      earlyCheckIn: 0,
+      lateCheckOut: 0,
+      other: 0,
+      discount: 0,
+      taxPct: 12,
+    },
+    collection: {
+      paidToHotel: 0,
+      otaCollection: 0,
+      otaCommission: 0,
+      complimentary: 0,
+      pending: 0,
+    },
+    status: "cancelled",
+    createdAt: "2026-07-13T19:45:00.000Z",
+  }),
+  withTotal({
+    id: "KRC-20260713-009",
+    guestId: "G-009",
+    roomNo: null,
+    roomType: "deluxe",
+    checkIn: "2026-07-13",
+    checkOut: "2026-07-14",
+    urn: 1,
+    source: "direct",
+    mealPlan: "EP",
+    revenue: {
+      room: 1500,
+      earlyCheckIn: 0,
+      lateCheckOut: 0,
+      other: 0,
+      discount: 0,
+      taxPct: 12,
+    },
+    collection: {
+      paidToHotel: 0,
+      otaCollection: 0,
+      otaCommission: 0,
+      complimentary: 0,
+      pending: 0,
+    },
+    status: "no_show",
+    createdAt: "2026-07-12T21:10:00.000Z",
+  }),
+  withTotal({
+    id: "KRC-20260712-010",
+    guestId: "G-010",
+    roomNo: "104",
+    roomType: "deluxe",
+    checkIn: "2026-07-12",
+    checkOut: "2026-07-15",
+    urn: 3,
+    source: "phone",
+    mealPlan: "CP",
+    revenue: {
+      room: 4500,
+      earlyCheckIn: 400,
+      lateCheckOut: 0,
+      other: 150,
+      discount: 0,
+      taxPct: 12,
+    },
+    collection: {
+      paidToHotel: 5656,
+      otaCollection: 0,
+      otaCommission: 0,
+      complimentary: 0,
+      pending: 0,
+    },
+    status: "checked_out",
+    createdAt: "2026-07-05T09:40:00.000Z",
+  }),
 ];
 
 const PARTY_HALL_ENQUIRIES: PartyHallEnquiry[] = [
@@ -243,12 +515,7 @@ const OCCUPYING_STATUSES = new Set(["confirmed", "checked_in", "pending_payment"
 export async function getAvailableRoomCount(
   onDate: string = new Date().toISOString().slice(0, 10),
 ): Promise<number> {
-  const occupied = new Set<string>();
-  for (const b of BOOKINGS) {
-    if (!b.roomNo || !OCCUPYING_STATUSES.has(b.status)) continue;
-    if (b.checkIn <= onDate && onDate < b.checkOut) occupied.add(b.roomNo);
-  }
-  return ROOM_NUMBERS.length - occupied.size;
+  return ROOM_NUMBERS.length - occupiedRoomsOn(onDate).size;
 }
 
 /**
@@ -399,4 +666,123 @@ export async function getDashboardData(): Promise<DashboardData> {
       },
     ],
   };
+}
+
+/** Physical rooms held off the market on a date by an occupying booking. */
+function occupiedRoomsOn(onDate: string): Set<string> {
+  const occupied = new Set<string>();
+  for (const b of BOOKINGS) {
+    if (!b.roomNo || !OCCUPYING_STATUSES.has(b.status)) continue;
+    if (b.checkIn <= onDate && onDate < b.checkOut) occupied.add(b.roomNo);
+  }
+  return occupied;
+}
+
+/**
+ * Everything the admin Bookings screen renders. Summary figures, tab counts
+ * and the period-totals footer are all derived from the live booking set (not
+ * seeded), so "totals auto" holds and the numbers stay honest across edits.
+ * A real DB swap turns these into aggregate queries behind the same signature.
+ */
+export async function getBookingsPageData(
+  today: string = new Date().toISOString().slice(0, 10),
+): Promise<BookingsPageData> {
+  const guestName = new Map(GUESTS.map((g) => [g.id, g.name]));
+  const rows = BOOKINGS.map((booking) => ({
+    booking,
+    guestName: guestName.get(booking.guestId) ?? "—",
+  }));
+
+  const countsByStatus = BOOKINGS.reduce(
+    (acc, b) => {
+      acc[b.status] += 1;
+      return acc;
+    },
+    {
+      confirmed: 0,
+      checked_in: 0,
+      checked_out: 0,
+      pending_payment: 0,
+      cancelled: 0,
+      no_show: 0,
+    } as Record<BookingStatus, number>,
+  );
+
+  const totals = BOOKINGS.reduce<BookingsPageData["totals"]>(
+    (acc, b) => {
+      acc.roomRev += b.revenue.room;
+      acc.earlyCheckIn += b.revenue.earlyCheckIn;
+      acc.lateCheckOut += b.revenue.lateCheckOut;
+      acc.other += b.revenue.other;
+      acc.totalBill += b.totalBill;
+      acc.paidToHotel += b.collection.paidToHotel;
+      acc.otaCollection += b.collection.otaCollection;
+      acc.pending += b.collection.pending;
+      return acc;
+    },
+    {
+      roomRev: 0,
+      earlyCheckIn: 0,
+      lateCheckOut: 0,
+      other: 0,
+      totalBill: 0,
+      paidToHotel: 0,
+      otaCollection: 0,
+      pending: 0,
+    },
+  );
+
+  const occupied = occupiedRoomsOn(today).size;
+  const totalUrn = BOOKINGS.reduce((sum, b) => sum + b.urn, 0);
+  const totalCollected = BOOKINGS.reduce(
+    (sum, b) => sum + computeTotalCollected(b.collection),
+    0,
+  );
+
+  const summary: BookingsPageData["summary"] = [
+    {
+      key: "checkInsToday",
+      label: "Today's check-ins",
+      value: String(BOOKINGS.filter((b) => b.checkIn === today).length),
+    },
+    {
+      key: "checkOutsToday",
+      label: "Today's check-outs",
+      value: String(BOOKINGS.filter((b) => b.checkOut === today).length),
+    },
+    {
+      key: "occupied",
+      label: "Occupied rooms",
+      value: `${occupied} / ${ROOM_NUMBERS.length}`,
+    },
+    {
+      key: "available",
+      label: "Available rooms",
+      value: String(ROOM_NUMBERS.length - occupied),
+    },
+    { key: "totalUrn", label: "Total URN (period)", value: String(totalUrn) },
+    { key: "roomRevenue", label: "Room revenue", value: formatINR(totals.roomRev) },
+    {
+      key: "totalCollected",
+      label: "Total collected",
+      value: formatINR(totalCollected),
+    },
+    {
+      key: "pendingCollection",
+      label: "Pending collection",
+      value: formatINR(totals.pending),
+    },
+    {
+      key: "otaReceivables",
+      label: "OTA receivables",
+      value: formatINR(totals.otaCollection),
+    },
+    {
+      key: "cancellations",
+      label: "Cancellations",
+      value: String(countsByStatus.cancelled + countsByStatus.no_show),
+    },
+  ];
+
+  return { today, total: BOOKINGS.length, summary, countsByStatus, rows, totals };
 }

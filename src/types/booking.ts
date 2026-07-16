@@ -196,3 +196,58 @@ export interface DashboardData {
   activity: ActivityItem[];
   arrivals: ArrivalItem[];
 }
+
+// ── Admin bookings (PR #4) ───────────────────────────────────────────────
+// The bookings screen renders a wide reservations table plus summary cards,
+// status tabs and a period-totals footer — all derived from the live booking
+// set so the figures stay truthful when the mock swaps to a real DB.
+
+/** Keys that let the component attach the right accent to each summary card. */
+export type BookingsSummaryKey =
+  | "checkInsToday"
+  | "checkOutsToday"
+  | "occupied"
+  | "available"
+  | "totalUrn"
+  | "roomRevenue"
+  | "totalCollected"
+  | "pendingCollection"
+  | "otaReceivables"
+  | "cancellations";
+
+export interface BookingsSummaryCard {
+  key: BookingsSummaryKey;
+  label: string;
+  /** Pre-formatted display value, e.g. "9 / 14" or "₹2,14,000". */
+  value: string;
+}
+
+/** A booking joined with its guest's display name for the table row. */
+export interface BookingListItem {
+  booking: Booking;
+  guestName: string;
+}
+
+/** Column sums for the period-totals footer row. */
+export interface BookingsTotals {
+  roomRev: number;
+  earlyCheckIn: number;
+  lateCheckOut: number;
+  other: number;
+  totalBill: number;
+  paidToHotel: number;
+  otaCollection: number;
+  pending: number;
+}
+
+export interface BookingsPageData {
+  /** ISO date the page is anchored to (drives today-relative counts). */
+  today: string;
+  /** Reservation count for this period (all rows). */
+  total: number;
+  summary: BookingsSummaryCard[];
+  /** Row count per status, for the filter-tab badges. */
+  countsByStatus: Record<BookingStatus, number>;
+  rows: BookingListItem[];
+  totals: BookingsTotals;
+}
