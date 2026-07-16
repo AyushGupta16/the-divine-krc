@@ -652,3 +652,103 @@ export interface ReportsPageData {
   /** All three ranges, so the toggle switches without a round-trip. */
   ranges: ReportsRange[];
 }
+
+// ── Admin settings (PR #11) ─────────────────────────────────────────────────
+//
+// Settings is where the rules the rest of the console bills by are stated:
+// tariffs, GST, fees, the party-hall advance, OTA commission. Every one of
+// those already had a home in the data set before this screen existed, so the
+// panels read them back rather than restating them — a rate shown here and a
+// rate charged on a booking cannot disagree, because they are one value.
+
+/** The property as guests see it on confirmations. */
+export interface PropertyProfile {
+  name: string;
+  phone: string;
+  whatsapp: string;
+  /** e.g. "2:00 PM". */
+  checkInTime: string;
+  checkOutTime: string;
+}
+
+/** One room type's nightly tariff, as the pricing panel edits it. */
+export interface RoomTariff {
+  type: RoomType;
+  name: string;
+  /** e.g. "10 rooms · 24 m²". */
+  inventoryLabel: string;
+  /** Grouped rupees without the symbol, e.g. "1,500" — the ₹ sits outside the field. */
+  rate: string;
+}
+
+/** A flat charge or rate the property applies on top of the tariff. */
+export interface ChargeSetting {
+  key: "earlyCheckIn" | "lateCheckOut" | "gst" | "partyHallAdvance";
+  label: string;
+  /** Pre-formatted with its unit, e.g. "₹400" or "12%". */
+  value: string;
+}
+
+export interface PricingSettings {
+  tariffs: RoomTariff[];
+  charges: ChargeSetting[];
+}
+
+/** An on/off property setting. The screen controls these locally; Save is stubbed. */
+export interface ToggleSetting {
+  key: string;
+  label: string;
+  desc: string;
+  on: boolean;
+}
+
+export interface PaymentGateway {
+  name: string;
+  connected: boolean;
+  /** e.g. "UPI · Cards · Net Banking · Wallets · key ...a4F9". */
+  methodsLine: string;
+}
+
+export interface PaymentSettings {
+  gateway: PaymentGateway;
+  toggles: ToggleSetting[];
+}
+
+/**
+ * An OTA the property sells through. `commissionPct` is the contracted rate;
+ * for any channel that has actually sold a stay it is also the rate the
+ * Payments screen derives from the rupees that channel kept.
+ */
+export interface ChannelSetting {
+  key: BookingSource;
+  name: string;
+  abbr: string;
+  commissionPct: number;
+  connected: boolean;
+  /** How many stays this channel has sold us — 0 for a channel yet to earn. */
+  bookings: number;
+}
+
+export interface TeamMember {
+  name: string;
+  email: string;
+  role: string;
+  /** Derived from the name, so a badge cannot spell someone else. */
+  initials: string;
+}
+
+/** One entry in the sticky section nav; `id` is the panel it scrolls to. */
+export interface SettingsSection {
+  id: string;
+  label: string;
+}
+
+export interface SettingsPageData {
+  sections: SettingsSection[];
+  property: PropertyProfile;
+  pricing: PricingSettings;
+  payments: PaymentSettings;
+  channels: ChannelSetting[];
+  team: TeamMember[];
+  notifications: ToggleSetting[];
+}
