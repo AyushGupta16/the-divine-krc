@@ -1,13 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { getBookings } from "@/lib/bookings";
-import { RoutePlaceholder } from "@/components/booking/RoutePlaceholder";
+import { getPaymentsPageData } from "@/lib/bookings";
+import { Payments } from "@/components/admin/Payments";
 
 export const Route = createFileRoute("/admin/payments")({
-  loader: async () => ({ bookings: await getBookings() }),
+  loader: async () => ({ payments: await getPaymentsPageData() }),
   component: AdminPayments,
 });
 
 function AdminPayments() {
-  const { bookings } = Route.useLoaderData();
-  return <RoutePlaceholder title="Payments" count={bookings.length} />;
+  const { payments } = Route.useLoaderData();
+  return <Payments data={payments} />;
 }

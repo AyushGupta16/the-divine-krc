@@ -6,6 +6,7 @@
 
 import type {
   Booking,
+  BookingSource,
   BookingsPageData,
   BookingStatus,
   CalendarCell,
@@ -18,6 +19,12 @@ import type {
   GuestTier,
   Occupancy,
   OccupancyBand,
+  OtaSettlement,
+  PaymentMethod,
+  PaymentsKpi,
+  PaymentsPageData,
+  PaymentsTxnItem,
+  PaymentTransaction,
   PartyHallCalendarCell,
   PartyHallEnquiry,
   PartyHallEventItem,
@@ -27,6 +34,8 @@ import type {
   PartyHallPill,
   PartyHallStat,
   PartyHallStatus,
+  PaymentsMonthlyRollup,
+  TransactionStatus,
   RoomFloor,
   RoomsLegendItem,
   RoomsPageData,
@@ -1588,5 +1597,272 @@ export async function getGuestsPageData(): Promise<GuestsPageData> {
     subtitle: `${guests.length} profiles · ${repeatCount} repeat guests`,
     stats,
     guests,
+  };
+}
+
+// ── Payments ────────────────────────────────────────────────────────────────
+
+/**
+ * How each booking's money moved, and when.
+ *
+ * This is the *only* thing the payments screen seeds. A booking already records
+ * how much was collected (`collection`) — re-stating those amounts here would be
+ * seeding the same figures twice, and the two copies would drift the first time
+ * a booking was edited. What a booking doesn't record is the instrument and the
+ * clock time, so that alone is seeded and every amount is derived from
+ * `collection` below. A booking with no money in play needs no entry.
+ */
+const PAYMENT_SEED: Record<string, { method: PaymentMethod; at: string }> = {
+  "KRC-20260714-001": { method: "upi", at: "2026-07-14T09:42:00+05:30" },
+  "KRC-20260715-002": { method: "ota", at: "2026-07-14T09:10:00+05:30" },
+  "KRC-20260715-003": { method: "upi", at: "2026-07-20T12:00:00+05:30" },
+  "KRC-20260714-004": { method: "ota", at: "2026-07-09T11:20:00+05:30" },
+  "KRC-20260711-005": { method: "cash", at: "2026-07-13T08:30:00+05:30" },
+  "KRC-20260710-006": { method: "ota", at: "2026-07-10T10:15:00+05:30" },
+  "KRC-20260714-007": { method: "card", at: "2026-07-16T12:00:00+05:30" },
+  "KRC-20260712-010": { method: "net_banking", at: "2026-07-14T08:55:00+05:30" },
+};
+
+const METHOD_LABEL: Record<PaymentMethod, string> = {
+  upi: "UPI",
+  card: "Card",
+  net_banking: "Net Banking",
+  cash: "Cash",
+  ota: "OTA",
+};
+
+const TRANSACTION_STATUS_LABEL: Record<TransactionStatus, string> = {
+  success: "Success",
+  pending: "Pending",
+  refunded: "Refunded",
+};
+
+/** Methods Razorpay processes for us. Cash is taken at the desk; OTA settles bank-to-bank. */
+const RAZORPAY_METHODS = new Set<PaymentMethod>(["upi", "card", "net_banking"]);
+
+/** Booking sources that are OTA channels, with their display name and disc letter. */
+const OTA_CHANNELS: Record<string, { name: string; abbr: string }> = {
+  booking_com: { name: "Booking.com", abbr: "B" },
+  makemytrip: { name: "MakeMyTrip", abbr: "M" },
+  goibibo: { name: "Goibibo", abbr: "G" },
+  agoda: { name: "Agoda", abbr: "A" },
+  oyo: { name: "OYO", abbr: "O" },
+};
+
+/** True for a booking sold through an OTA rather than direct/walk-in/phone. */
+function isOtaSource(source: BookingSource): boolean {
+  return source in OTA_CHANNELS;
+}
+
+/** A stay the guest never took. Money held against one is owed back, not earned. */
+const VOID_STAY_STATUSES = new Set<BookingStatus>(["cancelled", "no_show"]);
+
+/**
+ * The transaction ledger, derived whole from the booking set.
+ *
+ * One booking yields at most one row, and which row is a question its
+ * `collection` already answers:
+ *   - a void stay (cancelled/no-show) holding money → that money is a *refund*,
+ *     signed negative — it is owed back, not collected;
+ *   - money the channel collected (`otaCollection`) → *pending*, because an OTA
+ *     holds the guest's payment until it settles to us;
+ *   - money in hand (`paidToHotel`) → *success*;
+ *   - money still owed (`pending`) → *pending*, dated its due date.
+ */
+function transactionsFrom(
+  bookings: Booking[],
+  guestName: Map<string, string>,
+): PaymentTransaction[] {
+  const txns: PaymentTransaction[] = [];
+
+  for (const b of bookings) {
+    const seed = PAYMENT_SEED[b.id];
+    if (!seed) continue;
+
+    const collected = b.collection.paidToHotel + b.collection.otaCollection;
+    const isVoid = VOID_STAY_STATUSES.has(b.status);
+    const [amount, status]: [number, TransactionStatus] = isVoid
+      ? [-collected, "refunded"]
+      : b.collection.otaCollection > 0
+        ? [b.collection.otaCollection, "pending"]
+        : b.collection.paidToHotel > 0
+          ? [b.collection.paidToHotel, "success"]
+          : [b.collection.pending, "pending"];
+
+    if (amount === 0) continue;
+
+    txns.push({
+      id: `${b.id}-${status}`,
+      bookingId: b.id,
+      guestName: guestName.get(b.guestId) ?? "—",
+      method: seed.method,
+      at: seed.at,
+      amount,
+      status,
+    });
+  }
+
+  return txns.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+}
+
+/** "9:42 am" for a movement today, "Yesterday", else "20 Jul". */
+function transactionTime(at: string, today: string): string {
+  const when = new Date(at);
+  const day = at.slice(0, 10);
+
+  if (day === today) {
+    return when
+      .toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })
+      .toLowerCase();
+  }
+  const dayBefore = new Date(`${today}T00:00:00Z`);
+  dayBefore.setUTCDate(dayBefore.getUTCDate() - 1);
+  if (day === dayBefore.toISOString().slice(0, 10)) return "Yesterday";
+
+  return when.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    timeZone: "Asia/Kolkata",
+  });
+}
+
+/** Signed for display: money out reads "−₹3,000", money in "+₹5,040". */
+function signedAmount(amount: number): string {
+  return `${amount < 0 ? "−" : "+"}${formatINR(Math.abs(amount))}`;
+}
+
+/**
+ * What each OTA channel is holding, derived from the bookings it sold. The
+ * commission *rate* falls out of the money (`otaCommission / otaCollection`)
+ * rather than being seeded beside it, so a channel's percentage can never
+ * contradict the rupees it sits next to.
+ *
+ * `amount` is gross — what the channel took from the guest, before it keeps its
+ * cut — which is the same figure the Bookings screen calls OTA receivables, and
+ * what the monthly rollup then nets the commission out of.
+ */
+function otaSettlements(bookings: Booking[]): OtaSettlement[] {
+  const byChannel = new Map<BookingSource, { count: number; amount: number; commission: number }>();
+
+  for (const b of bookings) {
+    if (!isOtaSource(b.source) || VOID_STAY_STATUSES.has(b.status)) continue;
+    if (b.collection.otaCollection === 0) continue;
+
+    const acc = byChannel.get(b.source) ?? { count: 0, amount: 0, commission: 0 };
+    acc.count += 1;
+    acc.amount += b.collection.otaCollection;
+    acc.commission += b.collection.otaCommission;
+    byChannel.set(b.source, acc);
+  }
+
+  return [...byChannel.entries()]
+    .map(([source, acc]) => ({
+      source,
+      name: OTA_CHANNELS[source].name,
+      abbr: OTA_CHANNELS[source].abbr,
+      count: acc.count,
+      commissionPct: Math.round((acc.commission / acc.amount) * 100),
+      amount: acc.amount,
+    }))
+    .sort((a, b) => b.amount - a.amount);
+}
+
+/**
+ * The month's takings, netted. Gross counts what stays actually billed — a
+ * cancelled booking and a no-show earned nothing, so neither belongs in it —
+ * and the OTAs' commission and any refunds come back off.
+ */
+function monthlyRollup(bookings: Booking[], today: string): PaymentsMonthlyRollup {
+  const month = today.slice(0, 7);
+  const inMonth = bookings.filter((b) => b.checkIn.startsWith(month));
+
+  const gross = inMonth
+    .filter((b) => !VOID_STAY_STATUSES.has(b.status))
+    .reduce((sum, b) => sum + b.totalBill, 0);
+  const commission = inMonth.reduce((sum, b) => sum + b.collection.otaCommission, 0);
+  const refunds = inMonth
+    .filter((b) => VOID_STAY_STATUSES.has(b.status))
+    .reduce((sum, b) => sum + b.collection.paidToHotel + b.collection.otaCollection, 0);
+
+  return {
+    label: new Date(`${today}T00:00:00Z`).toLocaleDateString("en-IN", {
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC",
+    }),
+    gross,
+    commission,
+    refunds,
+    net: gross - commission - refunds,
+  };
+}
+
+/**
+ * Everything the admin Payments screen renders. The screen is a view over the
+ * booking set: every rupee on it is derived from `Booking.collection`, so it
+ * cannot disagree with the Bookings screen about what was collected, what an
+ * OTA owes, or what a guest still has to pay.
+ *
+ * `today` anchors the "collected today" KPI and the rollup's month; it defaults
+ * to the design's display date so the screen reads as designed. A real DB swap
+ * turns these into aggregate queries behind the same signature.
+ */
+export async function getPaymentsPageData(today = "2026-07-14"): Promise<PaymentsPageData> {
+  const guestName = new Map(GUESTS.map((g) => [g.id, g.name]));
+  const txns = transactionsFrom(BOOKINGS, guestName);
+
+  const collectedToday = txns.filter((t) => t.status === "success" && t.at.startsWith(today));
+  const razorpaySettled = txns.filter(
+    (t) => t.status === "success" && RAZORPAY_METHODS.has(t.method),
+  );
+  const ota = otaSettlements(BOOKINGS);
+  const pendingFromGuests = txns.filter((t) => t.status === "pending" && t.method !== "ota");
+
+  const sum = (list: PaymentTransaction[]) => list.reduce((total, t) => total + t.amount, 0);
+  const otaTotal = ota.reduce((total, o) => total + o.amount, 0);
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+  const kpis: PaymentsKpi[] = [
+    {
+      key: "collectedToday",
+      label: "Collected · today",
+      value: formatINR(sum(collectedToday)),
+      note: plural(collectedToday.length, "transaction"),
+    },
+    {
+      key: "razorpaySettled",
+      label: "Razorpay · settled",
+      value: formatINR(sum(razorpaySettled)),
+      note: "to bank T+2",
+    },
+    {
+      key: "otaReceivables",
+      label: "OTA receivables",
+      value: formatINR(otaTotal),
+      note: `${plural(ota.length, "channel")} pending`,
+    },
+    {
+      key: "pendingFromGuests",
+      label: "Pending from guests",
+      value: formatINR(sum(pendingFromGuests)),
+      note: plural(pendingFromGuests.length, "booking"),
+    },
+  ];
+
+  const transactions: PaymentsTxnItem[] = txns.map((txn) => ({
+    txn,
+    methodLabel: METHOD_LABEL[txn.method],
+    amount: signedAmount(txn.amount),
+    time: transactionTime(txn.at, today),
+    statusLabel: TRANSACTION_STATUS_LABEL[txn.status],
+  }));
+
+  return {
+    today,
+    subtitle: `${longDate(today)} · Razorpay + OTA settlements`,
+    kpis,
+    transactions,
+    ota,
+    rollup: monthlyRollup(BOOKINGS, today),
   };
 }
