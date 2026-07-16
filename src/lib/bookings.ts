@@ -8,8 +8,11 @@ import type {
   Booking,
   BookingsPageData,
   BookingStatus,
+  CalendarCell,
+  CalendarPageData,
   DashboardData,
   Guest,
+  OccupancyBand,
   PartyHallEnquiry,
   RoomFloor,
   RoomsLegendItem,
@@ -924,3 +927,123 @@ const SLOT_LABEL: Record<PartyHallEnquiry["slot"], string> = {
   evening: "Evening",
   full_day: "Full day",
 };
+
+// ── Calendar screen ────────────────────────────────────────────────────────
+
+const CALENDAR_WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+const BAND_LABEL: Record<OccupancyBand, string> = {
+  low: "Low (<40%)",
+  medium: "Medium",
+  high: "High (>70%)",
+  full: "Full",
+};
+
+/** Legend order — matches the design's swatch row. */
+const BAND_ORDER: OccupancyBand[] = ["low", "medium", "high", "full"];
+
+/**
+ * Occupied-room count per day of July 2026, mirroring `Admin Calendar.dc.html`.
+ *
+ * As with the rooms floor board, the booking seed is too small to paint a
+ * plausible month, so the display month is seeded; every other month derives
+ * from the live booking set via `occupiedRoomsOn`. The design fixes *percents*,
+ * but they are all exactly `round(n / 14 * 100)` for a whole n, so we seed n and
+ * derive the percent back — that keeps the "% + n/14" pair honest by construction.
+ */
+const JULY_2026_OCCUPANCY: Record<number, number> = {
+  1: 5, 2: 6, 3: 7, 4: 10, 5: 9, 6: 7, 7: 6, 8: 8, 9: 9, 10: 11,
+  11: 12, 12: 10, 13: 9, 14: 9, 15: 7, 16: 8, 17: 10, 18: 11, 19: 13, 20: 12,
+  21: 9, 22: 10, 23: 11, 24: 12, 25: 14, 26: 14, 27: 12, 28: 10, 29: 9, 30: 11,
+  31: 10,
+};
+
+/**
+ * Party-hall events by ISO date, seeded for the July display month per the
+ * design. Merged with the live enquiry set below so other months stay truthful.
+ */
+const CALENDAR_EVENT_SEED: Record<string, string> = {
+  "2026-07-12": "Birthday · 55 pax",
+  "2026-07-22": "Reception · 140 pax",
+  "2026-07-30": "Wedding · 150 pax",
+};
+
+/** Occupancy percent → shading band. Thresholds mirror the legend. */
+export function occupancyBand(pct: number): OccupancyBand {
+  if (pct >= 100) return "full";
+  if (pct >= 70) return "high";
+  if (pct >= 40) return "medium";
+  return "low";
+}
+
+/** Party-hall events for a month: design seed first, then live enquiries. */
+function eventsForMonth(year: number, month: number): Map<string, string> {
+  const prefix = `${year}-${String(month).padStart(2, "0")}`;
+  const events = new Map<string, string>();
+
+  for (const e of PARTY_HALL_ENQUIRIES) {
+    if (e.status === "cancelled" || !e.date.startsWith(prefix)) continue;
+    events.set(e.date, `${e.title} · ${e.guests} pax`);
+  }
+  // Seed wins — it is what the design shows for the July display month.
+  for (const [date, label] of Object.entries(CALENDAR_EVENT_SEED)) {
+    if (date.startsWith(prefix)) events.set(date, label);
+  }
+  return events;
+}
+
+/**
+ * The month grid the admin Calendar screen renders. Blanks pad the grid to whole
+ * weeks so the first falls on its real weekday and the last row squares off.
+ * A real DB swap turns the occupancy seed into a per-date aggregate query.
+ */
+export async function getCalendarPageData(
+  year = 2026,
+  month = 7,
+): Promise<CalendarPageData> {
+  const total = ROOM_NUMBERS.length;
+  const isDisplayMonth = year === 2026 && month === 7;
+  const events = eventsForMonth(year, month);
+
+  // UTC throughout: local-time dates shift the weekday offset west of GMT.
+  const firstOfMonth = new Date(Date.UTC(year, month - 1, 1));
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const leadingBlanks = firstOfMonth.getUTCDay();
+
+  const cells: CalendarCell[] = [];
+  for (let i = 0; i < leadingBlanks; i++) cells.push({ kind: "blank" });
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const occupied = isDisplayMonth
+      ? JULY_2026_OCCUPANCY[day]
+      : occupiedRoomsOn(date).size;
+    const pct = Math.round((occupied / total) * 100);
+    cells.push({
+      kind: "day",
+      date,
+      day,
+      occupied,
+      total,
+      pct,
+      band: occupancyBand(pct),
+      event: events.get(date) ?? null,
+    });
+  }
+
+  while (cells.length % 7 !== 0) cells.push({ kind: "blank" });
+
+  return {
+    year,
+    month,
+    monthLabel: firstOfMonth.toLocaleDateString("en-IN", {
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC",
+    }),
+    weekdays: CALENDAR_WEEKDAYS,
+    cells,
+    legend: BAND_ORDER.map((band) => ({ band, label: BAND_LABEL[band] })),
+    totalRooms: total,
+  };
+}

@@ -312,3 +312,55 @@ export interface RoomsPageData {
   floors: RoomFloor[];
   partyHall: RoomsPartyHall;
 }
+
+// ── Admin calendar (PR #6) ───────────────────────────────────────────────
+// The calendar renders a month grid whose day cells are shaded by room
+// occupancy, with party-hall events flagged on their day. Percentages and
+// the shading band are derived from the occupied-room count so the "% +
+// n/14" pair can never disagree.
+
+/** Occupancy shading band. Thresholds mirror the legend: <40 / 40–69 / 70–99 / 100. */
+export type OccupancyBand = "low" | "medium" | "high" | "full";
+
+/** A legend entry naming one band of the shading ramp. */
+export interface CalendarLegendItem {
+  band: OccupancyBand;
+  label: string;
+}
+
+/** One dated day cell in the month grid. */
+export interface CalendarDay {
+  /** ISO `YYYY-MM-DD`. */
+  date: string;
+  /** Day of month, 1-31. */
+  day: number;
+  /** Rooms held on this date, of `total`. */
+  occupied: number;
+  total: number;
+  /** `occupied / total` as a whole percent — derived, never seeded. */
+  pct: number;
+  band: OccupancyBand;
+  /** Party-hall event headline, e.g. "Reception · 140 pax". */
+  event: string | null;
+}
+
+/**
+ * A grid slot: either a real day or a filler keeping the weekday offset (before
+ * the 1st) and squaring off the final week (after the last).
+ */
+export type CalendarCell = { kind: "blank" } | ({ kind: "day" } & CalendarDay);
+
+export interface CalendarPageData {
+  year: number;
+  /** 1-12. */
+  month: number;
+  /** e.g. "July 2026". */
+  monthLabel: string;
+  /** Column headers, Sunday-first. */
+  weekdays: string[];
+  /** Always a whole number of weeks — blanks pad both ends. */
+  cells: CalendarCell[];
+  legend: CalendarLegendItem[];
+  /** Room inventory the occupancy is measured against (14). */
+  totalRooms: number;
+}
