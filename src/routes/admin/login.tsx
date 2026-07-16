@@ -151,7 +151,7 @@ function LoginPage() {
               aria-label={showPw ? "Hide password" : "Show password"}
               className="absolute right-1.5 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center text-[#a49d8d]"
             >
-              {showPw ? <EyeOff className="size-[17px]" /> : <Eye className="size-[17px]" />}
+              {showPw ? <EyeOff className="size-4.25" /> : <Eye className="size-4.25" />}
             </button>
           </div>
         </div>
@@ -162,7 +162,7 @@ function LoginPage() {
             onClick={() => setRemember((v) => !v)}
             aria-pressed={remember}
             className={cn(
-              "flex size-[18px] shrink-0 items-center justify-center rounded border-[1.5px]",
+              "flex size-4.5 shrink-0 items-center justify-center rounded border-[1.5px]",
               remember ? "border-gold bg-gold" : "border-[#c3bcae] bg-white",
             )}
           >

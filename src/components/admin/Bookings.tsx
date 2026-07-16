@@ -104,14 +104,14 @@ function SummaryCards({ summary }: { summary: BookingsPageData["summary"] }) {
         return (
           <div
             key={s.key}
-            className="rounded-lg border border-[#eae4d6] bg-white px-[15px] py-[13px]"
+            className="rounded-lg border border-[#eae4d6] bg-white px-3.75 py-3.25"
             style={{ borderLeft: `3px solid ${accent.bar}` }}
           >
             <div className="text-[10px] font-bold uppercase leading-[1.3] tracking-[0.08em] text-[#7a746a]">
               {s.label}
             </div>
             <div
-              className="mt-[7px] font-display text-[23px] font-semibold"
+              className="mt-1.75 font-display text-[23px] font-semibold"
               style={accent.ink ? { color: accent.ink } : undefined}
             >
               {s.value}
@@ -149,7 +149,7 @@ function StatusTabs({
   ];
 
   return (
-    <div className="flex flex-wrap items-center gap-[7px]">
+    <div className="flex flex-wrap items-center gap-1.75">
       {tabs.map((t) => {
         const on = t.key === active;
         return (
@@ -158,13 +158,13 @@ function StatusTabs({
             type="button"
             onClick={() => onSelect(t.key)}
             className={cn(
-              "flex items-center gap-[7px] rounded-full border px-[13px] py-[6px] text-[12px] font-semibold transition-colors",
+              "flex items-center gap-1.75 rounded-full border px-3.25 py-1.5 text-[12px] font-semibold transition-colors",
               on
                 ? "border-obsidian bg-obsidian text-ivory"
                 : "border-[#eae4d6] bg-white text-warm-gray hover:border-[#d8d0bf]",
             )}
           >
-            {t.dot && <span className="size-[7px] rounded-full" style={{ background: t.dot }} />}
+            {t.dot && <span className="size-1.75 rounded-full" style={{ background: t.dot }} />}
             {t.label}
             <span className="text-[11px] font-bold opacity-75">{t.count}</span>
           </button>
@@ -177,9 +177,9 @@ function StatusTabs({
 // ── Table ─────────────────────────────────────────────────────────────────
 
 const bandHead =
-  "h-auto whitespace-nowrap px-[14px] py-[9px] text-left align-middle text-[10px] font-bold uppercase tracking-[0.14em] text-gold-soft";
+  "h-auto whitespace-nowrap px-3.5 py-2.25 text-left align-middle text-[10px] font-bold uppercase tracking-[0.14em] text-gold-soft";
 const colHead =
-  "h-auto whitespace-nowrap px-2 py-[10px] align-middle text-[10px] font-bold uppercase tracking-[0.05em] text-[#a49d8d]";
+  "h-auto whitespace-nowrap px-2 py-2.5 align-middle text-[10px] font-bold uppercase tracking-[0.05em] text-[#a49d8d]";
 const cell = "whitespace-nowrap px-2 py-3 align-middle text-[12px]";
 const num = "text-right tabular-nums";
 
@@ -187,10 +187,10 @@ function StatusBadge({ status }: { status: BookingStatus }) {
   const { label, color, bg } = STATUS_META[status];
   return (
     <span
-      className="inline-flex items-center gap-[6px] whitespace-nowrap rounded-full px-[9px] py-[3px] text-[10.5px] font-bold tracking-[0.02em]"
+      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.25 py-0.75 text-[10.5px] font-bold tracking-[0.02em]"
       style={{ background: bg, color }}
     >
-      <span className="size-[6px] rounded-full" style={{ background: color }} />
+      <span className="size-1.5 rounded-full" style={{ background: color }} />
       {label}
     </span>
   );
@@ -253,7 +253,7 @@ function TotalsRow({ totals }: { totals: BookingsTotals }) {
     <TableRow className="border-t-2 border-[#eae4d6] bg-[#faf7ef] hover:bg-[#faf7ef]">
       <TableCell
         colSpan={10}
-        className="whitespace-nowrap px-2 py-[13px] text-[10.5px] font-bold uppercase tracking-[0.06em] text-[#7a746a]"
+        className="whitespace-nowrap px-2 py-3.25 text-[10.5px] font-bold uppercase tracking-[0.06em] text-[#7a746a]"
       >
         Period totals
       </TableCell>
@@ -289,7 +289,7 @@ function TotalsRow({ totals }: { totals: BookingsTotals }) {
 function BookingsTable({ rows, totals }: { rows: BookingListItem[]; totals: BookingsTotals }) {
   return (
     <div className="overflow-hidden rounded-lg border border-[#eae4d6] bg-white">
-      <Table className="min-w-[1720px] border-separate border-spacing-0">
+      <Table className="min-w-430 border-separate border-spacing-0">
         <TableHeader>
           {/* group band */}
           <TableRow className="border-0 bg-obsidian hover:bg-obsidian">
@@ -393,7 +393,7 @@ export function Bookings({ data }: { data: BookingsPageData }) {
   });
 
   return (
-    <div className="flex flex-col gap-[18px] p-4 sm:p-[26px]">
+    <div className="flex flex-col gap-4.5 p-4 sm:p-6.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-[12px] tracking-[0.01em] text-[#7a746a]">
           {dateLine} · {data.total} reservations this period

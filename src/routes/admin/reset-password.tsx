@@ -126,7 +126,7 @@ function ResetPasswordPage() {
               aria-label={showPw ? "Hide password" : "Show password"}
               className="absolute right-1.5 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center text-[#a49d8d]"
             >
-              {showPw ? <EyeOff className="size-[17px]" /> : <Eye className="size-[17px]" />}
+              {showPw ? <EyeOff className="size-4.25" /> : <Eye className="size-4.25" />}
             </button>
           </div>
           <div className="mt-2.5 flex gap-1.5">

@@ -57,15 +57,15 @@ function availabilityLine(card: RoomTypeCard): { text: string; color: string } {
 function TypeCard({ card }: { card: RoomTypeCard }) {
   const avail = availabilityLine(card);
   return (
-    <div className="flex items-center gap-[18px] rounded-lg border border-[#eae4d6] bg-white px-5 py-[18px]">
+    <div className="flex items-center gap-4.5 rounded-lg border border-[#eae4d6] bg-white px-5 py-4.5">
       <img
         src={TYPE_IMAGE[card.type]}
         alt=""
-        className="size-[78px] flex-none rounded-md object-cover"
+        className="size-19.5 flex-none rounded-md object-cover"
       />
       <div className="flex-1">
         <div className="font-display text-[19px] font-semibold">{card.name}</div>
-        <div className="mt-[3px] text-[12px] text-[#7a746a]">
+        <div className="mt-0.75 text-[12px] text-[#7a746a]">
           {card.count} rooms · {card.areaSqm} m² ·{" "}
           <b style={{ color: avail.color }}>{avail.text}</b>
         </div>
@@ -90,11 +90,11 @@ function TypeCard({ card }: { card: RoomTypeCard }) {
 
 function Legend({ items }: { items: RoomsLegendItem[] }) {
   return (
-    <div className="flex flex-wrap items-center gap-[18px]">
+    <div className="flex flex-wrap items-center gap-4.5">
       {items.map((l) => (
-        <div key={l.status} className="flex items-center gap-[7px] text-[12px] text-warm-gray">
+        <div key={l.status} className="flex items-center gap-1.75 text-[12px] text-warm-gray">
           <span
-            className="size-[11px] rounded-[3px]"
+            className="size-2.75 rounded-[3px]"
             style={{ background: STATUS_COLOR[l.status] }}
           />
           {l.label} <b className="font-bold">{l.count}</b>
@@ -111,20 +111,20 @@ function RoomTileCard({ room }: { room: RoomTile }) {
   return (
     <button
       type="button"
-      className="relative overflow-hidden rounded-lg border border-[#eae4d6] bg-white px-[14px] py-[13px] text-left transition-shadow hover:border-[#c9bd98] hover:shadow-[0_6px_16px_-10px_rgba(10,10,10,0.3)]"
+      className="relative overflow-hidden rounded-lg border border-[#eae4d6] bg-white px-3.5 py-3.25 text-left transition-shadow hover:border-[#c9bd98] hover:shadow-[0_6px_16px_-10px_rgba(10,10,10,0.3)]"
     >
       <span className="absolute inset-y-0 left-0 w-1" style={{ background: color }} />
       <div className="flex items-center justify-between">
         <span className="font-display text-[20px] font-semibold">{room.no}</span>
         <span className="size-2 rounded-full" style={{ background: color }} />
       </div>
-      <div className="mt-[3px] text-[10px] uppercase tracking-[0.06em] text-[#a49d8d]">
+      <div className="mt-0.75 text-[10px] uppercase tracking-[0.06em] text-[#a49d8d]">
         {TYPE_SHORT[room.type]}
       </div>
-      <div className="mt-[5px] text-[11px] font-semibold" style={{ color }}>
+      <div className="mt-1.25 text-[11px] font-semibold" style={{ color }}>
         {STATUS_LABEL[room.status]}
       </div>
-      <div className="mt-[2px] text-[11px] text-[#a49d8d]">{room.detail}</div>
+      <div className="mt-0.5 text-[11px] text-[#a49d8d]">{room.detail}</div>
     </button>
   );
 }
@@ -157,9 +157,9 @@ function PartyHallCard({ hall }: { hall: RoomsPartyHall }) {
         <img
           src={partyHallImg}
           alt=""
-          className="h-[74px] w-[110px] flex-none rounded-md object-cover"
+          className="h-18.5 w-27.5 flex-none rounded-md object-cover"
         />
-        <div className="min-w-[180px] flex-1">
+        <div className="min-w-45 flex-1">
           <div className="font-display text-[20px] font-semibold text-gold-soft">Party Hall</div>
           <div className="mt-1 text-[12px] text-[#c9c3b6]">
             Up to 150 guests · tailored pricing · slots: morning / afternoon / evening / full day
@@ -167,7 +167,7 @@ function PartyHallCard({ hall }: { hall: RoomsPartyHall }) {
         </div>
         <div className="text-right">
           <div className="text-[11px] font-semibold text-[#f0c96a]">Next: {hall.nextLabel}</div>
-          <div className="mt-[3px] text-[11px] text-[#8a8479]">{hall.availability}</div>
+          <div className="mt-0.75 text-[11px] text-[#8a8479]">{hall.availability}</div>
         </div>
       </div>
     </div>
@@ -178,7 +178,7 @@ function PartyHallCard({ hall }: { hall: RoomsPartyHall }) {
 
 export function Rooms({ data }: { data: RoomsPageData }) {
   return (
-    <div className="flex flex-col gap-[22px] p-4 sm:p-[26px]">
+    <div className="flex flex-col gap-5.5 p-4 sm:p-6.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-[12px] tracking-[0.01em] text-[#7a746a]">{data.summaryLine}</p>
         <button
@@ -190,7 +190,7 @@ export function Rooms({ data }: { data: RoomsPageData }) {
         </button>
       </div>
 
-      <div className="grid gap-[18px] lg:grid-cols-2">
+      <div className="grid gap-4.5 lg:grid-cols-2">
         {data.typeCards.map((card) => (
           <TypeCard key={card.type} card={card} />
         ))}
