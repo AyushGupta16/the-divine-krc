@@ -1,13 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { getRoomTypes } from "@/lib/bookings";
-import { RoutePlaceholder } from "@/components/booking/RoutePlaceholder";
+import { getRoomsPageData } from "@/lib/bookings";
+import { Rooms } from "@/components/admin/Rooms";
 
 export const Route = createFileRoute("/admin/rooms")({
-  loader: async () => ({ roomTypes: await getRoomTypes() }),
+  loader: async () => ({ rooms: await getRoomsPageData() }),
   component: AdminRooms,
 });
 
 function AdminRooms() {
-  const { roomTypes } = Route.useLoaderData();
-  return <RoutePlaceholder title="Room Management" count={roomTypes.length} />;
+  const { rooms } = Route.useLoaderData();
+  return <Rooms data={rooms} />;
 }

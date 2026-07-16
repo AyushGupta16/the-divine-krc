@@ -11,7 +11,13 @@ import type {
   DashboardData,
   Guest,
   PartyHallEnquiry,
+  RoomFloor,
+  RoomsLegendItem,
+  RoomsPageData,
+  RoomStatus,
+  RoomTile,
   RoomType,
+  RoomTypeCard,
 } from "@/types/booking";
 import {
   computeTotalBill,
@@ -45,23 +51,36 @@ export const ROOM_TYPES: RoomTypeInfo[] = [
   },
 ];
 
-/** All 14 physical room numbers across the two floors. */
-export const ROOM_NUMBERS: string[] = [
-  "101",
-  "102",
-  "103",
-  "104",
-  "105",
-  "106",
-  "107",
-  "201",
-  "202",
-  "203",
-  "204",
-  "205",
-  "206",
-  "207",
+/** A physical room: number, floor, and type. Source of truth for inventory. */
+export interface RoomUnit {
+  no: string;
+  floor: 1 | 2;
+  type: RoomType;
+}
+
+/**
+ * The 14 physical rooms. Each floor is 5 Deluxe + 2 Balcony (spec 05); the two
+ * balcony rooms sit at the end of each corridor (x06, x07).
+ */
+export const ROOM_UNITS: RoomUnit[] = [
+  { no: "101", floor: 1, type: "deluxe" },
+  { no: "102", floor: 1, type: "deluxe" },
+  { no: "103", floor: 1, type: "deluxe" },
+  { no: "104", floor: 1, type: "deluxe" },
+  { no: "105", floor: 1, type: "deluxe" },
+  { no: "106", floor: 1, type: "deluxe_balcony" },
+  { no: "107", floor: 1, type: "deluxe_balcony" },
+  { no: "201", floor: 2, type: "deluxe" },
+  { no: "202", floor: 2, type: "deluxe" },
+  { no: "203", floor: 2, type: "deluxe" },
+  { no: "204", floor: 2, type: "deluxe" },
+  { no: "205", floor: 2, type: "deluxe" },
+  { no: "206", floor: 2, type: "deluxe_balcony" },
+  { no: "207", floor: 2, type: "deluxe_balcony" },
 ];
+
+/** All 14 physical room numbers across the two floors. */
+export const ROOM_NUMBERS: string[] = ROOM_UNITS.map((r) => r.no);
 
 const GUESTS: Guest[] = [
   {
@@ -786,3 +805,122 @@ export async function getBookingsPageData(
 
   return { today, total: BOOKINGS.length, summary, countsByStatus, rows, totals };
 }
+
+// ── Rooms screen ───────────────────────────────────────────────────────────
+
+const ROOM_STATUS_LABEL: Record<RoomStatus, string> = {
+  occupied: "Occupied",
+  available: "Available",
+  cleaning: "Cleaning",
+  maintenance: "Maintenance",
+};
+
+/** Legend order — matches the design's swatch row. */
+const ROOM_STATUS_ORDER: RoomStatus[] = [
+  "occupied",
+  "available",
+  "cleaning",
+  "maintenance",
+];
+
+/**
+ * Per-room state overriding the default "available". The booking seed uses
+ * historical/illustrative room numbers that don't map onto the live 14-room
+ * inventory, so — as with the dashboard's activity feed — the floor board is
+ * seeded to mirror `Admin Room Management.dc.html`; the legend and type-card
+ * availability are then *derived* from these tiles so the counts stay honest.
+ */
+const ROOM_STATE_SEED: Record<string, { status: RoomStatus; detail: string }> = {
+  "101": { status: "occupied", detail: "Rao · out 15 Jul" },
+  "102": { status: "occupied", detail: "Verma · out 18 Jul" },
+  "104": { status: "occupied", detail: "Joseph · out 16 Jul" },
+  "105": { status: "maintenance", detail: "AC repair" },
+  "106": { status: "occupied", detail: "Khan · out 15 Jul" },
+  "107": { status: "occupied", detail: "Thomas · out 16 Jul" },
+  "201": { status: "occupied", detail: "Nair · out 15 Jul" },
+  "202": { status: "occupied", detail: "Sharma · out 15 Jul" },
+  "204": { status: "occupied", detail: "Das · out 16 Jul" },
+  "205": { status: "cleaning", detail: "Turnover" },
+  "206": { status: "occupied", detail: "Reddy · out 17 Jul" },
+};
+
+function buildRoomTile(unit: RoomUnit): RoomTile {
+  const seed = ROOM_STATE_SEED[unit.no];
+  return {
+    no: unit.no,
+    type: unit.type,
+    floor: unit.floor,
+    status: seed?.status ?? "available",
+    detail: seed?.detail ?? "Ready",
+  };
+}
+
+/**
+ * Everything the admin Rooms screen renders. Tile statuses are seeded to mirror
+ * the design; the legend counts and each type card's availability are derived
+ * from the tiles so they can never drift out of sync. A real DB swap turns the
+ * seed into a per-room status query behind the same signature.
+ */
+export async function getRoomsPageData(): Promise<RoomsPageData> {
+  const tiles = ROOM_UNITS.map(buildRoomTile);
+
+  const countByStatus = tiles.reduce(
+    (acc, t) => {
+      acc[t.status] += 1;
+      return acc;
+    },
+    { occupied: 0, available: 0, cleaning: 0, maintenance: 0 } as Record<
+      RoomStatus,
+      number
+    >,
+  );
+
+  const typeCards: RoomTypeCard[] = ROOM_TYPES.map((rt) => ({
+    type: rt.type,
+    name: rt.name,
+    count: rt.count,
+    areaSqm: rt.areaSqm,
+    pricePerNight: rt.pricePerNight,
+    available: tiles.filter(
+      (t) => t.type === rt.type && t.status === "available",
+    ).length,
+  }));
+
+  const legend: RoomsLegendItem[] = ROOM_STATUS_ORDER.map((status) => ({
+    status,
+    label: ROOM_STATUS_LABEL[status],
+    count: countByStatus[status],
+  }));
+
+  const floors: RoomFloor[] = ([2, 1] as const).map((floor) => ({
+    floor,
+    label: `${floor === 2 ? "Second" : "First"} floor · 5 Deluxe + 2 Balcony`,
+    rooms: tiles.filter((t) => t.floor === floor),
+  }));
+
+  // Next party-hall booking = soonest upcoming event by date.
+  const nextEvent = [...PARTY_HALL_ENQUIRIES]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .find((e) => e.status !== "cancelled");
+  const partyHall = {
+    nextLabel: nextEvent
+      ? `${new Date(nextEvent.date).toLocaleDateString("en-IN", {
+          day: "numeric",
+          month: "short",
+        })} · ${SLOT_LABEL[nextEvent.slot]}`
+      : "No events booked",
+    availability: "Available 14–21 Jul",
+  };
+
+  const summaryLine = `${tiles.length} rooms · ${countByStatus.occupied} occupied · ${countByStatus.available} available tonight · 1 party hall`;
+
+  return { summaryLine, typeCards, legend, floors, partyHall };
+}
+
+/** Party-hall slot → display label. */
+const SLOT_LABEL: Record<PartyHallEnquiry["slot"], string> = {
+  morning: "Morning",
+  afternoon: "Afternoon",
+  evening: "Evening",
+  full_day: "Full day",
+};

@@ -251,3 +251,64 @@ export interface BookingsPageData {
   rows: BookingListItem[];
   totals: BookingsTotals;
 }
+
+// ── Admin rooms (PR #5) ──────────────────────────────────────────────────
+// The room-management screen renders two type cards, a status legend and
+// floor boards of tiles, plus the ground-floor party-hall card. Legend and
+// type-card availability are derived from the tile set so the counts stay
+// internally consistent.
+
+/** Operational state of a physical room; colored per the design tokens. */
+export type RoomStatus = "occupied" | "available" | "cleaning" | "maintenance";
+
+/** One physical room on a floor board. */
+export interface RoomTile {
+  no: string;
+  type: RoomType;
+  floor: 1 | 2;
+  status: RoomStatus;
+  /** Occupant + checkout for occupied rooms, else a short state note. */
+  detail: string;
+}
+
+/** A room-type summary card (photo, count, availability, editable rate). */
+export interface RoomTypeCard {
+  type: RoomType;
+  name: string;
+  count: number;
+  areaSqm: number;
+  pricePerNight: number;
+  /** Rooms of this type currently free — derived from the tiles. */
+  available: number;
+}
+
+/** A colored legend entry with its live count. */
+export interface RoomsLegendItem {
+  status: RoomStatus;
+  label: string;
+  count: number;
+}
+
+/** One floor board: a heading and its tiles left-to-right. */
+export interface RoomFloor {
+  floor: 1 | 2;
+  label: string;
+  rooms: RoomTile[];
+}
+
+/** Ground-floor party-hall card summary. */
+export interface RoomsPartyHall {
+  /** Next event line, e.g. "1 Aug · Evening". */
+  nextLabel: string;
+  /** Free-text availability window, e.g. "Available 14–21 Jul". */
+  availability: string;
+}
+
+export interface RoomsPageData {
+  /** Sub-title under "Rooms", e.g. "14 rooms · 9 occupied · …". */
+  summaryLine: string;
+  typeCards: RoomTypeCard[];
+  legend: RoomsLegendItem[];
+  floors: RoomFloor[];
+  partyHall: RoomsPartyHall;
+}
