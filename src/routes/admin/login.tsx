@@ -1,10 +1,5 @@
 import { useState } from "react";
-import {
-  createFileRoute,
-  Link,
-  useNavigate,
-  useRouter,
-} from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { Eye, EyeOff, AlertCircle, Check } from "lucide-react";
 import { z } from "zod";
 import { AuthLayout } from "@/components/admin/AuthLayout";
@@ -22,8 +17,7 @@ export const Route = createFileRoute("/admin/login")({
 
 const inputClass =
   "w-full rounded-[5px] border border-[#e5ddcb] bg-white px-3.5 py-3 text-sm text-obsidian outline-none transition-colors placeholder:text-[#b3aa96] focus:border-gold";
-const labelClass =
-  "block text-[10px] font-semibold uppercase tracking-[0.16em] text-[#7a746a]";
+const labelClass = "block text-[10px] font-semibold uppercase tracking-[0.16em] text-[#7a746a]";
 const goldButtonClass =
   "w-full cursor-pointer rounded-[5px] bg-gold px-4 py-3.5 text-[11px] font-bold uppercase tracking-[0.2em] text-obsidian transition-opacity hover:opacity-90 disabled:opacity-60";
 
@@ -82,9 +76,7 @@ function LoginPage() {
             { n: "₹ INR", l: "Live revenue" },
           ].map((s) => (
             <div key={s.l}>
-              <div className="font-display text-[22px] text-gold-soft">
-                {s.n}
-              </div>
+              <div className="font-display text-[22px] text-gold-soft">{s.n}</div>
               <div className="mt-0.5 text-[10.5px] uppercase tracking-[0.14em] text-[#8a8479]">
                 {s.l}
               </div>
@@ -93,19 +85,13 @@ function LoginPage() {
         </div>
       }
     >
-      <h2 className="mb-1.5 font-display text-[26px] font-semibold">
-        Welcome back
-      </h2>
-      <p className="mb-7 text-[13px] text-[#7a746a]">
-        Sign in to the admin console.
-      </p>
+      <h2 className="mb-1.5 font-display text-[26px] font-semibold">Welcome back</h2>
+      <p className="mb-7 text-[13px] text-[#7a746a]">Sign in to the admin console.</p>
 
       {error && (
         <div className="mb-4.5 flex items-center gap-2.5 rounded-md border border-[#e6cbc2] bg-[#f7e6e0] px-3.5 py-2.5">
           <AlertCircle className="size-4 shrink-0 text-[#b4553f]" />
-          <span className="text-[12.5px] font-medium text-[#b4553f]">
-            {error}
-          </span>
+          <span className="text-[12.5px] font-medium text-[#b4553f]">{error}</span>
         </div>
       )}
 
@@ -165,11 +151,7 @@ function LoginPage() {
               aria-label={showPw ? "Hide password" : "Show password"}
               className="absolute right-1.5 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center text-[#a49d8d]"
             >
-              {showPw ? (
-                <EyeOff className="size-[17px]" />
-              ) : (
-                <Eye className="size-[17px]" />
-              )}
+              {showPw ? <EyeOff className="size-[17px]" /> : <Eye className="size-[17px]" />}
             </button>
           </div>
         </div>

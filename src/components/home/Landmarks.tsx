@@ -29,9 +29,8 @@ export function Landmarks() {
           </Reveal>
           <Reveal delay={120} className="md:col-span-7">
             <p className="text-warm-gray text-base leading-relaxed max-w-xl">
-              Stay steps from Greater Noida's business, academic, and cultural
-              landmarks — and minutes from the metro that connects you to the
-              rest of the NCR.
+              Stay steps from Greater Noida's business, academic, and cultural landmarks — and
+              minutes from the metro that connects you to the rest of the NCR.
             </p>
           </Reveal>
         </div>
@@ -41,7 +40,9 @@ export function Landmarks() {
             <Reveal key={p.t} delay={i * 50} className="bg-ivory">
               <div className="p-8 h-full hover:bg-white transition-colors flex flex-col justify-between gap-8 group">
                 <div className="flex items-start justify-between">
-                  <span className="font-display text-gold/40 text-2xl">{String(i + 1).padStart(2, "0")}</span>
+                  <span className="font-display text-gold/40 text-2xl">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
                   <span className="text-gold text-lg">✦</span>
                 </div>
                 <div>

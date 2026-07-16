@@ -3,10 +3,7 @@ import { Reveal } from "./Reveal";
 
 export function Dining() {
   return (
-    <section
-      id="dining"
-      className="bg-obsidian text-ivory px-6 md:px-10 py-24 md:py-32"
-    >
+    <section id="dining" className="bg-obsidian text-ivory px-6 md:px-10 py-24 md:py-32">
       <div className="mx-auto max-w-7xl grid md:grid-cols-12 gap-12 md:gap-16 items-center">
         <Reveal className="md:col-span-7">
           <div className="relative">
@@ -42,14 +39,18 @@ export function Dining() {
           </Reveal>
           <Reveal delay={160}>
             <p className="text-ivory/70 text-base leading-relaxed">
-              From regional Indian classics to global comfort, our in-house
-              kitchen is led by a chef devoted to seasonal produce, attentive
-              service, and unhurried meals. Breakfast on us when you book direct.
+              From regional Indian classics to global comfort, our in-house kitchen is led by a chef
+              devoted to seasonal produce, attentive service, and unhurried meals. Breakfast on us
+              when you book direct.
             </p>
           </Reveal>
           <Reveal delay={240}>
             <ul className="space-y-3 pt-2">
-              {["Live breakfast bar · 7am – 10:30am", "All-day à la carte menu", "Private dining for up to 14"].map((x) => (
+              {[
+                "Live breakfast bar · 7am – 10:30am",
+                "All-day à la carte menu",
+                "Private dining for up to 14",
+              ].map((x) => (
                 <li key={x} className="flex items-start gap-3 text-sm text-ivory/80">
                   <span className="text-gold mt-1.5 size-1 rounded-full bg-gold shrink-0" />
                   {x}

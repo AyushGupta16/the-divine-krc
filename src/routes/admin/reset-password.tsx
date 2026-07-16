@@ -47,8 +47,7 @@ function ResetPasswordPage() {
   const [busy, setBusy] = useState(false);
 
   const score = useMemo(() => scorePassword(pw), [pw]);
-  const activeColor =
-    score === 0 ? "#7a746a" : METER_PALETTE[Math.min(score - 1, 3)];
+  const activeColor = score === 0 ? "#7a746a" : METER_PALETTE[Math.min(score - 1, 3)];
   const mismatch = pw2.length > 0 && pw !== pw2;
   const canSubmit = pw.length >= 8 && pw === pw2 && !!token;
 
@@ -85,24 +84,18 @@ function ResetPasswordPage() {
       description="Use at least 8 characters with a mix of letters and numbers."
       panelFooter={
         <p className="text-[12px] leading-[1.7] text-[#8a8479]">
-          This reset link is valid for 30 minutes and can be used once. You'll
-          be signed out of other sessions.
+          This reset link is valid for 30 minutes and can be used once. You'll be signed out of
+          other sessions.
         </p>
       }
     >
-      <h2 className="mb-1.5 font-display text-[26px] font-semibold">
-        New password
-      </h2>
-      <p className="mb-6 text-[13px] text-[#7a746a]">
-        Enter and confirm your new password.
-      </p>
+      <h2 className="mb-1.5 font-display text-[26px] font-semibold">New password</h2>
+      <p className="mb-6 text-[13px] text-[#7a746a]">Enter and confirm your new password.</p>
 
       {error && (
         <div className="mb-4.5 flex items-center gap-2.5 rounded-md border border-[#e6cbc2] bg-[#f7e6e0] px-3.5 py-2.5">
           <AlertCircle className="size-4 shrink-0 text-[#b4553f]" />
-          <span className="text-[12.5px] font-medium text-[#b4553f]">
-            {error}
-          </span>
+          <span className="text-[12.5px] font-medium text-[#b4553f]">{error}</span>
         </div>
       )}
 
@@ -133,11 +126,7 @@ function ResetPasswordPage() {
               aria-label={showPw ? "Hide password" : "Show password"}
               className="absolute right-1.5 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center text-[#a49d8d]"
             >
-              {showPw ? (
-                <EyeOff className="size-[17px]" />
-              ) : (
-                <Eye className="size-[17px]" />
-              )}
+              {showPw ? <EyeOff className="size-[17px]" /> : <Eye className="size-[17px]" />}
             </button>
           </div>
           <div className="mt-2.5 flex gap-1.5">
@@ -146,21 +135,13 @@ function ResetPasswordPage() {
                 key={i}
                 className="h-1 flex-1 rounded-[3px]"
                 style={{
-                  background:
-                    i < score
-                      ? METER_PALETTE[Math.min(score - 1, 3)]
-                      : "#e5ddcb",
+                  background: i < score ? METER_PALETTE[Math.min(score - 1, 3)] : "#e5ddcb",
                 }}
               />
             ))}
           </div>
-          <div
-            className="mt-1.5 text-[11px] font-semibold"
-            style={{ color: activeColor }}
-          >
-            {pw.length === 0
-              ? "Enter a password"
-              : `${STRENGTH_LABELS[score]} password`}
+          <div className="mt-1.5 text-[11px] font-semibold" style={{ color: activeColor }}>
+            {pw.length === 0 ? "Enter a password" : `${STRENGTH_LABELS[score]} password`}
           </div>
         </div>
 
@@ -184,11 +165,7 @@ function ResetPasswordPage() {
           )}
         </div>
 
-        <button
-          type="submit"
-          disabled={busy || !canSubmit}
-          className={cn(goldButtonClass, "mt-1")}
-        >
+        <button type="submit" disabled={busy || !canSubmit} className={cn(goldButtonClass, "mt-1")}>
           {busy ? "Updating…" : "Reset password"}
           {canSubmit && !busy && <Check className="ml-1 inline size-3.5" />}
         </button>

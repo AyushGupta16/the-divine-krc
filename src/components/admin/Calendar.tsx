@@ -71,10 +71,7 @@ function Legend({ items }: { items: CalendarLegendItem[] }) {
       {items.map((l) => {
         const swatch = LEGEND_SWATCH[l.band];
         return (
-          <div
-            key={l.band}
-            className="flex items-center gap-[7px] text-[12px] text-[#4a4a4a]"
-          >
+          <div key={l.band} className="flex items-center gap-[7px] text-[12px] text-warm-gray">
             <span
               className="size-[14px] rounded-[3px]"
               style={{
@@ -86,7 +83,7 @@ function Legend({ items }: { items: CalendarLegendItem[] }) {
           </div>
         );
       })}
-      <div className="ml-2 flex items-center gap-[7px] text-[12px] text-[#4a4a4a]">
+      <div className="ml-2 flex items-center gap-[7px] text-[12px] text-warm-gray">
         <span className="relative size-[14px] rounded-[3px] border border-[#d9b8ad] bg-white">
           <span className="absolute right-px top-px size-[5px] rounded-full bg-[#b4553f]" />
         </span>
@@ -108,34 +105,19 @@ function DayCell({ day }: { day: CalendarDay }) {
       style={{ background: t.cell }}
     >
       <div className="flex items-center justify-between">
-        <span
-          className="font-display text-[15px] font-semibold"
-          style={{ color: t.num }}
-        >
+        <span className="font-display text-[15px] font-semibold" style={{ color: t.num }}>
           {day.day}
         </span>
-        <span
-          className="hidden text-[10px] font-bold sm:inline"
-          style={{ color: t.pct }}
-        >
+        <span className="hidden text-[10px] font-bold sm:inline" style={{ color: t.pct }}>
           {day.pct}%
         </span>
       </div>
 
       <div className="mt-2">
-        <div
-          className="h-[5px] overflow-hidden rounded-[4px]"
-          style={{ background: t.track }}
-        >
-          <div
-            className="h-full"
-            style={{ width: `${day.pct}%`, background: t.bar }}
-          />
+        <div className="h-[5px] overflow-hidden rounded-[4px]" style={{ background: t.track }}>
+          <div className="h-full" style={{ width: `${day.pct}%`, background: t.bar }} />
         </div>
-        <div
-          className="mt-[5px] hidden text-[10px] sm:block"
-          style={{ color: t.occText }}
-        >
+        <div className="mt-[5px] hidden text-[10px] sm:block" style={{ color: t.occText }}>
           {day.occupied}/{day.total} rooms
         </div>
       </div>
@@ -166,7 +148,7 @@ function MonthNav({ label }: { label: string }) {
       <button
         type="button"
         aria-label="Previous month"
-        className="flex h-9 w-[34px] items-center justify-center rounded-l-[5px] border border-[#eae4d6] bg-white text-[#4a4a4a] transition-colors hover:bg-black/[0.03]"
+        className="flex h-9 w-[34px] items-center justify-center rounded-l-[5px] border border-[#eae4d6] bg-white text-warm-gray transition-colors hover:bg-black/[0.03]"
       >
         <ChevronLeft className="size-[15px]" strokeWidth={2.2} />
       </button>
@@ -176,7 +158,7 @@ function MonthNav({ label }: { label: string }) {
       <button
         type="button"
         aria-label="Next month"
-        className="flex h-9 w-[34px] items-center justify-center rounded-r-[5px] border border-[#eae4d6] bg-white text-[#4a4a4a] transition-colors hover:bg-black/[0.03]"
+        className="flex h-9 w-[34px] items-center justify-center rounded-r-[5px] border border-[#eae4d6] bg-white text-warm-gray transition-colors hover:bg-black/[0.03]"
       >
         <ChevronRight className="size-[15px]" strokeWidth={2.2} />
       </button>
@@ -221,9 +203,8 @@ export function Calendar({ data }: { data: CalendarPageData }) {
       </div>
 
       <p className="text-[11.5px] text-[#a49d8d]">
-        Room occupancy shaded per day (of {data.totalRooms} rooms). Party-hall
-        events flagged in terracotta. Click a day to see arrivals, departures
-        &amp; in-house.
+        Room occupancy shaded per day (of {data.totalRooms} rooms). Party-hall events flagged in
+        terracotta. Click a day to see arrivals, departures &amp; in-house.
       </p>
     </div>
   );

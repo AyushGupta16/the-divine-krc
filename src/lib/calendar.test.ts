@@ -19,9 +19,7 @@ describe("getCalendarPageData", () => {
 
     const days = daysOf(cells);
     expect(days.length).toBe(31);
-    expect(days.map((d) => d.day)).toEqual(
-      Array.from({ length: 31 }, (_, i) => i + 1),
-    );
+    expect(days.map((d) => d.day)).toEqual(Array.from({ length: 31 }, (_, i) => i + 1));
   });
 
   it("puts each day in the column its real weekday falls on", async () => {
@@ -64,12 +62,7 @@ describe("getCalendarPageData", () => {
   it("legend names all four bands of the ramp, low to full", async () => {
     const { legend } = await getCalendarPageData(2026, 7);
     expect(legend.map((l) => l.band)).toEqual(["low", "medium", "high", "full"]);
-    expect(legend.map((l) => l.label)).toEqual([
-      "Low (<40%)",
-      "Medium",
-      "High (>70%)",
-      "Full",
-    ]);
+    expect(legend.map((l) => l.label)).toEqual(["Low (<40%)", "Medium", "High (>70%)", "Full"]);
   });
 
   it("flags party-hall events on their own day and nowhere else", async () => {

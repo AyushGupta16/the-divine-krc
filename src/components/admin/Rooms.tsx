@@ -71,9 +71,7 @@ function TypeCard({ card }: { card: RoomTypeCard }) {
         </div>
       </div>
       <div className="text-right">
-        <div className="text-[9px] uppercase tracking-[0.18em] text-[#a49d8d]">
-          Rate
-        </div>
+        <div className="text-[9px] uppercase tracking-[0.18em] text-[#a49d8d]">Rate</div>
         <div className="font-display text-[21px] text-[#a8863f]">
           {formatINR(card.pricePerNight)}
         </div>
@@ -94,10 +92,7 @@ function Legend({ items }: { items: RoomsLegendItem[] }) {
   return (
     <div className="flex flex-wrap items-center gap-[18px]">
       {items.map((l) => (
-        <div
-          key={l.status}
-          className="flex items-center gap-[7px] text-[12px] text-[#4a4a4a]"
-        >
+        <div key={l.status} className="flex items-center gap-[7px] text-[12px] text-warm-gray">
           <span
             className="size-[11px] rounded-[3px]"
             style={{ background: STATUS_COLOR[l.status] }}
@@ -118,10 +113,7 @@ function RoomTileCard({ room }: { room: RoomTile }) {
       type="button"
       className="relative overflow-hidden rounded-lg border border-[#eae4d6] bg-white px-[14px] py-[13px] text-left transition-shadow hover:border-[#c9bd98] hover:shadow-[0_6px_16px_-10px_rgba(10,10,10,0.3)]"
     >
-      <span
-        className="absolute inset-y-0 left-0 w-1"
-        style={{ background: color }}
-      />
+      <span className="absolute inset-y-0 left-0 w-1" style={{ background: color }} />
       <div className="flex items-center justify-between">
         <span className="font-display text-[20px] font-semibold">{room.no}</span>
         <span className="size-2 rounded-full" style={{ background: color }} />
@@ -140,7 +132,7 @@ function RoomTileCard({ room }: { room: RoomTile }) {
 function FloorBoard({ floor }: { floor: RoomFloor }) {
   return (
     <div>
-      <div className="mb-3 mt-1 font-display text-[15px] font-semibold text-[#4a4a4a]">
+      <div className="mb-3 mt-1 font-display text-[15px] font-semibold text-warm-gray">
         {floor.label}
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
@@ -157,7 +149,7 @@ function FloorBoard({ floor }: { floor: RoomFloor }) {
 function PartyHallCard({ hall }: { hall: RoomsPartyHall }) {
   return (
     <div>
-      <div className="mb-3 mt-1 font-display text-[15px] font-semibold text-[#4a4a4a]">
+      <div className="mb-3 mt-1 font-display text-[15px] font-semibold text-warm-gray">
         Ground floor · Event space
       </div>
       <div className="relative flex flex-wrap items-center gap-5 overflow-hidden rounded-lg bg-obsidian px-6 py-5 text-ivory">
@@ -168,21 +160,14 @@ function PartyHallCard({ hall }: { hall: RoomsPartyHall }) {
           className="h-[74px] w-[110px] flex-none rounded-md object-cover"
         />
         <div className="min-w-[180px] flex-1">
-          <div className="font-display text-[20px] font-semibold text-[#e8c87a]">
-            Party Hall
-          </div>
+          <div className="font-display text-[20px] font-semibold text-gold-soft">Party Hall</div>
           <div className="mt-1 text-[12px] text-[#c9c3b6]">
-            Up to 150 guests · tailored pricing · slots: morning / afternoon /
-            evening / full day
+            Up to 150 guests · tailored pricing · slots: morning / afternoon / evening / full day
           </div>
         </div>
         <div className="text-right">
-          <div className="text-[11px] font-semibold text-[#f0c96a]">
-            Next: {hall.nextLabel}
-          </div>
-          <div className="mt-[3px] text-[11px] text-[#8a8479]">
-            {hall.availability}
-          </div>
+          <div className="text-[11px] font-semibold text-[#f0c96a]">Next: {hall.nextLabel}</div>
+          <div className="mt-[3px] text-[11px] text-[#8a8479]">{hall.availability}</div>
         </div>
       </div>
     </div>
@@ -195,9 +180,7 @@ export function Rooms({ data }: { data: RoomsPageData }) {
   return (
     <div className="flex flex-col gap-[22px] p-4 sm:p-[26px]">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-[12px] tracking-[0.01em] text-[#7a746a]">
-          {data.summaryLine}
-        </p>
+        <p className="text-[12px] tracking-[0.01em] text-[#7a746a]">{data.summaryLine}</p>
         <button
           type="button"
           className="inline-flex items-center gap-2 rounded-md bg-gold px-3 py-2 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"

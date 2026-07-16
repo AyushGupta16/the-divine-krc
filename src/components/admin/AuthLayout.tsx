@@ -34,11 +34,7 @@ export function AuthLayout({
       {/* Brand panel */}
       <div className="relative flex flex-col overflow-hidden bg-obsidian px-7 py-8 text-ivory md:w-[520px] md:flex-none md:px-13 md:py-12">
         <div className="flex items-center gap-3">
-          <img
-            src={krcLogo}
-            alt="The Divine KRC crest"
-            className="h-11 w-11 object-contain"
-          />
+          <img src={krcLogo} alt="The Divine KRC crest" className="h-11 w-11 object-contain" />
           <span className="whitespace-pre-line font-display text-[12px] italic uppercase leading-tight tracking-[0.25em] text-gold-soft">
             {"THE\nDIVINE\nKRC"}
           </span>
@@ -61,11 +57,7 @@ export function AuthLayout({
           </p>
         </div>
 
-        {panelFooter && (
-          <div className="mt-10 border-t border-gold/20 pt-6">
-            {panelFooter}
-          </div>
-        )}
+        {panelFooter && <div className="mt-10 border-t border-gold/20 pt-6">{panelFooter}</div>}
       </div>
 
       {/* Form area */}

@@ -1,14 +1,5 @@
 import { useState, type ComponentType } from "react";
-import {
-  LogIn,
-  LogOut,
-  Globe,
-  TriangleAlert,
-  Check,
-  Sparkles,
-  CreditCard,
-  X,
-} from "lucide-react";
+import { LogIn, LogOut, Globe, TriangleAlert, Check, Sparkles, CreditCard, X } from "lucide-react";
 
 import type {
   ActivityItem,
@@ -23,12 +14,7 @@ import { cn } from "@/lib/utils";
 /** Card chrome shared by every panel on the dashboard. */
 function Card({ className, children }: { className?: string; children: React.ReactNode }) {
   return (
-    <div
-      className={cn(
-        "rounded-lg border border-[#eae4d6] bg-white p-5 shadow-sm",
-        className,
-      )}
-    >
+    <div className={cn("rounded-lg border border-[#eae4d6] bg-white p-5 shadow-sm", className)}>
       {children}
     </div>
   );
@@ -60,12 +46,7 @@ function StatCard({
             accent === "gold" ? "bg-[#f0e7d3]" : "bg-[#f2e0dc]",
           )}
         >
-          <Icon
-            className={cn(
-              "size-4",
-              accent === "gold" ? "text-gold" : "text-[#b4553f]",
-            )}
-          />
+          <Icon className={cn("size-4", accent === "gold" ? "text-gold" : "text-[#b4553f]")} />
         </span>
         {label}
       </div>
@@ -88,22 +69,15 @@ function StatCards({ data }: { data: DashboardData }) {
     <div className="grid grid-cols-2 gap-[18px] lg:grid-cols-4">
       <StatCard icon={LogIn} label="Check-ins today" value={checkInsToday.total}>
         {checkInsToday.arrived} arrived ·{" "}
-        <span className="font-semibold text-[#a8863f]">
-          {checkInsToday.pending} pending
-        </span>
+        <span className="font-semibold text-[#a8863f]">{checkInsToday.pending} pending</span>
       </StatCard>
       <StatCard icon={LogOut} label="Check-outs today" value={checkOutsToday.total}>
         {checkOutsToday.settled} settled ·{" "}
-        <span className="font-semibold text-[#b4553f]">
-          {checkOutsToday.late} late
-        </span>
+        <span className="font-semibold text-[#b4553f]">{checkOutsToday.late} late</span>
       </StatCard>
       <StatCard icon={Globe} label="Expected arrivals" value={expectedArrivals.total}>
-        Next:{" "}
-        <span className="font-semibold text-obsidian">
-          {expectedArrivals.nextTime}
-        </span>
-        , {expectedArrivals.nextLabel}
+        Next: <span className="font-semibold text-obsidian">{expectedArrivals.nextTime}</span>,{" "}
+        {expectedArrivals.nextLabel}
       </StatCard>
       <StatCard
         icon={TriangleAlert}
@@ -112,8 +86,7 @@ function StatCards({ data }: { data: DashboardData }) {
         accent="terracotta"
         valueClassName="text-[#b4553f]"
       >
-        Needs allocation{" "}
-        <span className="font-semibold text-[#b4553f]">Assign →</span>
+        Needs allocation <span className="font-semibold text-[#b4553f]">Assign →</span>
       </StatCard>
     </div>
   );
@@ -136,10 +109,7 @@ function LegendRow({
 }) {
   return (
     <div className={cn("flex items-center gap-2.5", className)}>
-      <span
-        className="size-2.5 shrink-0 rounded-[2px]"
-        style={{ background: swatch }}
-      />
+      <span className="size-2.5 shrink-0 rounded-[2px]" style={{ background: swatch }} />
       <span className="flex-1 text-[12.5px] text-warm-gray">{label}</span>
       <span className={cn("text-[12.5px] font-bold", valueClassName)}>{value}</span>
     </div>
@@ -155,9 +125,7 @@ function OccupancyCard({ occupancy }: { occupancy: Occupancy }) {
     <Card>
       <div className="flex items-baseline justify-between">
         <h2 className="font-display text-lg font-semibold">Occupancy</h2>
-        <span className="text-[10px] uppercase tracking-[0.18em] text-[#a49d8d]">
-          tonight
-        </span>
+        <span className="text-[10px] uppercase tracking-[0.18em] text-[#a49d8d]">tonight</span>
       </div>
       <div className="mt-4 flex items-center gap-[22px]">
         <div className="relative size-[132px] shrink-0">
@@ -301,12 +269,7 @@ function RichTitle({ text }: { text: string }) {
 function ActivityRow({ item, last }: { item: ActivityItem; last: boolean }) {
   const { icon: Icon, tone } = ACTIVITY_ICON[item.kind];
   return (
-    <div
-      className={cn(
-        "flex gap-[13px] py-[13px]",
-        !last && "border-b border-[#f2ede2]",
-      )}
-    >
+    <div className={cn("flex gap-[13px] py-[13px]", !last && "border-b border-[#f2ede2]")}>
       <span
         className={cn(
           "flex size-[34px] shrink-0 items-center justify-center rounded-[7px]",
@@ -365,12 +328,7 @@ function ArrivalRow({ item }: { item: ArrivalItem }) {
       </div>
       <div className="text-right">
         <div className="text-[12.5px] font-bold">{item.time}</div>
-        <div
-          className={cn(
-            "text-[10.5px]",
-            item.assigned ? "text-[#5a8a5a]" : "text-[#b4553f]",
-          )}
-        >
+        <div className={cn("text-[10.5px]", item.assigned ? "text-[#5a8a5a]" : "text-[#b4553f]")}>
           {item.assignment}
         </div>
       </div>

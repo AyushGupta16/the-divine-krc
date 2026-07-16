@@ -161,15 +161,10 @@ function StatusTabs({
               "flex items-center gap-[7px] rounded-full border px-[13px] py-[6px] text-[12px] font-semibold transition-colors",
               on
                 ? "border-obsidian bg-obsidian text-ivory"
-                : "border-[#eae4d6] bg-white text-[#4a4a4a] hover:border-[#d8d0bf]",
+                : "border-[#eae4d6] bg-white text-warm-gray hover:border-[#d8d0bf]",
             )}
           >
-            {t.dot && (
-              <span
-                className="size-[7px] rounded-full"
-                style={{ background: t.dot }}
-              />
-            )}
+            {t.dot && <span className="size-[7px] rounded-full" style={{ background: t.dot }} />}
             {t.label}
             <span className="text-[11px] font-bold opacity-75">{t.count}</span>
           </button>
@@ -182,7 +177,7 @@ function StatusTabs({
 // ── Table ─────────────────────────────────────────────────────────────────
 
 const bandHead =
-  "h-auto whitespace-nowrap px-[14px] py-[9px] text-left align-middle text-[10px] font-bold uppercase tracking-[0.14em] text-[#e8c87a]";
+  "h-auto whitespace-nowrap px-[14px] py-[9px] text-left align-middle text-[10px] font-bold uppercase tracking-[0.14em] text-gold-soft";
 const colHead =
   "h-auto whitespace-nowrap px-2 py-[10px] align-middle text-[10px] font-bold uppercase tracking-[0.05em] text-[#a49d8d]";
 const cell = "whitespace-nowrap px-2 py-3 align-middle text-[12px]";
@@ -210,11 +205,9 @@ function BookingRow({ item, sr }: { item: BookingListItem; sr: number }) {
       <TableCell className={cn(cell, "text-[11.5px] font-bold")}>{b.id}</TableCell>
       <TableCell className={cn(cell, "font-semibold")}>{guestName}</TableCell>
       <TableCell className={cell}>{b.roomNo ?? "—"}</TableCell>
-      <TableCell className={cn(cell, "text-[#4a4a4a]")}>
-        {ROOM_TYPE_LABEL[b.roomType]}
-      </TableCell>
-      <TableCell className={cn(cell, "text-[#4a4a4a]")}>{shortDate(b.checkIn)}</TableCell>
-      <TableCell className={cn(cell, "text-[#4a4a4a]")}>{shortDate(b.checkOut)}</TableCell>
+      <TableCell className={cn(cell, "text-warm-gray")}>{ROOM_TYPE_LABEL[b.roomType]}</TableCell>
+      <TableCell className={cn(cell, "text-warm-gray")}>{shortDate(b.checkIn)}</TableCell>
+      <TableCell className={cn(cell, "text-warm-gray")}>{shortDate(b.checkOut)}</TableCell>
       <TableCell className={cn(cell, "font-semibold")}>{b.urn}</TableCell>
       <TableCell className={cell}>
         <span
@@ -224,7 +217,7 @@ function BookingRow({ item, sr }: { item: BookingListItem; sr: number }) {
           {SOURCE_LABEL[b.source]}
         </span>
       </TableCell>
-      <TableCell className={cn(cell, "text-[#4a4a4a]")}>{meal}</TableCell>
+      <TableCell className={cn(cell, "text-warm-gray")}>{meal}</TableCell>
       <TableCell className={cn(cell, num, "font-semibold")}>{inr(b.revenue.room)}</TableCell>
       <TableCell className={cn(cell, num, "text-[#7a746a]")}>
         {inr(b.revenue.earlyCheckIn)}
@@ -293,13 +286,7 @@ function TotalsRow({ totals }: { totals: BookingsTotals }) {
   );
 }
 
-function BookingsTable({
-  rows,
-  totals,
-}: {
-  rows: BookingListItem[];
-  totals: BookingsTotals;
-}) {
+function BookingsTable({ rows, totals }: { rows: BookingListItem[]; totals: BookingsTotals }) {
   return (
     <div className="overflow-hidden rounded-lg border border-[#eae4d6] bg-white">
       <Table className="min-w-[1720px] border-separate border-spacing-0">
@@ -309,16 +296,10 @@ function BookingsTable({
             <TableHead colSpan={10} className={bandHead}>
               Booking details
             </TableHead>
-            <TableHead
-              colSpan={5}
-              className={cn(bandHead, "border-l border-[#c5a05940]")}
-            >
+            <TableHead colSpan={5} className={cn(bandHead, "border-l border-[#c5a05940]")}>
               Revenue (₹)
             </TableHead>
-            <TableHead
-              colSpan={3}
-              className={cn(bandHead, "border-l border-[#c5a05940]")}
-            >
+            <TableHead colSpan={3} className={cn(bandHead, "border-l border-[#c5a05940]")}>
               Collection (₹)
             </TableHead>
             <TableHead className={cn(bandHead, "border-l border-[#c5a05940]")} />
@@ -349,17 +330,12 @@ function BookingsTable({
         <TableBody>
           {rows.length === 0 ? (
             <TableRow>
-              <TableCell
-                colSpan={19}
-                className="px-4 py-10 text-center text-[13px] text-[#a49d8d]"
-              >
+              <TableCell colSpan={19} className="px-4 py-10 text-center text-[13px] text-[#a49d8d]">
                 No bookings match this filter.
               </TableCell>
             </TableRow>
           ) : (
-            rows.map((item, i) => (
-              <BookingRow key={item.booking.id} item={item} sr={i + 1} />
-            ))
+            rows.map((item, i) => <BookingRow key={item.booking.id} item={item} sr={i + 1} />)
           )}
         </TableBody>
         {rows.length > 0 && (
@@ -378,10 +354,7 @@ export function Bookings({ data }: { data: BookingsPageData }) {
   const [active, setActive] = useState<TabKey>("all");
 
   const visible = useMemo(
-    () =>
-      active === "all"
-        ? data.rows
-        : data.rows.filter((r) => r.booking.status === active),
+    () => (active === "all" ? data.rows : data.rows.filter((r) => r.booking.status === active)),
     [active, data.rows],
   );
 
@@ -428,7 +401,7 @@ export function Bookings({ data }: { data: BookingsPageData }) {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className="inline-flex items-center gap-2 rounded-md border border-[#eae4d6] bg-white px-3 py-2 text-[12px] font-semibold text-[#4a4a4a] transition-colors hover:border-[#d8d0bf]"
+            className="inline-flex items-center gap-2 rounded-md border border-[#eae4d6] bg-white px-3 py-2 text-[12px] font-semibold text-warm-gray transition-colors hover:border-[#d8d0bf]"
           >
             <Download className="size-4" />
             Export
@@ -455,8 +428,8 @@ export function Bookings({ data }: { data: BookingsPageData }) {
       <BookingsTable rows={visible} totals={totals} />
 
       <p className="text-[12px] text-[#7a746a]">
-        Showing {visible.length} of {data.total} · scroll the table sideways for
-        revenue &amp; collection →
+        Showing {visible.length} of {data.total} · scroll the table sideways for revenue &amp;
+        collection →
       </p>
     </div>
   );

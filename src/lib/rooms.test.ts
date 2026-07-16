@@ -10,9 +10,7 @@ describe("getRoomsPageData", () => {
 
     for (const floor of data.floors) {
       expect(floor.rooms.length).toBe(7);
-      const balcony = floor.rooms.filter(
-        (r) => r.type === "deluxe_balcony",
-      ).length;
+      const balcony = floor.rooms.filter((r) => r.type === "deluxe_balcony").length;
       const deluxe = floor.rooms.filter((r) => r.type === "deluxe").length;
       expect(deluxe).toBe(5);
       expect(balcony).toBe(2);
@@ -37,9 +35,7 @@ describe("getRoomsPageData", () => {
     const data = await getRoomsPageData();
     const all = data.floors.flatMap((f) => f.rooms);
     for (const card of data.typeCards) {
-      const free = all.filter(
-        (r) => r.type === card.type && r.status === "available",
-      ).length;
+      const free = all.filter((r) => r.type === card.type && r.status === "available").length;
       expect(card.available).toBe(free);
     }
   });
