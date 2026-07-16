@@ -1,0 +1,17 @@
+# Normalise line endings to LF in the repo *and* the working tree.
+#
+# Without this, a Windows checkout under `core.autocrlf=true` writes CRLF files
+# that Prettier (endOfLine: "lf") then flags on every single line. Pinning
+# eol=lf keeps the tree byte-identical across platforms and keeps lint honest.
+* text=auto eol=lf
+
+# Binary assets must never be touched by eol conversion.
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary

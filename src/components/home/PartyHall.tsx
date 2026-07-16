@@ -3,10 +3,7 @@ import { Reveal } from "./Reveal";
 
 export function PartyHall() {
   return (
-    <section
-      id="events"
-      className="bg-ivory px-6 md:px-10 py-24 md:py-32"
-    >
+    <section id="events" className="bg-ivory px-6 md:px-10 py-24 md:py-32">
       <div className="mx-auto max-w-7xl grid md:grid-cols-12 gap-12 md:gap-16 items-center">
         <div className="md:col-span-5 order-2 md:order-1 space-y-6">
           <Reveal>
@@ -24,9 +21,8 @@ export function PartyHall() {
           </Reveal>
           <Reveal delay={160}>
             <p className="text-warm-gray text-base leading-relaxed">
-              Host weddings, corporate gatherings, birthdays, and receptions in
-              our spacious party hall — designed to adapt to your vision, your
-              guest list, and your style.
+              Host weddings, corporate gatherings, birthdays, and receptions in our spacious party
+              hall — designed to adapt to your vision, your guest list, and your style.
             </p>
           </Reveal>
           <Reveal delay={240}>
@@ -48,7 +44,7 @@ export function PartyHall() {
             <div className="flex flex-wrap gap-3 mt-4">
               <a
                 href={`https://wa.me/918707368307?text=${encodeURIComponent(
-                  "Hi Divine KRC, I'd like to enquire about the party hall. Please share availability & pricing."
+                  "Hi Divine KRC, I'd like to enquire about the party hall. Please share availability & pricing.",
                 )}`}
                 target="_blank"
                 rel="noopener noreferrer"
