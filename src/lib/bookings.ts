@@ -16,6 +16,7 @@ import type {
   GuestsPageData,
   GuestStat,
   GuestTier,
+  Occupancy,
   OccupancyBand,
   PartyHallCalendarCell,
   PartyHallEnquiry,
@@ -722,13 +723,47 @@ export async function getRoomTypes(): Promise<RoomTypeInfo[]> {
 const OCCUPYING_STATUSES = new Set(["confirmed", "checked_in", "pending_payment"]);
 
 /**
- * Physical rooms free on a given date (default today) — total inventory minus
- * the assigned rooms held by an occupying booking whose stay covers that date.
+ * Rooms free to sell right now — read off the floor board, so the sidebar badge
+ * quotes the same figure as the Rooms screen it links to.
+ *
+ * "Available" is narrower than the dashboard's "vacant": a room being cleaned or
+ * under maintenance is unoccupied but cannot be sold, so it counts toward vacant
+ * and not toward this.
  */
-export async function getAvailableRoomCount(
-  onDate: string = new Date().toISOString().slice(0, 10),
-): Promise<number> {
-  return ROOM_NUMBERS.length - occupiedRoomsOn(onDate).size;
+export async function getAvailableRoomCount(): Promise<number> {
+  return countTiles(roomTilesNow(), "available");
+}
+
+/**
+ * Tonight's occupancy, derived whole from the floor board: the percentage, the
+ * per-type splits and the vacant count all fall out of the tiles, so the card
+ * cannot contradict the Rooms screen or itself. Only the party-hall line is
+ * still seeded (see below).
+ */
+function occupancyNow(): Occupancy {
+  const tiles = roomTilesNow();
+  const occupied = countTiles(tiles, "occupied");
+  const total = tiles.length;
+
+  return {
+    occupied,
+    total,
+    pct: Math.round((occupied / total) * 100),
+    deluxe: {
+      occupied: countTiles(tiles, "occupied", "deluxe"),
+      total: tiles.filter((t) => t.type === "deluxe").length,
+    },
+    deluxeBalcony: {
+      occupied: countTiles(tiles, "occupied", "deluxe_balcony"),
+      total: tiles.filter((t) => t.type === "deluxe_balcony").length,
+    },
+    // Vacant means "nobody in it" — cleaning and maintenance rooms included.
+    vacant: total - occupied,
+    // FIXME: still seeded, and it disagrees with the pipeline — PH-20260822-007
+    // ("Reception — Priya & Arjun", 22 Aug) is an *enquiry*, not a booking, so
+    // "Booked" overstates it. Deriving this line is its own change.
+    partyHall: "Booked 22 Aug",
+  };
 }
 
 /**
@@ -747,15 +782,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     checkOutsToday: { total: 8, settled: 5, late: 3 },
     expectedArrivals: { total: 5, nextTime: "2:30 PM", nextLabel: "Sharma +2" },
     unassignedRooms,
-    occupancy: {
-      occupied: 9,
-      total: 14,
-      pct: 64,
-      deluxe: { occupied: 6, total: 10 },
-      deluxeBalcony: { occupied: 3, total: 4 },
-      vacant: 5,
-      partyHall: "Booked 22 Aug",
-    },
+    occupancy: occupancyNow(),
     revenue: [
       {
         key: "7d",
@@ -945,7 +972,9 @@ export async function getBookingsPageData(
     },
   );
 
-  const occupied = occupiedRoomsOn(today).size;
+  // Room state comes off the floor board, not this booking set — its room
+  // numbers are illustrative and fall outside the real inventory.
+  const tonight = occupancyNow();
   const totalUrn = BOOKINGS.reduce((sum, b) => sum + b.urn, 0);
   const totalCollected = BOOKINGS.reduce((sum, b) => sum + computeTotalCollected(b.collection), 0);
 
@@ -963,12 +992,14 @@ export async function getBookingsPageData(
     {
       key: "occupied",
       label: "Occupied rooms",
-      value: `${occupied} / ${ROOM_NUMBERS.length}`,
+      value: `${tonight.occupied} / ${tonight.total}`,
     },
     {
+      // Here "available" means unoccupied, matching this screen's design — the
+      // Rooms screen counts only sellable rooms, so it reads lower.
       key: "available",
       label: "Available rooms",
-      value: String(ROOM_NUMBERS.length - occupied),
+      value: String(tonight.vacant),
     },
     { key: "totalUrn", label: "Total URN (period)", value: String(totalUrn) },
     { key: "roomRevenue", label: "Room revenue", value: formatINR(totals.roomRev) },
@@ -1029,6 +1060,24 @@ const ROOM_STATE_SEED: Record<string, { status: RoomStatus; detail: string }> = 
   "205": { status: "cleaning", detail: "Turnover" },
   "206": { status: "occupied", detail: "Reddy · out 17 Jul" },
 };
+
+/**
+ * The state of all 14 physical rooms right now — the single source of truth for
+ * "which rooms are occupied tonight".
+ *
+ * It cannot be derived from `BOOKINGS`: that seed seats guests in illustrative
+ * room numbers ("108", "112") outside the real inventory, so counting occupied
+ * rooms from it answers 2 of 14 and every screen quoting it disagreed with the
+ * floor board. Everything asking about room state today goes through here.
+ */
+function roomTilesNow(): RoomTile[] {
+  return ROOM_UNITS.map(buildRoomTile);
+}
+
+/** Rooms of a type in a given state — the one counting rule behind the tiles. */
+function countTiles(tiles: RoomTile[], status: RoomStatus, type?: RoomType): number {
+  return tiles.filter((t) => t.status === status && (!type || t.type === type)).length;
+}
 
 function buildRoomTile(unit: RoomUnit): RoomTile {
   const seed = ROOM_STATE_SEED[unit.no];
