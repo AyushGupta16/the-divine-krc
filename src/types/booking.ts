@@ -132,6 +132,7 @@ export interface Occupancy {
   partyHall: string;
 }
 
+/** A trailing window ending today: the last 7 days, 30 days, or 12 months. */
 export type RevenuePeriodKey = "7d" | "30d" | "12m";
 
 export interface RevenuePeriod {
@@ -142,8 +143,12 @@ export interface RevenuePeriod {
   rangeLabel: string;
   /** Pre-formatted total, e.g. "₹2.14L". */
   total: string;
-  /** Trend line, e.g. "▲ 12.4% vs prev". */
-  delta: string;
+  /**
+   * Trend against the preceding window of equal length, e.g. "▲ 12.4% vs prev"
+   * — or `null` when that window earned nothing, because a change from zero has
+   * no percentage to state.
+   */
+  delta: string | null;
   /** One entry per bar; heights are derived client-side from `value`. */
   bars: { label: string; value: number }[];
 }
@@ -556,4 +561,94 @@ export interface PaymentsPageData {
   /** Largest amount owed first; only channels holding money appear. */
   ota: OtaSettlement[];
   rollup: PaymentsMonthlyRollup;
+}
+
+// ── Admin reports (PR #10) ───────────────────────────────────────────────
+// Every figure here is derived from the booking set and the party-hall
+// pipeline; the screen seeds nothing. Revenue is recognised *per night* — a
+// three-night stay earns a third of its bill on each of its nights — which is
+// what lets occupancy, ADR and RevPAR stay mutually consistent rather than
+// being three unrelated numbers. The same engine feeds the dashboard's revenue
+// card, so the two screens cannot disagree about what a window earned.
+
+/** The four headline measures. ADR and RevPAR are the standard hotel ratios. */
+export type ReportsKpiKey = "revenue" | "occupancy" | "adr" | "revpar";
+
+export interface ReportsKpi {
+  key: ReportsKpiKey;
+  label: string;
+  /** Pre-formatted, e.g. "₹2.6L" / "68%" / "₹1,540". */
+  value: string;
+  /** e.g. "▲ 12.4%", or null when the preceding window had nothing to compare. */
+  delta: string | null;
+  /** Whether `delta` is an improvement — drives its colour. Null when no delta. */
+  deltaUp: boolean | null;
+}
+
+/** One bar of the revenue trend, split by how the stay was sold. */
+export interface RevenueBar {
+  /** e.g. "Tue" / "W3" / "J". */
+  label: string;
+  direct: number;
+  ota: number;
+  /** direct + ota. */
+  total: number;
+}
+
+/** One slice of the booking-source donut. Percentages sum to exactly 100. */
+export interface SourceSlice {
+  key: string;
+  /** e.g. "Direct (site/phone)". */
+  label: string;
+  /** Bookings sold through this source in the window. */
+  count: number;
+  /** Whole-percent share of the window's bookings. */
+  pct: number;
+}
+
+/** A room type's (or the party hall's) contribution over the window. */
+export interface RoomTypePerf {
+  key: string;
+  /** e.g. "Deluxe Room". */
+  name: string;
+  revenue: number;
+  /** Pre-formatted, e.g. "₹5.9L". */
+  revenueLabel: string;
+  /** Whole-percent occupancy, or null for the party hall — it has no nights. */
+  occPct: number | null;
+  /** Share of the best performer's revenue, for the bar width. */
+  barPct: number;
+}
+
+/** Share of room-nights sold on each meal plan. All four always appear. */
+export interface MealPlanShare {
+  plan: MealPlan;
+  /** e.g. "room only". */
+  note: string;
+  pct: number;
+}
+
+/** Everything the screen shows for one range. Switching ranges swaps this whole object. */
+export interface ReportsRange {
+  key: RevenuePeriodKey;
+  /** Toggle button text, e.g. "30D". */
+  switchLabel: string;
+  /** e.g. "last 30 days". */
+  rangeLabel: string;
+  kpis: ReportsKpi[];
+  bars: RevenueBar[];
+  /** Largest share first; sources with no bookings in the window are omitted. */
+  sources: SourceSlice[];
+  /** Best performer first. */
+  roomTypes: RoomTypePerf[];
+  mealPlans: MealPlanShare[];
+}
+
+export interface ReportsPageData {
+  /** ISO date every window is anchored to and counts back from. */
+  today: string;
+  /** Sub-title under "Reports". */
+  subtitle: string;
+  /** All three ranges, so the toggle switches without a round-trip. */
+  ranges: ReportsRange[];
 }

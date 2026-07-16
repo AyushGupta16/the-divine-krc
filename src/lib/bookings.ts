@@ -35,6 +35,16 @@ import type {
   PartyHallStat,
   PartyHallStatus,
   PaymentsMonthlyRollup,
+  MealPlan,
+  MealPlanShare,
+  ReportsKpi,
+  ReportsPageData,
+  ReportsRange,
+  RevenueBar,
+  RevenuePeriod,
+  RevenuePeriodKey,
+  RoomTypePerf,
+  SourceSlice,
   TransactionStatus,
   RoomFloor,
   RoomsLegendItem,
@@ -776,12 +786,13 @@ function occupancyNow(): Occupancy {
 }
 
 /**
- * Everything the admin dashboard renders, in one round-trip. Figures are seeded
- * to mirror `Admin Dashboard.dc.html`; `unassignedRooms` is derived from the
- * live booking set so the "needs allocation" nudge stays truthful. When this
- * swaps to a real DB these become aggregate queries behind the same signature.
+ * Everything the admin dashboard renders, in one round-trip. `unassignedRooms`,
+ * `occupancy` and `revenue` are derived from the live booking set so the card
+ * figures stay truthful; the rest still mirrors `Admin Dashboard.dc.html`. When
+ * this swaps to a real DB these become aggregate queries behind the same
+ * signature.
  */
-export async function getDashboardData(): Promise<DashboardData> {
+export async function getDashboardData(today = "2026-07-14"): Promise<DashboardData> {
   const unassignedRooms = BOOKINGS.filter(
     (b) => b.roomNo === null && OCCUPYING_STATUSES.has(b.status),
   ).length;
@@ -792,58 +803,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     expectedArrivals: { total: 5, nextTime: "2:30 PM", nextLabel: "Sharma +2" },
     unassignedRooms,
     occupancy: occupancyNow(),
-    revenue: [
-      {
-        key: "7d",
-        switchLabel: "7 days",
-        rangeLabel: "Mon 7 Jul – Sun 13 Jul",
-        total: "₹2.14L",
-        delta: "▲ 12.4% vs prev",
-        bars: [
-          { label: "Mon", value: 40 },
-          { label: "Tue", value: 62 },
-          { label: "Wed", value: 48 },
-          { label: "Thu", value: 78 },
-          { label: "Fri", value: 96 },
-          { label: "Sat", value: 88 },
-          { label: "Sun", value: 66 },
-        ],
-      },
-      {
-        key: "30d",
-        switchLabel: "30 days",
-        rangeLabel: "Last 30 days",
-        total: "₹9.3L",
-        delta: "▲ 8.1% vs prev",
-        bars: [
-          { label: "W1", value: 58 },
-          { label: "W2", value: 72 },
-          { label: "W3", value: 64 },
-          { label: "W4", value: 92 },
-        ],
-      },
-      {
-        key: "12m",
-        switchLabel: "12 months",
-        rangeLabel: "Aug 2025 – Jul 2026",
-        total: "₹1.08Cr",
-        delta: "▲ 21.6% vs prev",
-        bars: [
-          { label: "A", value: 52 },
-          { label: "S", value: 60 },
-          { label: "O", value: 74 },
-          { label: "N", value: 82 },
-          { label: "D", value: 96 },
-          { label: "J", value: 70 },
-          { label: "F", value: 64 },
-          { label: "M", value: 72 },
-          { label: "A", value: 80 },
-          { label: "M", value: 68 },
-          { label: "J", value: 58 },
-          { label: "J", value: 88 },
-        ],
-      },
-    ],
+    revenue: revenuePeriods(today),
     activity: [
       {
         id: "act-1",
@@ -1865,4 +1825,469 @@ export async function getPaymentsPageData(today = "2026-07-14"): Promise<Payment
     ota,
     rollup: monthlyRollup(BOOKINGS, today),
   };
+}
+
+// ── Reports ─────────────────────────────────────────────────────────────────
+
+/** Rooms available to sell on any given night — the denominator under RevPAR. */
+const SELLABLE_ROOMS = ROOM_UNITS.length;
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** ISO date `n` days before/after `date`, without tripping over local timezones. */
+function shiftDate(date: string, n: number): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + n * MS_PER_DAY).toISOString().slice(0, 10);
+}
+
+/**
+ * One night of one stay — the atom every report figure is counted from.
+ *
+ * A booking's bill covers its whole stay, so charging all of it to the check-in
+ * date would credit a three-night stay's revenue to a single day and leave the
+ * other two looking empty. Spreading it per night is both truer to how the room
+ * earned the money and the only basis on which occupancy, ADR and RevPAR agree:
+ * all three then divide the same nights by the same days.
+ */
+interface NightFact {
+  /** The night itself, as an ISO date. */
+  date: string;
+  bookingId: string;
+  source: BookingSource;
+  roomType: RoomType;
+  mealPlan: MealPlan;
+  /** This night's share of the total bill, tax and extras included. */
+  bill: number;
+  /** This night's share of the room charge alone — what ADR is measured on. */
+  roomRev: number;
+}
+
+/**
+ * Every night the hotel actually sold, exploded out of the booking set. A
+ * cancelled booking and a no-show sold nothing, so neither contributes nights:
+ * the same rule the payments rollup applies to gross.
+ */
+function nightsFrom(bookings: Booking[]): NightFact[] {
+  const nights: NightFact[] = [];
+
+  for (const b of bookings) {
+    if (VOID_STAY_STATUSES.has(b.status) || b.urn <= 0) continue;
+
+    for (let i = 0; i < b.urn; i++) {
+      nights.push({
+        date: shiftDate(b.checkIn, i),
+        bookingId: b.id,
+        source: b.source,
+        roomType: b.roomType,
+        mealPlan: b.mealPlan,
+        bill: b.totalBill / b.urn,
+        roomRev: b.revenue.room / b.urn,
+      });
+    }
+  }
+
+  return nights;
+}
+
+/**
+ * What the party hall earned, by the date it was held. Only a *completed* event
+ * has earned anything — a confirmed booking is a promise, and the money against
+ * it is an advance, which the party-hall screen already reports separately.
+ */
+function partyHallRevenueIn(start: string, end: string): number {
+  return PARTY_HALL_ENQUIRIES.filter(
+    (e) => e.status === "completed" && e.date >= start && e.date <= end,
+  ).reduce((sum, e) => sum + e.amount, 0);
+}
+
+/** A trailing window: `days` long, ending on (and including) `end`. */
+interface Window {
+  start: string;
+  end: string;
+  days: number;
+}
+
+function daysBetween(start: string, end: string): number {
+  return (
+    Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / MS_PER_DAY) + 1
+  );
+}
+
+/**
+ * The window a range covers, ending today.
+ *
+ * The year is aligned to calendar months rather than counted back 365 days, so
+ * that its twelve monthly bars tile it exactly. A 365-day window would start
+ * mid-month and leave that month's first half inside the total but outside
+ * every bar — the total and the chart beneath it would quietly disagree.
+ */
+function windowFor(key: RevenuePeriodKey, today: string): Window {
+  if (key === "12m") {
+    const anchor = new Date(`${today}T00:00:00Z`);
+    const start = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() - 11, 1))
+      .toISOString()
+      .slice(0, 10);
+    return { start, end: today, days: daysBetween(start, today) };
+  }
+
+  const days = key === "7d" ? 7 : 30;
+  return { start: shiftDate(today, -(days - 1)), end: today, days };
+}
+
+/** The window of equal length sitting immediately before `w`. */
+function previousWindow(w: Window): Window {
+  return { start: shiftDate(w.start, -w.days), end: shiftDate(w.start, -1), days: w.days };
+}
+
+function inRange(date: string, start: string, end: string): boolean {
+  return date >= start && date <= end;
+}
+
+function inWindow(date: string, w: Window): boolean {
+  return inRange(date, w.start, w.end);
+}
+
+/** Total earned in a window: what the rooms billed, plus what the hall billed. */
+function revenueIn(nights: NightFact[], w: Window): number {
+  const rooms = nights.filter((n) => inWindow(n.date, w)).reduce((sum, n) => sum + n.bill, 0);
+  return rooms + partyHallRevenueIn(w.start, w.end);
+}
+
+/**
+ * Percentage change against the preceding window, e.g. "▲ 12.4%".
+ *
+ * Returns null when the previous window was empty. Growth from zero has no
+ * percentage — it is division by zero — and stating one anyway would be
+ * inventing a trend the data cannot support.
+ */
+function deltaAgainst(current: number, previous: number): { text: string; up: boolean } | null {
+  if (previous === 0) return null;
+
+  const pct = ((current - previous) / previous) * 100;
+  const up = pct >= 0;
+  return { text: `${up ? "▲" : "▼"} ${Math.abs(pct).toFixed(1)}%`, up };
+}
+
+/**
+ * The window's bars, split direct vs OTA.
+ *
+ * Each range buckets at the grain it can actually show: 7 daily bars for a
+ * week, five 6-day bars for a month (30 divides evenly, so no bar covers a
+ * short period and reads artificially low), and 12 monthly bars for a year.
+ */
+function barsFor(nights: NightFact[], key: RevenuePeriodKey, today: string): RevenueBar[] {
+  const w = windowFor(key, today);
+  const buckets: { label: string; start: string; end: string }[] = [];
+
+  if (key === "12m") {
+    const anchor = new Date(`${today}T00:00:00Z`);
+    for (let i = 11; i >= 0; i--) {
+      const first = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() - i, 1));
+      const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0));
+      buckets.push({
+        label: first.toLocaleDateString("en-IN", { month: "narrow", timeZone: "UTC" }),
+        start: first.toISOString().slice(0, 10),
+        end: last.toISOString().slice(0, 10),
+      });
+    }
+  } else {
+    const span = key === "7d" ? 1 : 6;
+    const count = key === "7d" ? 7 : 5;
+    for (let i = count - 1; i >= 0; i--) {
+      const end = shiftDate(today, -i * span);
+      const start = shiftDate(end, -(span - 1));
+      buckets.push({
+        label:
+          key === "7d"
+            ? new Date(`${start}T00:00:00Z`).toLocaleDateString("en-IN", {
+                weekday: "short",
+                timeZone: "UTC",
+              })
+            : `W${count - i}`,
+        start,
+        end,
+      });
+    }
+  }
+
+  // The current month runs past today, and the year's first month may start
+  // before the window opens. Either would let a bar count nights the headline
+  // above it doesn't, so every bucket is clipped back to the window itself.
+  return buckets.map(({ label, start: bucketStart, end: bucketEnd }) => {
+    const start = bucketStart < w.start ? w.start : bucketStart;
+    const end = bucketEnd > w.end ? w.end : bucketEnd;
+    const rooms = nights.filter((n) => inRange(n.date, start, end));
+    const sum = (list: NightFact[]) => list.reduce((total, n) => total + n.bill, 0);
+
+    // The hall is sold by us, never by a channel, so it lands on the direct side.
+    const direct =
+      sum(rooms.filter((n) => !isOtaSource(n.source))) + partyHallRevenueIn(start, end);
+    const ota = sum(rooms.filter((n) => isOtaSource(n.source)));
+    return {
+      label,
+      direct: Math.round(direct),
+      ota: Math.round(ota),
+      total: Math.round(direct + ota),
+    };
+  });
+}
+
+/** How the design groups channels: the three it names, and everything else. */
+const SOURCE_GROUPS: { key: string; label: string; match: (s: BookingSource) => boolean }[] = [
+  { key: "direct", label: "Direct (site/phone)", match: (s) => !isOtaSource(s) },
+  { key: "booking_com", label: "Booking.com", match: (s) => s === "booking_com" },
+  { key: "makemytrip", label: "MakeMyTrip", match: (s) => s === "makemytrip" },
+  {
+    key: "others",
+    label: "Others",
+    match: (s) => isOtaSource(s) && s !== "booking_com" && s !== "makemytrip",
+  },
+];
+
+/**
+ * Share of the window's bookings by how they were sold.
+ *
+ * Percentages are apportioned by largest remainder so they total exactly 100 —
+ * rounding each share independently would let a donut add up to 99% or 101%.
+ */
+function sourcesFor(nights: NightFact[], w: Window): SourceSlice[] {
+  const sold = new Map<string, BookingSource>();
+  for (const n of nights) {
+    if (inWindow(n.date, w)) sold.set(n.bookingId, n.source);
+  }
+  const total = sold.size;
+  if (total === 0) return [];
+
+  const counted = SOURCE_GROUPS.map((g) => ({
+    key: g.key,
+    label: g.label,
+    count: [...sold.values()].filter(g.match).length,
+  })).filter((g) => g.count > 0);
+
+  const exact = counted.map((g) => (g.count / total) * 100);
+  const pcts = exact.map(Math.floor);
+  let short = 100 - pcts.reduce((sum, p) => sum + p, 0);
+  const byRemainder = exact
+    .map((v, i) => ({ i, rem: v - Math.floor(v) }))
+    .sort((a, b) => b.rem - a.rem);
+  for (let i = 0; short > 0; i++, short--) pcts[byRemainder[i % byRemainder.length].i] += 1;
+
+  return counted.map((g, i) => ({ ...g, pct: pcts[i] })).sort((a, b) => b.count - a.count);
+}
+
+const MEAL_PLAN_NOTE: Record<MealPlan, string> = {
+  EP: "room only",
+  CP: "breakfast",
+  MAP: "half board",
+  AP: "full board",
+};
+
+/**
+ * Share of room-nights sold on each plan. All four always show: a plan nobody
+ * took is a fact about the mix, not a row to hide.
+ */
+function mealPlansFor(nights: NightFact[], w: Window): MealPlanShare[] {
+  const inWin = nights.filter((n) => inWindow(n.date, w));
+  const plans: MealPlan[] = ["EP", "CP", "MAP", "AP"];
+
+  return plans.map((plan) => ({
+    plan,
+    note: MEAL_PLAN_NOTE[plan],
+    pct:
+      inWin.length === 0
+        ? 0
+        : Math.round((inWin.filter((n) => n.mealPlan === plan).length / inWin.length) * 100),
+  }));
+}
+
+/** Each room type's takings and occupancy, with the party hall alongside. */
+function roomTypesFor(nights: NightFact[], w: Window): RoomTypePerf[] {
+  const inWin = nights.filter((n) => inWindow(n.date, w));
+
+  const rows: RoomTypePerf[] = ROOM_TYPES.map((rt) => {
+    const mine = inWin.filter((n) => n.roomType === rt.type);
+    return {
+      key: rt.type,
+      name: rt.name,
+      revenue: Math.round(mine.reduce((sum, n) => sum + n.bill, 0)),
+      revenueLabel: "",
+      occPct: Math.round((mine.length / (rt.count * w.days)) * 100),
+      barPct: 0,
+    };
+  });
+
+  const hall = partyHallRevenueIn(w.start, w.end);
+  rows.push({
+    key: "party_hall",
+    name: "Party Hall",
+    revenue: hall,
+    revenueLabel: "",
+    // The hall is sold by the slot, not by the night, so a nightly occupancy
+    // rate would be measuring it against a denominator it doesn't have.
+    occPct: null,
+    barPct: 0,
+  });
+
+  const best = Math.max(...rows.map((r) => r.revenue), 0);
+  return rows
+    .map((r) => ({
+      ...r,
+      revenueLabel: formatINRCompact(r.revenue),
+      barPct: best === 0 ? 0 : Math.round((r.revenue / best) * 100),
+    }))
+    .sort((a, b) => b.revenue - a.revenue);
+}
+
+const RANGE_LABEL: Record<RevenuePeriodKey, string> = {
+  "7d": "last 7 days",
+  "30d": "last 30 days",
+  "12m": "last 12 months",
+};
+
+const RANGE_SWITCH: Record<RevenuePeriodKey, string> = {
+  "7d": "7D",
+  "30d": "30D",
+  "12m": "12M",
+};
+
+const RANGE_KEYS: RevenuePeriodKey[] = ["7d", "30d", "12m"];
+
+/**
+ * The four headline measures for one window, each derived from the same nights.
+ *
+ * ADR is the room charge per night *sold*; RevPAR the room charge per night
+ * *available*. Because both read the same numerator and occupancy divides the
+ * same two denominators, RevPAR = ADR × occupancy holds by construction rather
+ * than by three figures happening to agree.
+ */
+function kpisFor(nights: NightFact[], w: Window, key: RevenuePeriodKey): ReportsKpi[] {
+  const inWin = nights.filter((n) => inWindow(n.date, w));
+  const roomRev = inWin.reduce((sum, n) => sum + n.roomRev, 0);
+  const sold = inWin.length;
+  const available = SELLABLE_ROOMS * w.days;
+
+  const revenue = revenueIn(nights, w);
+  const prev = previousWindow(w);
+  const occPct = (sold / available) * 100;
+  const prevIn = nights.filter((n) => inWindow(n.date, prev));
+
+  const build = (
+    k: ReportsKpi["key"],
+    label: string,
+    value: string,
+    d: { text: string; up: boolean } | null,
+  ): ReportsKpi => ({ key: k, label, value, delta: d?.text ?? null, deltaUp: d?.up ?? null });
+
+  return [
+    build(
+      "revenue",
+      `Revenue · ${RANGE_LABEL[key]}`,
+      formatINRCompact(revenue),
+      deltaAgainst(revenue, revenueIn(nights, prev)),
+    ),
+    build(
+      "occupancy",
+      "Occupancy rate",
+      `${Math.round(occPct)}%`,
+      deltaAgainst(sold, prevIn.length),
+    ),
+    build(
+      "adr",
+      "ADR (avg daily rate)",
+      formatINR(sold === 0 ? 0 : roomRev / sold),
+      deltaAgainst(
+        sold === 0 ? 0 : roomRev / sold,
+        prevIn.length === 0 ? 0 : prevIn.reduce((sum, n) => sum + n.roomRev, 0) / prevIn.length,
+      ),
+    ),
+    build(
+      "revpar",
+      "RevPAR",
+      formatINR(roomRev / available),
+      deltaAgainst(
+        roomRev / available,
+        prevIn.reduce((sum, n) => sum + n.roomRev, 0) / (SELLABLE_ROOMS * prev.days),
+      ),
+    ),
+  ];
+}
+
+/**
+ * Everything the admin Reports screen renders, for all three ranges at once so
+ * the toggle switches without a round-trip — the same shape the dashboard's
+ * revenue card uses.
+ *
+ * Nothing here is seeded. Every figure is counted off the nights the booking
+ * set actually sold and the party-hall events it actually held, which is why
+ * these numbers are smaller than the design's: the mock draws a full hotel, and
+ * our seed holds ten bookings in one week of July.
+ */
+export async function getReportsPageData(today = "2026-07-14"): Promise<ReportsPageData> {
+  const nights = nightsFrom(BOOKINGS);
+
+  const ranges: ReportsRange[] = RANGE_KEYS.map((key) => {
+    const w = windowFor(key, today);
+    return {
+      key,
+      switchLabel: RANGE_SWITCH[key],
+      rangeLabel: RANGE_LABEL[key],
+      kpis: kpisFor(nights, w, key),
+      bars: barsFor(nights, key, today),
+      sources: sourcesFor(nights, w),
+      roomTypes: roomTypesFor(nights, w),
+      mealPlans: mealPlansFor(nights, w),
+    };
+  });
+
+  return {
+    today,
+    subtitle: "Performance & revenue analytics",
+    ranges,
+  };
+}
+
+/**
+ * The dashboard's revenue card, over the same windows and the same engine the
+ * Reports screen reads. These figures used to be seeded strings beside seeded
+ * bar heights, which meant the dashboard and Reports could answer "revenue,
+ * last 30 days" differently — and did. Deriving both from one place is what
+ * stops that.
+ */
+function revenuePeriods(today: string): RevenuePeriod[] {
+  const nights = nightsFrom(BOOKINGS);
+  const switchLabel: Record<RevenuePeriodKey, string> = {
+    "7d": "7 days",
+    "30d": "30 days",
+    "12m": "12 months",
+  };
+
+  return RANGE_KEYS.map((key) => {
+    const w = windowFor(key, today);
+    const total = revenueIn(nights, w);
+    const delta = deltaAgainst(total, revenueIn(nights, previousWindow(w)));
+
+    return {
+      key,
+      switchLabel: switchLabel[key],
+      rangeLabel: rangeLabelFor(key, w),
+      total: formatINRCompact(total),
+      delta: delta && `${delta.text} vs prev`,
+      bars: barsFor(nights, key, today).map((b) => ({ label: b.label, value: b.total })),
+    };
+  });
+}
+
+/** "Wed 8 Jul – Tue 14 Jul" for a week; a plainer line for the longer windows. */
+function rangeLabelFor(key: RevenuePeriodKey, w: Window): string {
+  const fmt = (d: string, opts: Intl.DateTimeFormatOptions) =>
+    new Date(`${d}T00:00:00Z`).toLocaleDateString("en-IN", { ...opts, timeZone: "UTC" });
+
+  if (key === "7d") {
+    const short: Intl.DateTimeFormatOptions = { weekday: "short", day: "numeric", month: "short" };
+    return `${fmt(w.start, short)} – ${fmt(w.end, short)}`;
+  }
+  if (key === "12m") {
+    const my: Intl.DateTimeFormatOptions = { month: "short", year: "numeric" };
+    return `${fmt(w.start, my)} – ${fmt(w.end, my)}`;
+  }
+  return "Last 30 days";
 }
