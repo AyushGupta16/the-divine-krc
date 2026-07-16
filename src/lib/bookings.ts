@@ -53,6 +53,16 @@ import type {
   RoomTile,
   RoomType,
   RoomTypeCard,
+  ChannelSetting,
+  ChargeSetting,
+  PaymentSettings,
+  PricingSettings,
+  PropertyProfile,
+  RoomTariff,
+  SettingsPageData,
+  SettingsSection,
+  TeamMember,
+  ToggleSetting,
 } from "@/types/booking";
 import {
   computeTotalBill,
@@ -117,6 +127,19 @@ export const ROOM_UNITS: RoomUnit[] = [
 
 /** All 14 physical room numbers across the two floors. */
 export const ROOM_NUMBERS: string[] = ROOM_UNITS.map((r) => r.no);
+
+/**
+ * The GST rate the property bills at. Every booking carries its own `taxPct`,
+ * because a stay is taxed at the rate in force the day it was billed and an old
+ * booking must not silently re-rate itself when the property changes this. The
+ * constant is what the current rate *is* — the Settings panel shows it and new
+ * bookings take it — so there is one 12 in the code rather than one per seed row.
+ */
+export const GST_PCT = 12;
+
+/** Standard charges for a stay that starts early or ends late (design: Settings). */
+export const EARLY_CHECKIN_FEE = 400;
+export const LATE_CHECKOUT_FEE = 500;
 
 /**
  * The guest directory, mirroring `Admin Guests.dc.html`. Stays and lifetime
@@ -258,7 +281,7 @@ const BOOKINGS: Booking[] = [
       lateCheckOut: 0,
       other: 0,
       discount: 0,
-      taxPct: 12,
+      taxPct: GST_PCT,
     },
     collection: {
       paidToHotel: 5040,
@@ -286,7 +309,7 @@ const BOOKINGS: Booking[] = [
       lateCheckOut: 300,
       other: 0,
       discount: 0,
-      taxPct: 12,
+      taxPct: GST_PCT,
     },
     collection: {
       paidToHotel: 0,
@@ -314,7 +337,7 @@ const BOOKINGS: Booking[] = [
       lateCheckOut: 0,
       other: 0,
       discount: 200,
-      taxPct: 12,
+      taxPct: GST_PCT,
     },
     collection: {
       paidToHotel: 0,
@@ -342,7 +365,7 @@ const BOOKINGS: Booking[] = [
       lateCheckOut: 0,
       other: 600,
       discount: 0,
-      taxPct: 12,
+      taxPct: GST_PCT,
     },
     collection: {
       paidToHotel: 0,
@@ -370,7 +393,7 @@ const BOOKINGS: Booking[] = [
       lateCheckOut: 500,
       other: 0,
       discount: 0,
-      taxPct: 12,
+      taxPct: GST_PCT,
     },
     collection: {
       paidToHotel: 3920,
@@ -398,7 +421,7 @@ const BOOKINGS: Booking[] = [
       lateCheckOut: 0,
       other: 300,
       discount: 0,
-      taxPct: 12,
+      taxPct: GST_PCT,
     },
     collection: {
       paidToHotel: 0,
@@ -426,7 +449,7 @@ const BOOKINGS: Booking[] = [
       lateCheckOut: 0,
       other: 0,
       discount: 0,
-      taxPct: 12,
+      taxPct: GST_PCT,
     },
     collection: {
       paidToHotel: 0,
@@ -454,7 +477,7 @@ const BOOKINGS: Booking[] = [
       lateCheckOut: 0,
       other: 0,
       discount: 0,
-      taxPct: 12,
+      taxPct: GST_PCT,
     },
     collection: {
       paidToHotel: 0,
@@ -482,7 +505,7 @@ const BOOKINGS: Booking[] = [
       lateCheckOut: 0,
       other: 0,
       discount: 0,
-      taxPct: 12,
+      taxPct: GST_PCT,
     },
     collection: {
       paidToHotel: 0,
@@ -510,7 +533,7 @@ const BOOKINGS: Booking[] = [
       lateCheckOut: 0,
       other: 150,
       discount: 0,
-      taxPct: 12,
+      taxPct: GST_PCT,
     },
     collection: {
       paidToHotel: 5656,
@@ -1601,12 +1624,25 @@ const TRANSACTION_STATUS_LABEL: Record<TransactionStatus, string> = {
 const RAZORPAY_METHODS = new Set<PaymentMethod>(["upi", "card", "net_banking"]);
 
 /** Booking sources that are OTA channels, with their display name and disc letter. */
-const OTA_CHANNELS: Record<string, { name: string; abbr: string }> = {
-  booking_com: { name: "Booking.com", abbr: "B" },
-  makemytrip: { name: "MakeMyTrip", abbr: "M" },
-  goibibo: { name: "Goibibo", abbr: "G" },
-  agoda: { name: "Agoda", abbr: "A" },
-  oyo: { name: "OYO", abbr: "O" },
+/**
+ * The OTAs we sell through. `commissionPct` is the contracted rate and
+ * `connected` is whether the channel manager is live.
+ *
+ * The rate is stated once, here. Payments does not read it — it derives each
+ * channel's rate from the rupees that channel actually kept — so the two are
+ * independent, and `settings.test.ts` holds them to the same number for every
+ * channel that has sold a stay. That is what caught Goibibo: the design's
+ * settings mock says 16%, but Goibibo's own money says 15%, and the money wins.
+ */
+const OTA_CHANNELS: Record<
+  string,
+  { name: string; abbr: string; commissionPct: number; connected: boolean }
+> = {
+  booking_com: { name: "Booking.com", abbr: "B", commissionPct: 15, connected: true },
+  makemytrip: { name: "MakeMyTrip", abbr: "M", commissionPct: 18, connected: true },
+  goibibo: { name: "Goibibo", abbr: "G", commissionPct: 15, connected: true },
+  agoda: { name: "Agoda", abbr: "A", commissionPct: 17, connected: true },
+  oyo: { name: "OYO", abbr: "O", commissionPct: 20, connected: false },
 };
 
 /** True for a booking sold through an OTA rather than direct/walk-in/phone. */
@@ -2290,4 +2326,143 @@ function rangeLabelFor(key: RevenuePeriodKey, w: Window): string {
     return `${fmt(w.start, my)} – ${fmt(w.end, my)}`;
   }
   return "Last 30 days";
+}
+
+// ── Settings ────────────────────────────────────────────────────────────────
+
+/** The property itself. Nothing derives from this; it is the profile guests see. */
+const PROPERTY: PropertyProfile = {
+  name: "The Divine KRC",
+  phone: "+91 87073 68307",
+  whatsapp: "+91 87073 68307",
+  checkInTime: "2:00 PM",
+  checkOutTime: "11:00 AM",
+};
+
+/**
+ * Who can log in. The Owner row is the account in `lib/auth.ts` — the console's
+ * real (mock) login — so the list cannot show a team that excludes the person
+ * using it. The rest are staff. Kept here rather than imported from `auth.ts`,
+ * which pulls in server-only session code; the DB swap unifies the two.
+ */
+const TEAM_SEED: Omit<TeamMember, "initials">[] = [
+  { name: "KRC Admin", email: "admin@thedivinekrc.in", role: "Owner" },
+  { name: "Rahul Menon", email: "rahul@thedivinekrc.in", role: "Manager" },
+  { name: "Sneha Pillai", email: "sneha@thedivinekrc.in", role: "Front desk" },
+  { name: "Vinod Kumar", email: "vinod@thedivinekrc.in", role: "Accounts" },
+];
+
+const PAYMENT_TOGGLES: ToggleSetting[] = [
+  {
+    key: "payAtHotel",
+    label: "Pay at hotel",
+    desc: "Reserve now, settle at front desk on arrival",
+    on: true,
+  },
+  {
+    key: "prepayOtaBlocked",
+    label: "Require full prepayment for OTA-blocked dates",
+    desc: "Force online payment on peak dates",
+    on: false,
+  },
+];
+
+const NOTIFICATION_TOGGLES: ToggleSetting[] = [
+  {
+    key: "newBooking",
+    label: "New booking alerts",
+    desc: "Email + WhatsApp on every new reservation",
+    on: true,
+  },
+  {
+    key: "paymentReceived",
+    label: "Payment received",
+    desc: "Notify when Razorpay confirms a payment",
+    on: true,
+  },
+  {
+    key: "partyHallEnquiry",
+    label: "Party hall enquiries",
+    desc: "Alert for new event enquiries",
+    on: true,
+  },
+];
+
+const SETTINGS_SECTIONS: SettingsSection[] = [
+  { id: "property", label: "Property profile" },
+  { id: "pricing", label: "Rooms & pricing" },
+  { id: "payments", label: "Payment integrations" },
+  { id: "channels", label: "OTA channels" },
+  { id: "team", label: "Team & access" },
+  { id: "notifications", label: "Notifications" },
+];
+
+/** Tariffs read straight off the inventory, so a rate shown here is the rate charged. */
+function tariffSettings(): RoomTariff[] {
+  return ROOM_TYPES.map((rt) => ({
+    type: rt.type,
+    name: rt.name,
+    inventoryLabel: `${rt.count} rooms · ${rt.areaSqm} m²`,
+    rate: rt.pricePerNight.toLocaleString("en-IN"),
+  }));
+}
+
+/** The four rates on top of the tariff, each quoted from the constant that applies it. */
+function chargeSettings(): ChargeSetting[] {
+  return [
+    { key: "earlyCheckIn", label: "Early check-in fee", value: formatINR(EARLY_CHECKIN_FEE) },
+    { key: "lateCheckOut", label: "Late check-out fee", value: formatINR(LATE_CHECKOUT_FEE) },
+    { key: "gst", label: "GST rate", value: `${GST_PCT}%` },
+    { key: "partyHallAdvance", label: "Party hall advance", value: `${PARTY_HALL_ADVANCE_PCT}%` },
+  ];
+}
+
+function paymentSettings(): PaymentSettings {
+  return {
+    gateway: {
+      name: "Razorpay",
+      connected: true,
+      methodsLine: "UPI · Cards · Net Banking · Wallets · key ...a4F9",
+    },
+    toggles: PAYMENT_TOGGLES,
+  };
+}
+
+/**
+ * The channel list, in the order the money ranks them: the OTAs that have sold
+ * the most stays first, then the ones yet to earn. A channel's booking count is
+ * counted off the live set, so "not connected" beside a channel that has been
+ * selling would be visible rather than plausible.
+ */
+function channelSettings(bookings: Booking[]): ChannelSetting[] {
+  const sold = new Map<BookingSource, number>();
+  for (const b of bookings) {
+    if (!isOtaSource(b.source) || VOID_STAY_STATUSES.has(b.status)) continue;
+    sold.set(b.source, (sold.get(b.source) ?? 0) + 1);
+  }
+
+  return Object.entries(OTA_CHANNELS)
+    .map(([key, ch]) => ({
+      key: key as BookingSource,
+      name: ch.name,
+      abbr: ch.abbr,
+      commissionPct: ch.commissionPct,
+      connected: ch.connected,
+      bookings: sold.get(key as BookingSource) ?? 0,
+    }))
+    .sort((a, b) => b.bookings - a.bookings || a.name.localeCompare(b.name));
+}
+
+export async function getSettingsPageData(): Promise<SettingsPageData> {
+  const bookings = await getBookings();
+
+  return {
+    sections: SETTINGS_SECTIONS,
+    property: PROPERTY,
+    pricing: { tariffs: tariffSettings(), charges: chargeSettings() },
+    payments: paymentSettings(),
+    channels: channelSettings(bookings),
+    team: TEAM_SEED.map((m) => ({ ...m, initials: initialsOf(m.name) })),
+    notifications: NOTIFICATION_TOGGLES,
+  };
 }
