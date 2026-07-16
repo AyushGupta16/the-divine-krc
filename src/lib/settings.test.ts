@@ -107,8 +107,13 @@ describe("getSettingsPageData", () => {
     expect(owner).toBeDefined();
     expect(owner!.role).toBe("Owner");
 
-    expect(team.find((m) => m.name === "Rahul Menon")!.initials).toBe("RM");
-    for (const m of team) expect(m.initials).toHaveLength(2);
+    // That every row gets a badge is this screen's job; that the badge spells
+    // the name right is initialsOf's, and utils.test.ts holds it to that. This
+    // used to assert a seeded member by name, so renaming one broke it.
+    for (const m of team) {
+      expect(m.initials).not.toBe("");
+      expect(m.initials).toBe(m.initials.toUpperCase());
+    }
   });
 
   it("hands the toggles their state, each under a key of its own", async () => {

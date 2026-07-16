@@ -101,7 +101,7 @@ const SEEDED_AT = Date.parse("2026-01-05T00:00:00Z");
 
 export const team: TeamAccount[] = [
   { email: "admin@thedivinekrc.in", name: "Admin Ayush", role: "Owner", acceptedAt: SEEDED_AT },
-  { email: "rahul@thedivinekrc.in", name: "Shivam Gupta", role: "Manager", acceptedAt: SEEDED_AT },
+  { email: "shivam@thedivinekrc.in", name: "Shivam Gupta", role: "Manager", acceptedAt: SEEDED_AT },
   {
     email: "sneha@thedivinekrc.in",
     name: "Sneha Pillai",
