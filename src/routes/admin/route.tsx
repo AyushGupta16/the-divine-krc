@@ -9,6 +9,9 @@ const PUBLIC_ADMIN_PATHS = new Set<string>([
   "/admin/login",
   "/admin/forgot-password",
   "/admin/reset-password",
+  // Accepting an invite is how you get an account; gating it would lock out
+  // precisely the person it was sent to. The token does the authenticating.
+  "/admin/accept-invite",
 ]);
 
 function normalize(pathname: string): string {

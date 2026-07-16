@@ -9,9 +9,25 @@ import { createServerFn } from "@tanstack/react-start";
 import { useSession } from "@tanstack/react-start/server";
 import { redirect } from "@tanstack/react-router";
 
+import { findMember, makeToken } from "@/lib/team";
+
 export interface SessionUser {
   email: string;
   name: string;
+}
+
+/**
+ * The signed-in member, or null. Permission checks go through this rather than
+ * through anything stored on the cookie: a role sealed at login would keep
+ * working after it was taken away, and would be missing entirely from a session
+ * minted before roles existed. The cookie proves who you are; the roster — one
+ * source, `lib/team.ts` — decides what that currently means.
+ */
+export async function getSessionMember() {
+  const user = await getSessionUser();
+  if (!user) return null;
+  const member = findMember(user.email);
+  return member?.password ? member : null;
 }
 
 interface SessionData {
@@ -33,39 +49,25 @@ function getSession() {
   });
 }
 
-// --- Mock admin store (replace with a DB) -------------------------------
+// --- Accounts -----------------------------------------------------------
+//
+// The admin store used to live here as its own array. It is now `team` in
+// `lib/team.ts`, shared with the Settings roster and the invite flow, because
+// PR #12 needs accepting an invite to put someone on both at once.
 
-interface AdminAccount {
-  email: string;
-  name: string;
-  password: string;
-}
-
-const admins: AdminAccount[] = [
-  {
-    email: "admin@thedivinekrc.in",
-    name: "KRC Admin",
-    password: "krc-admin",
-  },
-];
-
+/**
+ * Only a member who has set a password can sign in. Someone invited but not yet
+ * accepted is on the roster and has no credential, so they fall out here — the
+ * check is the same one that renders them as Pending.
+ */
 function findAdmin(email: string) {
-  const normalized = email.trim().toLowerCase();
-  return admins.find((a) => a.email.toLowerCase() === normalized);
+  const member = findMember(email);
+  return member?.password ? member : undefined;
 }
 
 // Reset tokens: token -> { email, expiresAt }. In-memory, single-use.
 const resetTokens = new Map<string, { email: string; expiresAt: number }>();
 const RESET_TTL_MS = 30 * 60 * 1000; // 30 minutes, per design copy.
-
-function makeToken(): string {
-  // Node crypto is available server-side.
-  return (
-    Math.random().toString(36).slice(2) +
-    Math.random().toString(36).slice(2) +
-    Date.now().toString(36)
-  );
-}
 
 // --- Server functions ---------------------------------------------------
 
@@ -92,7 +94,7 @@ export const loginFn = createServerFn({ method: "POST" })
 // redirect flow. Here we sign the demo admin in so the UX is exercisable.
 export const googleLoginFn = createServerFn({ method: "POST" }).handler(
   async (): Promise<{ ok: true }> => {
-    const admin = admins[0];
+    const admin = findAdmin("admin@thedivinekrc.in")!;
     const session = await getSession();
     await session.update({ user: { email: admin.email, name: admin.name } });
     return { ok: true };
@@ -139,8 +141,8 @@ export const resetPasswordFn = createServerFn({ method: "POST" })
     if (data.password.length < 8) {
       return { ok: false, error: "Password must be at least 8 characters." };
     }
-    const admin = findAdmin(entry.email);
-    if (admin) admin.password = data.password;
+    const member = findMember(entry.email);
+    if (member) member.password = data.password;
     resetTokens.delete(data.token); // single use
     return { ok: true };
   });

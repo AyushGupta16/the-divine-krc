@@ -74,8 +74,17 @@ export const BOTTOM_NAV: NavItem[] = [
   { label: "Calendar", to: "/admin/calendar", icon: CalendarDays },
 ];
 
+/**
+ * Pages you reach from another screen rather than from the sidebar. They need a
+ * title but not a link — Team & access sits under Settings, which is what keeps
+ * Settings lit in the sidebar while you are on it.
+ */
+const AUX_ITEMS: NavItem[] = [
+  { label: "Team & access", to: "/admin/settings/invite", icon: Users },
+];
+
 /** Flat list of every nav item, longest path first for title matching. */
-const FLAT_ITEMS = [...ADMIN_NAV.flatMap((g) => g.items), SETTINGS_ITEM].sort(
+const FLAT_ITEMS = [...ADMIN_NAV.flatMap((g) => g.items), SETTINGS_ITEM, ...AUX_ITEMS].sort(
   (a, b) => b.to.length - a.to.length,
 );
 
