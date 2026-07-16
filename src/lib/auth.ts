@@ -9,7 +9,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { useSession } from "@tanstack/react-start/server";
 import { redirect } from "@tanstack/react-router";
 
-import { findMember, makeToken } from "@/lib/team";
+import { findMember, isActive, makeToken, normalizeEmail, passwordProblem, team } from "@/lib/team";
 
 export interface SessionUser {
   email: string;
@@ -27,7 +27,7 @@ export async function getSessionMember() {
   const user = await getSessionUser();
   if (!user) return null;
   const member = findMember(user.email);
-  return member?.password ? member : null;
+  return member && isActive(member) ? member : null;
 }
 
 interface SessionData {
@@ -35,9 +35,34 @@ interface SessionData {
 }
 
 // h3 sealed-cookie session. The password seals/verifies the cookie; it must be
-// >= 32 chars. In production set SESSION_SECRET; the fallback is dev-only.
-const SESSION_PASSWORD =
-  process.env.SESSION_SECRET ?? "krc-dev-session-secret-change-me-please-32b";
+// >= 32 chars.
+const DEV_SESSION_SECRET = "krc-dev-session-secret-change-me-please-32b";
+
+const isProduction = process.env.NODE_ENV === "production";
+
+/**
+ * The secret that seals the session cookie.
+ *
+ * The dev fallback is published in a public repo, so anything sealed with it can
+ * be forged by anyone — mint the cookie, skip the login. In production we would
+ * rather the admin console fail loudly than authenticate strangers quietly.
+ *
+ * Resolved per call rather than at module load, and only on paths that touch a
+ * session: throwing at import time would take down the marketing site, which is
+ * where the property's actual bookings come from. A broken /admin is a bad day;
+ * a broken landing page is lost business.
+ */
+function sessionPassword(): string {
+  const secret = process.env.SESSION_SECRET;
+  if (secret && secret.length >= 32) return secret;
+  if (isProduction) {
+    throw new Error(
+      "SESSION_SECRET must be set to at least 32 characters in production. " +
+        "The admin console is disabled until it is.",
+    );
+  }
+  return DEV_SESSION_SECRET;
+}
 
 function getSession() {
   // Not a React hook: h3's server-side session helper just shares the `use`
@@ -45,24 +70,82 @@ function getSession() {
   // eslint-disable-next-line react-hooks/rules-of-hooks
   return useSession<SessionData>({
     name: "krc_admin_session",
-    password: SESSION_PASSWORD,
+    password: sessionPassword(),
   });
 }
 
-// --- Accounts -----------------------------------------------------------
+// --- Credentials (replace with hashed rows in a DB) ---------------------
 //
-// The admin store used to live here as its own array. It is now `team` in
-// `lib/team.ts`, shared with the Settings roster and the invite flow, because
-// PR #12 needs accepting an invite to put someone on both at once.
+// Who exists is `team` in `lib/team.ts`, shared with the Settings roster and the
+// invite flow. How they prove it is here, and only here: this module is
+// server-only — it imports `@tanstack/react-start/server`, and every export is a
+// server function — so nothing in it reaches `dist/client`. #12 briefly kept
+// passwords beside the roster and shipped them to the browser; that is the
+// mistake this split exists to prevent.
+//
+// A real store would hold a hash. This one holds the mock's plaintext, which is
+// tolerable only while it stays server-side and the data behind it is fake.
+
+const credentials = new Map<string, string>();
 
 /**
- * Only a member who has set a password can sign in. Someone invited but not yet
- * accepted is on the roster and has no credential, so they fall out here — the
- * check is the same one that renders them as Pending.
+ * The owner's password. `ADMIN_PASSWORD` in production; a known value in dev so
+ * the console is usable. Unset in production means no owner login rather than a
+ * publicly-known one — it fails closed.
  */
-function findAdmin(email: string) {
+function ownerPassword(): string | null {
+  const fromEnv = process.env.ADMIN_PASSWORD;
+  if (fromEnv) return fromEnv;
+  return isProduction ? null : "krc-admin";
+}
+
+/**
+ * The seeded staff hold a credential nobody knows: they accepted long before the
+ * console existed, so the mock has no business inventing a password for them,
+ * and a guessable one would be four public logins rather than one. Random per
+ * boot means they are Active — which they are — and unreachable, which is right.
+ */
+function unguessable(): string {
+  return makeToken() + makeToken();
+}
+
+/**
+ * Seeded on first use rather than at module load, and this is not a style
+ * choice. `auth.ts` is reachable from the client — the login page imports
+ * `loginFn` — and a bundler must keep module-level side effects, so a seeding
+ * loop up here would run in the browser and drag `ownerPassword` into
+ * `dist/client` with it. Everything below is called only from inside server
+ * function handlers, whose bodies are stripped client-side, so this whole store
+ * tree-shakes away. Nothing about credentials should survive into a bundle a
+ * stranger can read.
+ */
+let seeded = false;
+function store(): Map<string, string> {
+  if (seeded) return credentials;
+  seeded = true;
+  for (const member of team) {
+    if (!isActive(member)) continue;
+    const password = member.role === "Owner" ? ownerPassword() : unguessable();
+    if (password) credentials.set(member.email.toLowerCase(), password);
+  }
+  return credentials;
+}
+
+/** Record a password. Called only where a token has already proved the person. */
+function setCredential(email: string, password: string) {
+  store().set(normalizeEmail(email), password);
+}
+
+/**
+ * A member who is on the roster, has accepted, and whose password matches.
+ * Someone invited but undecided has no credential, so they fall out here — the
+ * same fact that renders them as Pending.
+ */
+function verify(email: string, password: string) {
   const member = findMember(email);
-  return member?.password ? member : undefined;
+  if (!member || !isActive(member)) return undefined;
+  const stored = store().get(normalizeEmail(email));
+  return stored && stored === password ? member : undefined;
 }
 
 // Reset tokens: token -> { email, expiresAt }. In-memory, single-use.
@@ -81,8 +164,8 @@ export const getSessionUser = createServerFn({ method: "GET" }).handler(
 export const loginFn = createServerFn({ method: "POST" })
   .inputValidator((data: { email: string; password: string }) => data)
   .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
-    const admin = findAdmin(data.email);
-    if (!admin || admin.password !== data.password) {
+    const admin = verify(data.email, data.password);
+    if (!admin) {
       return { ok: false, error: "Incorrect email or password." };
     }
     const session = await getSession();
@@ -92,9 +175,14 @@ export const loginFn = createServerFn({ method: "POST" })
 
 // Simulated Google sign-in: real OAuth needs a Google client id/secret +
 // redirect flow. Here we sign the demo admin in so the UX is exercisable.
+// Gated on the owner having a password at all, so it cannot become a way past
+// the login on a production deploy that never set ADMIN_PASSWORD.
 export const googleLoginFn = createServerFn({ method: "POST" }).handler(
-  async (): Promise<{ ok: true }> => {
-    const admin = findAdmin("admin@thedivinekrc.in")!;
+  async (): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const admin = findMember("admin@thedivinekrc.in");
+    if (!admin || !store().has(admin.email.toLowerCase())) {
+      return { ok: false, error: "Google sign-in is unavailable." };
+    }
     const session = await getSession();
     await session.update({ user: { email: admin.email, name: admin.name } });
     return { ok: true };
@@ -115,8 +203,8 @@ export const logoutFn = createServerFn({ method: "POST" }).handler(
 export const requestResetFn = createServerFn({ method: "POST" })
   .inputValidator((data: { email: string }) => data)
   .handler(async ({ data }): Promise<{ ok: true }> => {
-    const admin = findAdmin(data.email);
-    if (admin) {
+    const admin = findMember(data.email);
+    if (admin && isActive(admin)) {
       const token = makeToken();
       resetTokens.set(token, {
         email: admin.email,
@@ -138,14 +226,21 @@ export const resetPasswordFn = createServerFn({ method: "POST" })
       resetTokens.delete(data.token);
       return { ok: false, error: "This reset link is invalid or has expired." };
     }
-    if (data.password.length < 8) {
-      return { ok: false, error: "Password must be at least 8 characters." };
-    }
-    const member = findMember(entry.email);
-    if (member) member.password = data.password;
+    const problem = passwordProblem(data.password);
+    if (problem) return { ok: false, error: problem };
+
+    setCredential(entry.email, data.password);
     resetTokens.delete(data.token); // single use
     return { ok: true };
   });
+
+/**
+ * Give a member a password. Exported for `acceptInviteFn`, which owns the only
+ * other moment someone proves a token and chooses one; keeping the store here
+ * is what keeps it off the client. Never call this without a proven token.
+ */
+export const setMemberCredential = (email: string, password: string) =>
+  setCredential(email, password);
 
 /**
  * Route-guard helper for admin console routes. Call from `beforeLoad`.

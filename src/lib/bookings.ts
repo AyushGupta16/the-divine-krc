@@ -70,7 +70,7 @@ import {
   formatINR,
   formatINRCompact,
 } from "@/lib/booking-math";
-import { team } from "@/lib/team";
+import { isActive, team } from "@/lib/team";
 import { initialsOf } from "@/lib/utils";
 
 export interface RoomTypeInfo {
@@ -2347,7 +2347,7 @@ const PROPERTY: PropertyProfile = {
  */
 function activeTeam(): TeamMember[] {
   return team
-    .filter((m) => m.password)
+    .filter(isActive)
     .map((m) => ({ name: m.name, email: m.email, role: m.role, initials: initialsOf(m.name) }));
 }
 
