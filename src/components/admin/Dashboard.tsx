@@ -211,9 +211,11 @@ function RevenueCard({ periods }: { periods: RevenuePeriod[] }) {
         </div>
         <div className="hidden text-right sm:block">
           <div className="font-display text-[27px] font-semibold leading-none">{period.total}</div>
-          <div className="mt-1 text-[11.5px] font-semibold tracking-[0.02em] text-[#5a8a5a]">
-            {period.delta}
-          </div>
+          {period.delta && (
+            <div className="mt-1 text-[11.5px] font-semibold tracking-[0.02em] text-[#5a8a5a]">
+              {period.delta}
+            </div>
+          )}
         </div>
       </div>
       <div className="mt-5.5 flex h-25.75 items-end gap-2.5 border-b border-[#efe9db] pb-0.5">
