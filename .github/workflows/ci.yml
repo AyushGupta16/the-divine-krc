@@ -17,9 +17,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Node 24 ships npm 11, which is what authored package-lock.json. On
+      # Node 22 (npm 10) `npm ci` rejects the lock outright — it resolves
+      # unstorage's lru-cache to 11.5.2 where the lock pins 11.5.1 — so the
+      # major here is load-bearing, not a default worth "tidying" later.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - run: npm ci
