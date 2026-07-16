@@ -1,6 +1,10 @@
 // Booking system domain types.
 // Source of truth: design_handoff_krc_booking/README.md "Data model".
 
+// Roles and their statuses are defined with the permissions they grant, in
+// `lib/team.ts`, rather than restated here where they would be only names.
+import type { MemberStatus, Role } from "@/lib/team";
+
 export type RoomType = "deluxe" | "deluxe_balcony";
 
 export type BookingSource =
@@ -751,4 +755,38 @@ export interface SettingsPageData {
   channels: ChannelSetting[];
   team: TeamMember[];
   notifications: ToggleSetting[];
+}
+
+// ── Team & access (PR #12) ────────────────────────────────────────────────
+//
+// The invite screen shows one list, not two: the people who hold keys and the
+// people who have been offered one. They differ only by `status`, which nothing
+// stores — see `lib/team.ts`, where holding a password *is* being active and a
+// token's expiry *is* the difference between Pending and Expired.
+
+/** One row of "Members & invites" — an accepted member or an outstanding invite. */
+export interface TeamRow {
+  name: string;
+  email: string;
+  role: Role;
+  status: MemberStatus;
+  /** Derived from the name, so a badge cannot spell someone else. */
+  initials: string;
+  /** The invite this row stands for; `null` once it has been accepted. */
+  token: string | null;
+}
+
+/** A role the invite form can offer, beside the access it actually grants. */
+export interface RoleOption {
+  role: Role;
+  hint: string;
+}
+
+export interface InvitePageData {
+  rows: TeamRow[];
+  roles: RoleOption[];
+  /** "5 members · 2 pending" — counted off `rows`, never typed out. */
+  seatLabel: string;
+  /** Whether the signed-in role may send, resend or revoke. */
+  canManage: boolean;
 }

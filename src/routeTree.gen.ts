@@ -25,6 +25,8 @@ import { Route as AdminGuestsRouteImport } from './routes/admin/guests'
 import { Route as AdminForgotPasswordRouteImport } from './routes/admin/forgot-password'
 import { Route as AdminCalendarRouteImport } from './routes/admin/calendar'
 import { Route as AdminBookingsRouteImport } from './routes/admin/bookings'
+import { Route as AdminAcceptInviteRouteImport } from './routes/admin/accept-invite'
+import { Route as AdminSettingsInviteRouteImport } from './routes/admin/settings_.invite'
 
 const BookingLookupRoute = BookingLookupRouteImport.update({
   id: '/booking-lookup',
@@ -106,12 +108,23 @@ const AdminBookingsRoute = AdminBookingsRouteImport.update({
   path: '/bookings',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminAcceptInviteRoute = AdminAcceptInviteRouteImport.update({
+  id: '/accept-invite',
+  path: '/accept-invite',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminSettingsInviteRoute = AdminSettingsInviteRouteImport.update({
+  id: '/settings_/invite',
+  path: '/settings/invite',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteRouteWithChildren
   '/book': typeof BookRoute
   '/booking-lookup': typeof BookingLookupRoute
+  '/admin/accept-invite': typeof AdminAcceptInviteRoute
   '/admin/bookings': typeof AdminBookingsRoute
   '/admin/calendar': typeof AdminCalendarRoute
   '/admin/forgot-password': typeof AdminForgotPasswordRoute
@@ -124,11 +137,13 @@ export interface FileRoutesByFullPath {
   '/admin/rooms': typeof AdminRoomsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/': typeof AdminIndexRoute
+  '/admin/settings/invite': typeof AdminSettingsInviteRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/book': typeof BookRoute
   '/booking-lookup': typeof BookingLookupRoute
+  '/admin/accept-invite': typeof AdminAcceptInviteRoute
   '/admin/bookings': typeof AdminBookingsRoute
   '/admin/calendar': typeof AdminCalendarRoute
   '/admin/forgot-password': typeof AdminForgotPasswordRoute
@@ -141,6 +156,7 @@ export interface FileRoutesByTo {
   '/admin/rooms': typeof AdminRoomsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin': typeof AdminIndexRoute
+  '/admin/settings/invite': typeof AdminSettingsInviteRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -148,6 +164,7 @@ export interface FileRoutesById {
   '/admin': typeof AdminRouteRouteWithChildren
   '/book': typeof BookRoute
   '/booking-lookup': typeof BookingLookupRoute
+  '/admin/accept-invite': typeof AdminAcceptInviteRoute
   '/admin/bookings': typeof AdminBookingsRoute
   '/admin/calendar': typeof AdminCalendarRoute
   '/admin/forgot-password': typeof AdminForgotPasswordRoute
@@ -160,6 +177,7 @@ export interface FileRoutesById {
   '/admin/rooms': typeof AdminRoomsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/': typeof AdminIndexRoute
+  '/admin/settings_/invite': typeof AdminSettingsInviteRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -168,6 +186,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/book'
     | '/booking-lookup'
+    | '/admin/accept-invite'
     | '/admin/bookings'
     | '/admin/calendar'
     | '/admin/forgot-password'
@@ -180,11 +199,13 @@ export interface FileRouteTypes {
     | '/admin/rooms'
     | '/admin/settings'
     | '/admin/'
+    | '/admin/settings/invite'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/book'
     | '/booking-lookup'
+    | '/admin/accept-invite'
     | '/admin/bookings'
     | '/admin/calendar'
     | '/admin/forgot-password'
@@ -197,12 +218,14 @@ export interface FileRouteTypes {
     | '/admin/rooms'
     | '/admin/settings'
     | '/admin'
+    | '/admin/settings/invite'
   id:
     | '__root__'
     | '/'
     | '/admin'
     | '/book'
     | '/booking-lookup'
+    | '/admin/accept-invite'
     | '/admin/bookings'
     | '/admin/calendar'
     | '/admin/forgot-password'
@@ -215,6 +238,7 @@ export interface FileRouteTypes {
     | '/admin/rooms'
     | '/admin/settings'
     | '/admin/'
+    | '/admin/settings_/invite'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -338,10 +362,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminBookingsRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/accept-invite': {
+      id: '/admin/accept-invite'
+      path: '/accept-invite'
+      fullPath: '/admin/accept-invite'
+      preLoaderRoute: typeof AdminAcceptInviteRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/settings_/invite': {
+      id: '/admin/settings_/invite'
+      path: '/settings/invite'
+      fullPath: '/admin/settings/invite'
+      preLoaderRoute: typeof AdminSettingsInviteRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
   }
 }
 
 interface AdminRouteRouteChildren {
+  AdminAcceptInviteRoute: typeof AdminAcceptInviteRoute
   AdminBookingsRoute: typeof AdminBookingsRoute
   AdminCalendarRoute: typeof AdminCalendarRoute
   AdminForgotPasswordRoute: typeof AdminForgotPasswordRoute
@@ -354,9 +393,11 @@ interface AdminRouteRouteChildren {
   AdminRoomsRoute: typeof AdminRoomsRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminIndexRoute: typeof AdminIndexRoute
+  AdminSettingsInviteRoute: typeof AdminSettingsInviteRoute
 }
 
 const AdminRouteRouteChildren: AdminRouteRouteChildren = {
+  AdminAcceptInviteRoute: AdminAcceptInviteRoute,
   AdminBookingsRoute: AdminBookingsRoute,
   AdminCalendarRoute: AdminCalendarRoute,
   AdminForgotPasswordRoute: AdminForgotPasswordRoute,
@@ -369,6 +410,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminRoomsRoute: AdminRoomsRoute,
   AdminSettingsRoute: AdminSettingsRoute,
   AdminIndexRoute: AdminIndexRoute,
+  AdminSettingsInviteRoute: AdminSettingsInviteRoute,
 }
 
 const AdminRouteRouteWithChildren = AdminRouteRoute._addFileChildren(

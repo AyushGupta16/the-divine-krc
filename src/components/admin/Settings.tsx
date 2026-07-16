@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { Save, Zap } from "lucide-react";
 
 import type {
@@ -234,12 +235,12 @@ function TeamPanel({ team }: { team: TeamMember[] }) {
             Who can log in to the admin console.
           </div>
         </div>
-        <button
-          type="button"
+        <Link
+          to="/admin/settings/invite"
           className="flex-none rounded-[5px] border border-[#d9d0bd] bg-white px-3.5 py-2 text-[11px] font-bold uppercase tracking-[0.1em] text-[#4a4a4a] transition-colors hover:bg-black/[0.03]"
         >
           Invite
-        </button>
+        </Link>
       </div>
       <div className="flex flex-col">
         {team.map((m, i) => {

@@ -70,6 +70,8 @@ import {
   formatINR,
   formatINRCompact,
 } from "@/lib/booking-math";
+import { team } from "@/lib/team";
+import { initialsOf } from "@/lib/utils";
 
 export interface RoomTypeInfo {
   type: RoomType;
@@ -1505,17 +1507,6 @@ const AVATAR_TOKENS: { bg: string; color: string }[] = [
   { bg: "#f7e6e0", color: "#b4553f" },
 ];
 
-/** "Meera Krishnan" → "MK"; a single-word name gives a single letter. */
-function initialsOf(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((word) => word[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
-
 /** "2026-07-14" → "14 Jul 2026". */
 function longDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-IN", {
@@ -2345,12 +2336,20 @@ const PROPERTY: PropertyProfile = {
  * using it. The rest are staff. Kept here rather than imported from `auth.ts`,
  * which pulls in server-only session code; the DB swap unifies the two.
  */
-const TEAM_SEED: Omit<TeamMember, "initials">[] = [
-  { name: "KRC Admin", email: "admin@thedivinekrc.in", role: "Owner" },
-  { name: "Rahul Menon", email: "rahul@thedivinekrc.in", role: "Manager" },
-  { name: "Sneha Pillai", email: "sneha@thedivinekrc.in", role: "Front desk" },
-  { name: "Vinod Kumar", email: "vinod@thedivinekrc.in", role: "Accounts" },
-];
+/**
+ * Who can log in, read off the one roster in `lib/team.ts`. PR #11 seeded this
+ * list here and noted the duplication with `auth.ts`; PR #12 removed it, because
+ * once an invite can add someone, a roster that Settings keeps privately would
+ * be a roster that goes stale the first time anyone joins.
+ *
+ * Only accepted members appear. Someone invited and still deciding is on the
+ * Team & access screen under their invite, not on the list of people with keys.
+ */
+function activeTeam(): TeamMember[] {
+  return team
+    .filter((m) => m.password)
+    .map((m) => ({ name: m.name, email: m.email, role: m.role, initials: initialsOf(m.name) }));
+}
 
 const PAYMENT_TOGGLES: ToggleSetting[] = [
   {
@@ -2462,7 +2461,7 @@ export async function getSettingsPageData(): Promise<SettingsPageData> {
     pricing: { tariffs: tariffSettings(), charges: chargeSettings() },
     payments: paymentSettings(),
     channels: channelSettings(bookings),
-    team: TEAM_SEED.map((m) => ({ ...m, initials: initialsOf(m.name) })),
+    team: activeTeam(),
     notifications: NOTIFICATION_TOGGLES,
   };
 }
