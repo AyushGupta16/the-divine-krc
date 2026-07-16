@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { bookingId, computeTotalBill, computeTotalCollected, formatINR, urn } from "./booking-math";
+import {
+  bookingId,
+  computeTotalBill,
+  computeTotalCollected,
+  formatINR,
+  formatINRCompact,
+  urn,
+} from "./booking-math";
 
 describe("computeTotalBill", () => {
   it("sums charges, subtracts discount, adds GST", () => {
@@ -76,6 +83,24 @@ describe("formatINR", () => {
   it("formats with Indian grouping and no paise", () => {
     expect(formatINR(1500)).toBe("₹1,500");
     expect(formatINR(150000)).toBe("₹1,50,000");
+  });
+});
+
+describe("formatINRCompact", () => {
+  it("scales to k / L / Cr on the Indian short scale", () => {
+    expect(formatINRCompact(88000)).toBe("₹88k");
+    expect(formatINRCompact(240000)).toBe("₹2.4L");
+    expect(formatINRCompact(12000000)).toBe("₹1.2Cr");
+  });
+
+  it("drops a trailing .0 but keeps a meaningful decimal", () => {
+    expect(formatINRCompact(100000)).toBe("₹1L");
+    expect(formatINRCompact(143500)).toBe("₹1.4L");
+  });
+
+  it("leaves amounts under a thousand ungrouped", () => {
+    expect(formatINRCompact(0)).toBe("₹0");
+    expect(formatINRCompact(450)).toBe("₹450");
   });
 });
 

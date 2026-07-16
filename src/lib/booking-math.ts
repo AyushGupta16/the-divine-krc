@@ -44,6 +44,21 @@ export function formatINR(n: number): string {
 }
 
 /**
+ * Format a rupee amount in Indian short scale — "₹88k", "₹2.4L", "₹1.08Cr".
+ * One decimal at most, and a trailing ".0" is dropped so round figures stay
+ * clean. Used where a column is too narrow for the full grouped number.
+ */
+export function formatINRCompact(n: number): string {
+  const scaled = (value: number, suffix: string) =>
+    `₹${value.toFixed(1).replace(/\.0$/, "")}${suffix}`;
+
+  if (n >= 1_00_00_000) return scaled(n / 1_00_00_000, "Cr");
+  if (n >= 1_00_000) return scaled(n / 1_00_000, "L");
+  if (n >= 1_000) return scaled(n / 1_000, "k");
+  return `₹${Math.round(n)}`;
+}
+
+/**
  * Booking id: KRC-YYYYMMDD-nnn.
  * @param date  a Date or ISO string for the booking day
  * @param seq   1-based sequence number for that day (zero-padded to 3)
