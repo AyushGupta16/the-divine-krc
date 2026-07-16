@@ -173,9 +173,11 @@ describe("the invite lifecycle", () => {
   });
 
   it("will not invite someone who is already on the team", () => {
-    const res = createInvite({ email: "RAHUL@thedivinekrc.in", role: "Manager" });
+    // Cased differently on purpose: the guard has to normalize before it looks.
+    const existing = team[1].email;
+    const res = createInvite({ email: existing.toUpperCase(), role: "Manager" });
     expect(res.ok).toBe(false);
-    expect(invites.some((i) => i.email === "rahul@thedivinekrc.in")).toBe(false);
+    expect(invites.some((i) => i.email === existing)).toBe(false);
   });
 
   it("will not send an invite to something that is not an address", () => {
