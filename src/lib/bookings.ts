@@ -12,6 +12,10 @@ import type {
   CalendarPageData,
   DashboardData,
   Guest,
+  GuestListItem,
+  GuestsPageData,
+  GuestStat,
+  GuestTier,
   OccupancyBand,
   PartyHallCalendarCell,
   PartyHallEnquiry,
@@ -94,7 +98,12 @@ export const ROOM_UNITS: RoomUnit[] = [
 /** All 14 physical room numbers across the two floors. */
 export const ROOM_NUMBERS: string[] = ROOM_UNITS.map((r) => r.no);
 
-const GUESTS: Guest[] = [
+/**
+ * The guest directory, mirroring `Admin Guests.dc.html`. Stays and lifetime
+ * value are seeded; tier is derived (see `guestTier`), so a guest's badge can
+ * never drift out of step with the stays it is supposed to reflect.
+ */
+const GUEST_SEED: Omit<Guest, "tier">[] = [
   {
     id: "G-001",
     name: "Aarav Mehta",
@@ -103,7 +112,6 @@ const GUESTS: Guest[] = [
     city: "New Delhi",
     stays: 6,
     lifetimeValue: 48200,
-    tier: "gold",
   },
   {
     id: "G-002",
@@ -113,7 +121,6 @@ const GUESTS: Guest[] = [
     city: "Bengaluru",
     stays: 3,
     lifetimeValue: 21400,
-    tier: "silver",
   },
   {
     id: "G-003",
@@ -123,7 +130,6 @@ const GUESTS: Guest[] = [
     city: "Greater Noida",
     stays: 1,
     lifetimeValue: 3400,
-    tier: "new",
   },
   {
     id: "G-004",
@@ -133,7 +139,6 @@ const GUESTS: Guest[] = [
     city: "Chennai",
     stays: 4,
     lifetimeValue: 32600,
-    tier: "gold",
   },
   {
     id: "G-005",
@@ -143,7 +148,6 @@ const GUESTS: Guest[] = [
     city: "Jaipur",
     stays: 2,
     lifetimeValue: 11800,
-    tier: "silver",
   },
   {
     id: "G-006",
@@ -153,7 +157,6 @@ const GUESTS: Guest[] = [
     city: "Lucknow",
     stays: 2,
     lifetimeValue: 9600,
-    tier: "silver",
   },
   {
     id: "G-007",
@@ -163,7 +166,6 @@ const GUESTS: Guest[] = [
     city: "Hyderabad",
     stays: 1,
     lifetimeValue: 3400,
-    tier: "new",
   },
   {
     id: "G-008",
@@ -173,7 +175,6 @@ const GUESTS: Guest[] = [
     city: "Chandigarh",
     stays: 1,
     lifetimeValue: 0,
-    tier: "new",
   },
   {
     id: "G-009",
@@ -183,7 +184,6 @@ const GUESTS: Guest[] = [
     city: "Kochi",
     stays: 1,
     lifetimeValue: 0,
-    tier: "new",
   },
   {
     id: "G-010",
@@ -193,9 +193,29 @@ const GUESTS: Guest[] = [
     city: "New Delhi",
     stays: 3,
     lifetimeValue: 18900,
-    tier: "silver",
   },
 ];
+
+/**
+ * Loyalty standing, by stays alone: four stays earns Gold, a second stay earns
+ * Silver, and a first-time guest is New.
+ *
+ * Lifetime value deliberately plays no part. It tracks stays closely enough
+ * that the two never disagree on the seeded set, but a spend threshold could
+ * not be stated without contradicting the design: its Gold guests start at
+ * ₹1.24L, where ours start at ₹32.6k. Stays is the rule both sets agree on.
+ */
+export function guestTier(stays: number): GuestTier {
+  if (stays >= 4) return "gold";
+  if (stays >= 2) return "silver";
+  return "new";
+}
+
+function withTier(g: Omit<Guest, "tier">): Guest {
+  return { ...g, tier: guestTier(g.stays) };
+}
+
+const GUESTS: Guest[] = GUEST_SEED.map(withTier);
 
 function withTotal(b: Omit<Booking, "totalBill">): Booking {
   return { ...b, totalBill: computeTotalBill(b.revenue) };
@@ -1420,5 +1440,104 @@ export async function getPartyHallPageData(year = 2026, month = 8): Promise<Part
     calendar: miniCalendar(year, month),
     packages: PARTY_HALL_PACKAGES,
     addOnsLine: `Add-ons: catering ₹450/plate · decor · DJ. ${PARTY_HALL_ADVANCE_PCT}% advance to confirm.`,
+  };
+}
+
+// ── Guests ──────────────────────────────────────────────────────────────────
+
+/** A guest with two or more stays has come back — that is what "repeat" means. */
+const REPEAT_STAYS = 2;
+
+/**
+ * Statuses of a stay that actually happened. A cancelled or no-show booking is
+ * a stay the guest never took, and a future booking is one they have yet to
+ * take — neither can be anybody's last stay.
+ */
+const BEGUN_STAY_STATUSES = new Set<BookingStatus>(["checked_in", "checked_out"]);
+
+/** Avatar disc fill/ink, cycled by row position per the design's `av` list. */
+const AVATAR_TOKENS: { bg: string; color: string }[] = [
+  { bg: "#f0e7d3", color: "#a8863f" },
+  { bg: "#e4eef7", color: "#3a6ea5" },
+  { bg: "#eee7f7", color: "#7c5cbf" },
+  { bg: "#e6efe6", color: "#5a8a5a" },
+  { bg: "#f7e6e0", color: "#b4553f" },
+];
+
+/** "Meera Krishnan" → "MK"; a single-word name gives a single letter. */
+function initialsOf(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+/** "2026-07-14" → "14 Jul 2026". */
+function longDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/**
+ * Everything the admin Guests screen renders. The directory joins each guest to
+ * the live booking set, so "in-house" and "last stay" answer to the same rows
+ * the Bookings screen lists, and the stat strip is counted off the directory it
+ * sits above rather than seeded beside it.
+ *
+ * Note the booking set is a recent slice, not a full history: a guest whose
+ * stays predate it shows a last stay of "—" despite a stay count above zero.
+ * The design carries that same case (its Deepak Rao has one stay and no date).
+ *
+ * A real DB swap turns these into aggregate queries behind the same signature.
+ */
+export async function getGuestsPageData(): Promise<GuestsPageData> {
+  const inHouse = new Set<string>();
+  const lastStayOn = new Map<string, string>();
+
+  for (const b of BOOKINGS) {
+    if (!BEGUN_STAY_STATUSES.has(b.status)) continue;
+    if (b.status === "checked_in") inHouse.add(b.guestId);
+
+    // The arrival date is when the guest stayed; for someone still in-house the
+    // check-out is a date in the future, which no "last stay" should show.
+    const previous = lastStayOn.get(b.guestId);
+    if (!previous || b.checkIn > previous) lastStayOn.set(b.guestId, b.checkIn);
+  }
+
+  const guests: GuestListItem[] = [...GUESTS]
+    .sort((a, b) => b.lifetimeValue - a.lifetimeValue || a.name.localeCompare(b.name))
+    .map((guest, i) => {
+      const stayed = lastStayOn.get(guest.id);
+      const avatar = AVATAR_TOKENS[i % AVATAR_TOKENS.length];
+      return {
+        guest,
+        initials: initialsOf(guest.name),
+        avatarBg: avatar.bg,
+        avatarColor: avatar.color,
+        lastStay: stayed ? longDate(stayed) : "—",
+        inHouse: inHouse.has(guest.id),
+      };
+    });
+
+  const repeatCount = guests.filter((g) => g.guest.stays >= REPEAT_STAYS).length;
+  const topLtv = guests.reduce((max, g) => Math.max(max, g.guest.lifetimeValue), 0);
+
+  const stats: GuestStat[] = [
+    { key: "total", label: "Total guests", value: String(guests.length) },
+    { key: "inHouse", label: "In-house now", value: String(inHouse.size) },
+    { key: "repeat", label: "Repeat guests", value: String(repeatCount) },
+    { key: "topLtv", label: "Lifetime value · top", value: formatINRCompact(topLtv) },
+  ];
+
+  return {
+    subtitle: `${guests.length} profiles · ${repeatCount} repeat guests`,
+    stats,
+    guests,
   };
 }

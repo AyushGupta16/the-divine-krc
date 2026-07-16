@@ -1,13 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { getGuests } from "@/lib/bookings";
-import { RoutePlaceholder } from "@/components/booking/RoutePlaceholder";
+import { getGuestsPageData } from "@/lib/bookings";
+import { Guests } from "@/components/admin/Guests";
 
 export const Route = createFileRoute("/admin/guests")({
-  loader: async () => ({ guests: await getGuests() }),
+  loader: async () => ({ guests: await getGuestsPageData() }),
   component: AdminGuests,
 });
 
 function AdminGuests() {
   const { guests } = Route.useLoaderData();
-  return <RoutePlaceholder title="Guests" count={guests.length} />;
+  return <Guests data={guests} />;
 }

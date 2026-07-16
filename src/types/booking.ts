@@ -65,6 +65,7 @@ export interface Guest {
   city: string;
   stays: number;
   lifetimeValue: number;
+  /** Loyalty standing — derived from `stays`, never seeded. See `guestTier`. */
   tier: GuestTier;
 }
 
@@ -428,4 +429,39 @@ export interface PartyHallPageData {
   packages: PartyHallPackage[];
   /** Add-on pricing line under the package reference. */
   addOnsLine: string;
+}
+
+// ── Admin guests (PR #13) ────────────────────────────────────────────────
+// Shapes for the guest directory, mirroring `Admin Guests.dc.html`. Every
+// figure is derived from the guest set and the live booking set; nothing on
+// this screen is seeded twice.
+
+/** One tile in the guest stat strip. */
+export interface GuestStat {
+  key: "total" | "inHouse" | "repeat" | "topLtv";
+  label: string;
+  /** Pre-formatted for display — counts as-is, money in short scale. */
+  value: string;
+}
+
+/** A directory row: the guest plus what the booking set says about them. */
+export interface GuestListItem {
+  guest: Guest;
+  /** Up to two letters from the name, for the avatar disc. */
+  initials: string;
+  /** Avatar disc fill/ink, cycled by row position per the design. */
+  avatarBg: string;
+  avatarColor: string;
+  /** Arrival date of their most recent begun stay, e.g. "14 Jul 2026"; "—" if none. */
+  lastStay: string;
+  /** True while a stay of theirs is checked in. */
+  inHouse: boolean;
+}
+
+export interface GuestsPageData {
+  /** Sub-title under "Guests", e.g. "10 profiles · 6 repeat guests". */
+  subtitle: string;
+  stats: GuestStat[];
+  /** Highest lifetime value first — the directory leads with the best guests. */
+  guests: GuestListItem[];
 }
