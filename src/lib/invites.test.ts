@@ -13,6 +13,8 @@ import {
   findInviteByEmail,
   findMember,
   invites,
+  isActive,
+  passwordProblem,
   refreshInvite,
   revokeInvite,
   team,
@@ -75,7 +77,7 @@ describe("roles", () => {
 describe("the invite lifecycle", () => {
   it("turns an accepted invite into an active member on the Settings roster", async () => {
     const i = send("priya@thedivinekrc.in", "Accounts");
-    expect(acceptInvite(i.token, "a-good-password").ok).toBe(true);
+    expect(acceptInvite(i.token).ok).toBe(true);
 
     const member = findMember("priya@thedivinekrc.in")!;
     expect(member.role).toBe("Accounts");
@@ -102,7 +104,7 @@ describe("the invite lifecycle", () => {
     const i = send("late@thedivinekrc.in", "Manager");
     i.expiresAt = Date.now() - 1;
 
-    const res = acceptInvite(i.token, "a-good-password");
+    const res = acceptInvite(i.token);
     expect(res.ok).toBe(false);
     expect(findMember("late@thedivinekrc.in")).toBeUndefined();
   });
@@ -110,20 +112,23 @@ describe("the invite lifecycle", () => {
   it("burns the token on the way in, so an invite works exactly once", () => {
     const i = send("once@thedivinekrc.in");
 
-    expect(acceptInvite(i.token, "a-good-password").ok).toBe(true);
+    expect(acceptInvite(i.token).ok).toBe(true);
+    const joined = findMember("once@thedivinekrc.in")!.acceptedAt;
     expect(findInvite(i.token)).toBeUndefined();
     // A forwarded link cannot be replayed to seize the account.
-    expect(acceptInvite(i.token, "someone-elses-password").ok).toBe(false);
-    expect(findMember("once@thedivinekrc.in")!.password).toBe("a-good-password");
+    expect(acceptInvite(i.token).ok).toBe(false);
+    expect(findMember("once@thedivinekrc.in")!.acceptedAt).toBe(joined);
   });
 
   it("refuses a password too short to be worth having, and lets them retry", () => {
     const i = send("weak@thedivinekrc.in");
 
-    expect(acceptInvite(i.token, "short").ok).toBe(false);
-    expect(findMember("weak@thedivinekrc.in")).toBeUndefined();
+    // `acceptInviteFn` checks this before spending the token, so a rejected
+    // password leaves the invite usable rather than stranding them.
+    expect(passwordProblem("short")).toBeTruthy();
+    expect(passwordProblem("a-good-password")).toBeNull();
     expect(findInvite(i.token)).toBeDefined();
-    expect(acceptInvite(i.token, "a-good-password").ok).toBe(true);
+    expect(acceptInvite(i.token).ok).toBe(true);
   });
 
   it("gives a resent invite a new token and lets the old link die", () => {
@@ -134,8 +139,8 @@ describe("the invite lifecycle", () => {
     expect(res.ok).toBe(true);
 
     expect(findInvite(old)).toBeUndefined();
-    expect(acceptInvite(old, "a-good-password").ok).toBe(false);
-    expect(acceptInvite(i.token, "a-good-password").ok).toBe(true);
+    expect(acceptInvite(old).ok).toBe(false);
+    expect(acceptInvite(i.token).ok).toBe(true);
   });
 
   it("revives an expired invite when it is re-sent, rather than stranding them", () => {
@@ -143,14 +148,14 @@ describe("the invite lifecycle", () => {
     i.expiresAt = Date.now() - 1;
 
     expect(refreshInvite(i.token).ok).toBe(true);
-    expect(acceptInvite(i.token, "a-good-password").ok).toBe(true);
+    expect(acceptInvite(i.token).ok).toBe(true);
   });
 
   it("revokes an invite so the link stops working", () => {
     const i = send("revoked@thedivinekrc.in");
 
     expect(revokeInvite(i.token).ok).toBe(true);
-    expect(acceptInvite(i.token, "a-good-password").ok).toBe(false);
+    expect(acceptInvite(i.token).ok).toBe(false);
     expect(findMember("revoked@thedivinekrc.in")).toBeUndefined();
     // Revoking twice is a no-op, not a crash.
     expect(revokeInvite(i.token).ok).toBe(false);
@@ -162,7 +167,7 @@ describe("the invite lifecycle", () => {
 
     expect(invites.filter((x) => x.email === "dup@thedivinekrc.in")).toHaveLength(1);
     expect(findInvite(first.token)).toBeUndefined();
-    expect(acceptInvite(second.token, "a-good-password").ok).toBe(true);
+    expect(acceptInvite(second.token).ok).toBe(true);
     // The role that lands is the one from the invite they actually used.
     expect(findMember("dup@thedivinekrc.in")!.role).toBe("Accounts");
   });
@@ -204,11 +209,23 @@ describe("the seeded roster", () => {
     expect(seed.expiresAt - seed.createdAt).toBe(INVITE_TTL_MS);
   });
 
-  it("only lets people who have set a password sign in", () => {
-    // `findAdmin` in auth.ts is exactly this filter, which is why an invited
-    // but undecided person cannot log in despite being known to the system.
+  it("only lets people who have accepted sign in", () => {
+    // `verify` in auth.ts applies this same filter, which is why an invited but
+    // undecided person cannot log in despite being known to the system.
     expect(findMember("admin@thedivinekrc.in")!.role).toBe("Owner");
     expect(findMember("aarti@thedivinekrc.in")).toBeUndefined();
-    for (const m of team) expect(m.password).toBeTruthy();
+    for (const m of team) expect(isActive(m)).toBe(true);
+  });
+
+  it("keeps every credential out of this module, and so out of the browser", () => {
+    // The regression that made this file exist: #12 held passwords beside the
+    // roster, `bookings.ts` imports the roster for Settings, route loaders run
+    // on the client — and `krc-admin` landed in dist/client. A TeamAccount must
+    // carry no secret, only the fact that one exists elsewhere.
+    for (const m of team) {
+      expect(Object.keys(m).sort()).toEqual(["acceptedAt", "email", "name", "role"]);
+    }
+    const source = JSON.stringify(team) + JSON.stringify(invites);
+    expect(source).not.toMatch(/password|secret/i);
   });
 });
