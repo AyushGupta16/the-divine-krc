@@ -13,7 +13,7 @@
 
 import { createServerFn } from "@tanstack/react-start";
 
-import { getSessionMember } from "@/lib/auth";
+import { getSessionMember, setMemberCredential } from "@/lib/auth";
 import {
   INVITABLE_ROLES,
   ROLE_HINTS,
@@ -24,6 +24,8 @@ import {
   findInvite,
   inviteStatus,
   invites,
+  isActive,
+  passwordProblem,
   refreshInvite,
   revokeInvite,
   team,
@@ -57,16 +59,14 @@ async function requireManager(): Promise<Result> {
 // --- Reads --------------------------------------------------------------
 
 function memberRows(): TeamRow[] {
-  return team
-    .filter((m) => m.password)
-    .map((m) => ({
-      name: m.name,
-      email: m.email,
-      role: m.role,
-      status: "Active" as const,
-      initials: initialsOf(m.name),
-      token: null,
-    }));
+  return team.filter(isActive).map((m) => ({
+    name: m.name,
+    email: m.email,
+    role: m.role,
+    status: "Active" as const,
+    initials: initialsOf(m.name),
+    token: null,
+  }));
 }
 
 function inviteRows(now: number): TeamRow[] {
@@ -168,5 +168,16 @@ export const revokeInviteFn = createServerFn({ method: "POST" })
 export const acceptInviteFn = createServerFn({ method: "POST" })
   .inputValidator((data: { token: string; password: string }) => data)
   .handler(async ({ data }): Promise<Result<{ email: string }>> => {
-    return acceptInvite(data.token, data.password);
+    // Check the password before the token is spent, so a rejected one leaves
+    // the invite usable rather than stranding them with a burnt link.
+    const problem = passwordProblem(data.password);
+    if (problem) return { ok: false, error: problem };
+
+    const res = acceptInvite(data.token);
+    if (!res.ok) return res;
+
+    // The roster now says they accepted, so the credential must exist for that
+    // to be true. This is the one place both are set.
+    setMemberCredential(res.email, data.password);
+    return { ok: true, email: res.email };
   });

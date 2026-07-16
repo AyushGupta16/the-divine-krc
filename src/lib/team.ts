@@ -12,6 +12,19 @@
 // and cannot pull server-only session code, so the shared store has to sit below
 // both. Server functions live in `invites.ts`; this file is just the data and
 // the rules. Swap the arrays for a DB and everything above them still holds.
+//
+// !! Which is exactly why NO CREDENTIAL MAY EVER LIVE IN THIS FILE. !!
+//
+// #12 first held each member's password here, reasoning that holding one *is*
+// being active. It read well and it shipped `krc-admin` to every browser: a
+// route loader runs on the client too, so `bookings.ts` importing this module
+// for the roster pulled the passwords into `dist/client`. Nobody had to read
+// the repo — View Source was enough.
+//
+// So this file knows *that* someone accepted (`acceptedAt`) and never *how they
+// prove it*. Passwords live in `auth.ts`, which is server-only and stays that
+// way. The invariant — accepted iff a credential exists — is established in one
+// place, `acceptInviteFn`, which sets both or neither.
 
 /** Roles are fixed: permissions are code, not data, so a role cannot be invented. */
 export type Role = "Owner" | "Manager" | "Front desk" | "Accounts";
@@ -75,24 +88,33 @@ export interface TeamAccount {
   name: string;
   role: Role;
   /**
-   * Set when — and only when — the person has accepted and chosen a password.
-   * This is what makes them Active: there is no status column to fall out of
-   * step with reality, because holding a credential *is* being active.
+   * When they accepted — set by `acceptInvite`, at the same moment `auth.ts` is
+   * given their password. Presence is what makes them Active, so status is
+   * still derived rather than stored, but the secret itself stays server-side.
+   * `null` means invited and undecided.
    */
-  password?: string;
+  acceptedAt?: number;
 }
 
+/** Long enough ago to be uninteresting; the seed pre-dates the console. */
+const SEEDED_AT = Date.parse("2026-01-05T00:00:00Z");
+
 export const team: TeamAccount[] = [
-  { email: "admin@thedivinekrc.in", name: "KRC Admin", role: "Owner", password: "krc-admin" },
-  { email: "rahul@thedivinekrc.in", name: "Rahul Menon", role: "Manager", password: "krc-rahul" },
+  { email: "admin@thedivinekrc.in", name: "KRC Admin", role: "Owner", acceptedAt: SEEDED_AT },
+  { email: "rahul@thedivinekrc.in", name: "Rahul Menon", role: "Manager", acceptedAt: SEEDED_AT },
   {
     email: "sneha@thedivinekrc.in",
     name: "Sneha Pillai",
     role: "Front desk",
-    password: "krc-sneha",
+    acceptedAt: SEEDED_AT,
   },
-  { email: "vinod@thedivinekrc.in", name: "Vinod Kumar", role: "Accounts", password: "krc-vinod" },
+  { email: "vinod@thedivinekrc.in", name: "Vinod Kumar", role: "Accounts", acceptedAt: SEEDED_AT },
 ];
+
+/** Accepted, and therefore holding a credential `auth.ts` knows and this file does not. */
+export function isActive(member: TeamAccount): boolean {
+  return member.acceptedAt != null;
+}
 
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -184,7 +206,8 @@ export function createInvite(input: {
   if (!INVITABLE_ROLES.includes(input.role)) {
     return { ok: false, error: "Pick a role for this invite." };
   }
-  if (findMember(email)?.password) {
+  const member = findMember(email);
+  if (member && isActive(member)) {
     return { ok: false, error: `${email} is already on the team.` };
   }
 
@@ -226,36 +249,47 @@ export function revokeInvite(token: string): Result<{ email: string }> {
   return { ok: true, email: invite.email };
 }
 
+export const MIN_PASSWORD_LENGTH = 8;
+
+/** The password rule, stated once so both token screens refuse the same thing. */
+export function passwordProblem(password: string): string | null {
+  return password.length < MIN_PASSWORD_LENGTH
+    ? `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`
+    : null;
+}
+
 /**
- * Accept. Choosing a password is what creates the member — there is no status
- * to set, because holding a credential is what being active means.
+ * Accept: mark them joined and burn the token.
+ *
+ * The password is *not* passed here, and that is the point — this module must
+ * never see one. `acceptInviteFn` in `invites.ts` checks `passwordProblem`
+ * first, then hands the secret to `auth.ts` and calls this. Both happen or the
+ * token is untouched, which is what keeps "accepted" and "has a credential" the
+ * same fact.
  */
-export function acceptInvite(token: string, password: string): Result<{ email: string }> {
+export function acceptInvite(token: string): Result<{ email: string; role: Role }> {
   const invite = findInvite(token);
   if (!invite || inviteStatus(invite) === "Expired") {
     // Burn an expired token on sight rather than leaving it to be retried.
     if (invite) invites.splice(invites.indexOf(invite), 1);
     return { ok: false, error: "This invite link is invalid or has expired." };
   }
-  if (password.length < 8) {
-    return { ok: false, error: "Password must be at least 8 characters." };
-  }
 
   const email = invite.email;
   const existing = findMember(email);
   if (existing) {
-    existing.password = password;
+    existing.acceptedAt = Date.now();
     existing.role = invite.role;
   } else {
     team.push({
       email,
       name: displayNameFromEmail(email),
       role: invite.role,
-      password,
+      acceptedAt: Date.now(),
     });
   }
   invites.splice(invites.indexOf(invite), 1); // single use
-  return { ok: true, email };
+  return { ok: true, email, role: invite.role };
 }
 
 // Seed: one invite still open, so the screen has a Pending row to act on.
