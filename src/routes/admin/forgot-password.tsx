@@ -44,8 +44,8 @@ function ForgotPasswordPage() {
       description="Enter the email tied to your admin account and we'll send a secure reset link. Links expire in 30 minutes."
       panelFooter={
         <p className="text-[12px] leading-[1.7] text-[#8a8479]">
-          Only invited team members can reset access. Need a new account? Ask
-          your property manager to send an invite.
+          Only invited team members can reset access. Need a new account? Ask your property manager
+          to send an invite.
         </p>
       }
     >
@@ -58,9 +58,7 @@ function ForgotPasswordPage() {
             <ArrowLeft className="size-3.5" />
             Back to sign in
           </Link>
-          <h2 className="mb-1.5 font-display text-[26px] font-semibold">
-            Reset password
-          </h2>
+          <h2 className="mb-1.5 font-display text-[26px] font-semibold">Reset password</h2>
           <p className="mb-7 text-[13px] text-[#7a746a]">
             We'll email you a link to set a new one.
           </p>
@@ -119,18 +117,14 @@ function ForgotPasswordPage() {
           <div className="mx-auto mb-5.5 flex size-15 items-center justify-center rounded-full bg-gold">
             <Mail className="size-7 text-obsidian" />
           </div>
-          <h2 className="mb-2 font-display text-[26px] font-semibold">
-            Check your inbox
-          </h2>
+          <h2 className="mb-2 font-display text-[26px] font-semibold">Check your inbox</h2>
           <p className="mb-2 text-[13.5px] leading-relaxed text-[#7a746a]">
             We've sent a reset link to
           </p>
-          <p className="mb-6 break-all text-[14px] font-semibold text-obsidian">
-            {email.trim()}
-          </p>
+          <p className="mb-6 break-all text-[14px] font-semibold text-obsidian">{email.trim()}</p>
           <div className="rounded-md border border-[#efe4cc] bg-[#faf7ef] px-4 py-3 text-left text-[12.5px] leading-relaxed text-[#7a746a]">
-            The link expires in <b className="text-obsidian">30 minutes</b>. If
-            it doesn't arrive, check spam or resend below.
+            The link expires in <b className="text-obsidian">30 minutes</b>. If it doesn't arrive,
+            check spam or resend below.
           </div>
           <button
             type="button"

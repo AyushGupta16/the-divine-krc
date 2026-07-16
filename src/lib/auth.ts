@@ -21,10 +21,12 @@ interface SessionData {
 // h3 sealed-cookie session. The password seals/verifies the cookie; it must be
 // >= 32 chars. In production set SESSION_SECRET; the fallback is dev-only.
 const SESSION_PASSWORD =
-  process.env.SESSION_SECRET ??
-  "krc-dev-session-secret-change-me-please-32b";
+  process.env.SESSION_SECRET ?? "krc-dev-session-secret-change-me-please-32b";
 
 function getSession() {
+  // Not a React hook: h3's server-side session helper just shares the `use`
+  // prefix, so the rules-of-hooks check misfires on this server-only module.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   return useSession<SessionData>({
     name: "krc_admin_session",
     password: SESSION_PASSWORD,
@@ -128,22 +130,20 @@ export const requestResetFn = createServerFn({ method: "POST" })
 
 export const resetPasswordFn = createServerFn({ method: "POST" })
   .inputValidator((data: { token: string; password: string }) => data)
-  .handler(
-    async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
-      const entry = resetTokens.get(data.token);
-      if (!entry || entry.expiresAt < Date.now()) {
-        resetTokens.delete(data.token);
-        return { ok: false, error: "This reset link is invalid or has expired." };
-      }
-      if (data.password.length < 8) {
-        return { ok: false, error: "Password must be at least 8 characters." };
-      }
-      const admin = findAdmin(entry.email);
-      if (admin) admin.password = data.password;
-      resetTokens.delete(data.token); // single use
-      return { ok: true };
-    },
-  );
+  .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const entry = resetTokens.get(data.token);
+    if (!entry || entry.expiresAt < Date.now()) {
+      resetTokens.delete(data.token);
+      return { ok: false, error: "This reset link is invalid or has expired." };
+    }
+    if (data.password.length < 8) {
+      return { ok: false, error: "Password must be at least 8 characters." };
+    }
+    const admin = findAdmin(entry.email);
+    if (admin) admin.password = data.password;
+    resetTokens.delete(data.token); // single use
+    return { ok: true };
+  });
 
 /**
  * Route-guard helper for admin console routes. Call from `beforeLoad`.

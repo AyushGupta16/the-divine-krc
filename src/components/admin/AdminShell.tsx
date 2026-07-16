@@ -84,17 +84,17 @@ function NavRow({
       onClick={onNavigate}
       title={collapsed ? item.label : undefined}
       className={cn(
-        "flex items-center gap-3 rounded-[5px] px-[11px] py-[9px] text-[13px] transition-colors",
+        "flex items-center gap-3 rounded-[5px] px-2.75 py-2.25 text-[13px] transition-colors",
         collapsed && "justify-center px-0",
         active
           ? "bg-gold/15 font-semibold text-gold"
           : "font-normal text-ivory/60 hover:bg-white/5 hover:text-ivory",
       )}
     >
-      <Icon className="size-[17px] shrink-0" />
+      <Icon className="size-4.25 shrink-0" />
       {!collapsed && <span className="truncate">{item.label}</span>}
       {!collapsed && typeof count === "number" && count > 0 && (
-        <span className="ml-auto rounded-full bg-gold px-[7px] py-px text-[10.5px] font-bold text-obsidian">
+        <span className="ml-auto rounded-full bg-gold px-1.75 py-px text-[10.5px] font-bold text-obsidian">
           {count}
         </span>
       )}
@@ -117,14 +117,14 @@ function SidebarBody({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-obsidian px-4 py-[22px] text-ivory">
+    <div className="flex h-full flex-col overflow-hidden bg-obsidian px-4 py-5.5 text-ivory">
       <SidebarBrand collapsed={collapsed} />
 
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto">
         {ADMIN_NAV.map((group) => (
           <div key={group.label} className="flex flex-col gap-0.5">
             {!collapsed && (
-              <p className="px-[10px] pb-2 pt-3 text-[10px] uppercase tracking-[0.22em] text-[#6d675c] first:pt-1">
+              <p className="px-2.5 pb-2 pt-3 text-[10px] uppercase tracking-[0.22em] text-[#6d675c] first:pt-1">
                 {group.label}
               </p>
             )}
@@ -317,8 +317,8 @@ function HeaderActions() {
         aria-label="Notifications"
         className="relative flex size-10 items-center justify-center rounded-[5px] border border-[#eae4d6] bg-white text-warm-gray transition-colors hover:bg-black/[0.03]"
       >
-        <Bell className="size-[17px]" />
-        <span className="absolute -right-1.5 -top-1.5 flex size-[18px] items-center justify-center rounded-full bg-[#b4553f] text-[10px] font-bold text-white">
+        <Bell className="size-4.25" />
+        <span className="absolute -right-1.5 -top-1.5 flex size-4.5 items-center justify-center rounded-full bg-[#b4553f] text-[10px] font-bold text-white">
           3
         </span>
       </button>
@@ -327,14 +327,14 @@ function HeaderActions() {
         aria-label="Search bookings, guests"
         className="flex size-10 items-center justify-center rounded-[5px] border border-[#eae4d6] bg-white text-warm-gray transition-colors hover:bg-black/[0.03]"
       >
-        <Search className="size-[17px]" />
+        <Search className="size-4.25" />
       </button>
       <Link
         to="/admin/bookings"
         aria-label="New booking"
         className="flex size-10 items-center justify-center rounded-[5px] bg-gold text-obsidian transition-opacity hover:opacity-90"
       >
-        <Plus className="size-[18px]" strokeWidth={2.4} />
+        <Plus className="size-4.5" strokeWidth={2.4} />
       </Link>
     </div>
   );
@@ -344,7 +344,7 @@ function HeaderActions() {
 function BottomNav({ onMore }: { onMore: () => void }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 flex h-[62px] items-stretch border-t border-gold/20 bg-obsidian px-0.5 md:hidden">
+    <nav className="fixed inset-x-0 bottom-0 z-40 flex h-15.5 items-stretch border-t border-gold/20 bg-obsidian px-0.5 md:hidden">
       {BOTTOM_NAV.map((item) => {
         const active = isActive(pathname, item);
         const Icon = item.icon;
@@ -353,12 +353,12 @@ function BottomNav({ onMore }: { onMore: () => void }) {
             key={item.to}
             to={item.to}
             className={cn(
-              "relative flex flex-1 flex-col items-center justify-center gap-[3px] transition-colors",
+              "relative flex flex-1 flex-col items-center justify-center gap-0.75 transition-colors",
               active ? "text-gold" : "text-ivory/60",
             )}
           >
             {active && (
-              <span className="absolute top-0 left-1/2 h-[3px] w-[30px] -translate-x-1/2 rounded-b bg-gold" />
+              <span className="absolute top-0 left-1/2 h-0.75 w-7.5 -translate-x-1/2 rounded-b bg-gold" />
             )}
             <Icon className="size-5" />
             <span className="text-[9.5px]">{item.label}</span>
@@ -368,7 +368,7 @@ function BottomNav({ onMore }: { onMore: () => void }) {
       <button
         type="button"
         onClick={onMore}
-        className="flex flex-1 flex-col items-center justify-center gap-[3px] text-ivory/60"
+        className="flex flex-1 flex-col items-center justify-center gap-0.75 text-ivory/60"
       >
         <Menu className="size-5" />
         <span className="text-[9.5px]">More</span>
@@ -420,7 +420,7 @@ export function AdminShell({ user, counts = {} }: { user: SessionUser | null; co
       />
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 w-[264px] shadow-2xl transition-transform duration-[260ms] md:hidden",
+          "fixed inset-y-0 left-0 z-50 w-66 shadow-2xl transition-transform duration-[260ms] md:hidden",
           drawerOpen ? "translate-x-0" : "-translate-x-full",
         )}
       >
@@ -440,7 +440,7 @@ export function AdminShell({ user, counts = {} }: { user: SessionUser | null; co
         />
       </aside>
 
-      <div className="flex min-h-screen flex-col pb-[62px] transition-[padding] duration-200 md:pb-0 md:pl-[var(--rail-w)]">
+      <div className="flex min-h-screen flex-col pb-15.5 transition-[padding] duration-200 md:pb-0 md:pl-[var(--rail-w)]">
         {/* Header */}
         <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-[#eae4d6] bg-ivory/90 px-4 backdrop-blur sm:px-6">
           <button

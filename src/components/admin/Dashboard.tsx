@@ -1,14 +1,5 @@
 import { useState, type ComponentType } from "react";
-import {
-  LogIn,
-  LogOut,
-  Globe,
-  TriangleAlert,
-  Check,
-  Sparkles,
-  CreditCard,
-  X,
-} from "lucide-react";
+import { LogIn, LogOut, Globe, TriangleAlert, Check, Sparkles, CreditCard, X } from "lucide-react";
 
 import type {
   ActivityItem,
@@ -23,12 +14,7 @@ import { cn } from "@/lib/utils";
 /** Card chrome shared by every panel on the dashboard. */
 function Card({ className, children }: { className?: string; children: React.ReactNode }) {
   return (
-    <div
-      className={cn(
-        "rounded-lg border border-[#eae4d6] bg-white p-5 shadow-sm",
-        className,
-      )}
-    >
+    <div className={cn("rounded-lg border border-[#eae4d6] bg-white p-5 shadow-sm", className)}>
       {children}
     </div>
   );
@@ -56,22 +42,17 @@ function StatCard({
       <div className="flex items-center gap-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-[#7a746a]">
         <span
           className={cn(
-            "flex size-[30px] items-center justify-center rounded-md",
+            "flex size-7.5 items-center justify-center rounded-md",
             accent === "gold" ? "bg-[#f0e7d3]" : "bg-[#f2e0dc]",
           )}
         >
-          <Icon
-            className={cn(
-              "size-4",
-              accent === "gold" ? "text-gold" : "text-[#b4553f]",
-            )}
-          />
+          <Icon className={cn("size-4", accent === "gold" ? "text-gold" : "text-[#b4553f]")} />
         </span>
         {label}
       </div>
       <div
         className={cn(
-          "mb-[7px] mt-[15px] font-display text-[40px] font-semibold leading-none",
+          "mb-1.75 mt-3.75 font-display text-[40px] font-semibold leading-none",
           valueClassName,
         )}
       >
@@ -85,25 +66,18 @@ function StatCard({
 function StatCards({ data }: { data: DashboardData }) {
   const { checkInsToday, checkOutsToday, expectedArrivals, unassignedRooms } = data;
   return (
-    <div className="grid grid-cols-2 gap-[18px] lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-4.5 lg:grid-cols-4">
       <StatCard icon={LogIn} label="Check-ins today" value={checkInsToday.total}>
         {checkInsToday.arrived} arrived ·{" "}
-        <span className="font-semibold text-[#a8863f]">
-          {checkInsToday.pending} pending
-        </span>
+        <span className="font-semibold text-[#a8863f]">{checkInsToday.pending} pending</span>
       </StatCard>
       <StatCard icon={LogOut} label="Check-outs today" value={checkOutsToday.total}>
         {checkOutsToday.settled} settled ·{" "}
-        <span className="font-semibold text-[#b4553f]">
-          {checkOutsToday.late} late
-        </span>
+        <span className="font-semibold text-[#b4553f]">{checkOutsToday.late} late</span>
       </StatCard>
       <StatCard icon={Globe} label="Expected arrivals" value={expectedArrivals.total}>
-        Next:{" "}
-        <span className="font-semibold text-obsidian">
-          {expectedArrivals.nextTime}
-        </span>
-        , {expectedArrivals.nextLabel}
+        Next: <span className="font-semibold text-obsidian">{expectedArrivals.nextTime}</span>,{" "}
+        {expectedArrivals.nextLabel}
       </StatCard>
       <StatCard
         icon={TriangleAlert}
@@ -112,8 +86,7 @@ function StatCards({ data }: { data: DashboardData }) {
         accent="terracotta"
         valueClassName="text-[#b4553f]"
       >
-        Needs allocation{" "}
-        <span className="font-semibold text-[#b4553f]">Assign →</span>
+        Needs allocation <span className="font-semibold text-[#b4553f]">Assign →</span>
       </StatCard>
     </div>
   );
@@ -136,10 +109,7 @@ function LegendRow({
 }) {
   return (
     <div className={cn("flex items-center gap-2.5", className)}>
-      <span
-        className="size-2.5 shrink-0 rounded-[2px]"
-        style={{ background: swatch }}
-      />
+      <span className="size-2.5 shrink-0 rounded-[2px]" style={{ background: swatch }} />
       <span className="flex-1 text-[12.5px] text-warm-gray">{label}</span>
       <span className={cn("text-[12.5px] font-bold", valueClassName)}>{value}</span>
     </div>
@@ -155,12 +125,10 @@ function OccupancyCard({ occupancy }: { occupancy: Occupancy }) {
     <Card>
       <div className="flex items-baseline justify-between">
         <h2 className="font-display text-lg font-semibold">Occupancy</h2>
-        <span className="text-[10px] uppercase tracking-[0.18em] text-[#a49d8d]">
-          tonight
-        </span>
+        <span className="text-[10px] uppercase tracking-[0.18em] text-[#a49d8d]">tonight</span>
       </div>
-      <div className="mt-4 flex items-center gap-[22px]">
-        <div className="relative size-[132px] shrink-0">
+      <div className="mt-4 flex items-center gap-5.5">
+        <div className="relative size-33 shrink-0">
           <svg width="132" height="132" viewBox="0 0 132 132" className="-rotate-90">
             <circle cx="66" cy="66" r={r} fill="none" stroke="#efe9db" strokeWidth="14" />
             <circle
@@ -176,12 +144,12 @@ function OccupancyCard({ occupancy }: { occupancy: Occupancy }) {
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center leading-none">
             <div className="font-display text-[32px] font-semibold">{occupancy.pct}%</div>
-            <div className="mt-[3px] text-[10.5px] text-[#a49d8d]">
+            <div className="mt-0.75 text-[10.5px] text-[#a49d8d]">
               {occupancy.occupied} / {occupancy.total}
             </div>
           </div>
         </div>
-        <div className="flex flex-1 flex-col gap-[11px]">
+        <div className="flex flex-1 flex-col gap-2.75">
           <LegendRow
             swatch="var(--color-gold)"
             label="Deluxe"
@@ -198,7 +166,7 @@ function OccupancyCard({ occupancy }: { occupancy: Occupancy }) {
             label="Party hall"
             value={occupancy.partyHall}
             valueClassName="text-[11.5px] font-semibold text-[#b4553f]"
-            className="mt-px border-t border-[#efe9db] pt-[9px]"
+            className="mt-px border-t border-[#efe9db] pt-2.25"
           />
         </div>
       </div>
@@ -218,7 +186,7 @@ function RevenueCard({ periods }: { periods: RevenuePeriod[] }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="font-display text-lg font-semibold">Revenue</h2>
-          <div className="mt-[3px] text-[11px] tracking-[0.06em] text-[#a49d8d]">
+          <div className="mt-0.75 text-[11px] tracking-[0.06em] text-[#a49d8d]">
             {period.rangeLabel}
           </div>
         </div>
@@ -248,14 +216,14 @@ function RevenueCard({ periods }: { periods: RevenuePeriod[] }) {
           </div>
         </div>
       </div>
-      <div className="mt-[22px] flex h-[103px] items-end gap-2.5 border-b border-[#efe9db] pb-0.5">
+      <div className="mt-5.5 flex h-25.75 items-end gap-2.5 border-b border-[#efe9db] pb-0.5">
         {period.bars.map((b, i) => (
           <div
             key={`${period.key}-${b.label}-${i}`}
             className="flex h-full flex-1 flex-col items-center justify-end gap-2"
           >
             <div
-              className="w-full max-w-[34px] rounded-t-[3px] transition-[height] duration-300"
+              className="w-full max-w-8.5 rounded-t-[3px] transition-[height] duration-300"
               style={{
                 height: `${(b.value / max) * 100}%`,
                 background: b.value === max ? "var(--color-gold)" : "#e2d8bf",
@@ -301,19 +269,14 @@ function RichTitle({ text }: { text: string }) {
 function ActivityRow({ item, last }: { item: ActivityItem; last: boolean }) {
   const { icon: Icon, tone } = ACTIVITY_ICON[item.kind];
   return (
-    <div
-      className={cn(
-        "flex gap-[13px] py-[13px]",
-        !last && "border-b border-[#f2ede2]",
-      )}
-    >
+    <div className={cn("flex gap-3.25 py-3.25", !last && "border-b border-[#f2ede2]")}>
       <span
         className={cn(
-          "flex size-[34px] shrink-0 items-center justify-center rounded-[7px]",
+          "flex size-8.5 shrink-0 items-center justify-center rounded-[7px]",
           tone === "gold" ? "bg-[#f0e7d3]" : "bg-[#f2e0dc]",
         )}
       >
-        <Icon className={cn("size-[17px]", tone === "gold" ? "text-gold" : "text-[#b4553f]")} />
+        <Icon className={cn("size-4.25", tone === "gold" ? "text-gold" : "text-[#b4553f]")} />
       </span>
       <div className="flex-1">
         <div className="text-[13.5px]">
@@ -365,12 +328,7 @@ function ArrivalRow({ item }: { item: ArrivalItem }) {
       </div>
       <div className="text-right">
         <div className="text-[12.5px] font-bold">{item.time}</div>
-        <div
-          className={cn(
-            "text-[10.5px]",
-            item.assigned ? "text-[#5a8a5a]" : "text-[#b4553f]",
-          )}
-        >
+        <div className={cn("text-[10.5px]", item.assigned ? "text-[#5a8a5a]" : "text-[#b4553f]")}>
           {item.assignment}
         </div>
       </div>
@@ -380,10 +338,10 @@ function ArrivalRow({ item }: { item: ArrivalItem }) {
 
 function ArrivalsCard({ items }: { items: ArrivalItem[] }) {
   return (
-    <Card className="flex min-h-0 flex-col lg:w-[580px] lg:shrink-0">
+    <Card className="flex min-h-0 flex-col lg:w-145 lg:shrink-0">
       <div className="mb-3.5 flex shrink-0 items-center justify-between">
         <h2 className="font-display text-lg font-semibold">Arrivals queue</h2>
-        <span className="rounded-full bg-[#f2e0dc] px-[9px] py-0.5 text-[10.5px] font-bold uppercase tracking-[0.1em] text-[#b4553f]">
+        <span className="rounded-full bg-[#f2e0dc] px-2.25 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.1em] text-[#b4553f]">
           {items.length} today
         </span>
       </div>

@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  bookingId,
-  computeTotalBill,
-  computeTotalCollected,
-  formatINR,
-  urn,
-} from "./booking-math";
+import { bookingId, computeTotalBill, computeTotalCollected, formatINR, urn } from "./booking-math";
 
 describe("computeTotalBill", () => {
   it("sums charges, subtracts discount, adds GST", () => {

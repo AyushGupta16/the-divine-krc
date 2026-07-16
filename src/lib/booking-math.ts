@@ -20,11 +20,7 @@ export function computeTotalBill(revenue: BookingRevenue): number {
  * OTA commission and pending are not money in hand, so they are excluded.
  */
 export function computeTotalCollected(collection: BookingCollection): number {
-  return (
-    collection.paidToHotel +
-    collection.otaCollection +
-    collection.complimentary
-  );
+  return collection.paidToHotel + collection.otaCollection + collection.complimentary;
 }
 
 /**

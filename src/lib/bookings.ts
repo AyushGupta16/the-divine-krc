@@ -22,11 +22,7 @@ import type {
   RoomType,
   RoomTypeCard,
 } from "@/types/booking";
-import {
-  computeTotalBill,
-  computeTotalCollected,
-  formatINR,
-} from "@/lib/booking-math";
+import { computeTotalBill, computeTotalCollected, formatINR } from "@/lib/booking-math";
 
 export interface RoomTypeInfo {
   type: RoomType;
@@ -756,10 +752,7 @@ export async function getBookingsPageData(
 
   const occupied = occupiedRoomsOn(today).size;
   const totalUrn = BOOKINGS.reduce((sum, b) => sum + b.urn, 0);
-  const totalCollected = BOOKINGS.reduce(
-    (sum, b) => sum + computeTotalCollected(b.collection),
-    0,
-  );
+  const totalCollected = BOOKINGS.reduce((sum, b) => sum + computeTotalCollected(b.collection), 0);
 
   const summary: BookingsPageData["summary"] = [
     {
@@ -819,12 +812,7 @@ const ROOM_STATUS_LABEL: Record<RoomStatus, string> = {
 };
 
 /** Legend order — matches the design's swatch row. */
-const ROOM_STATUS_ORDER: RoomStatus[] = [
-  "occupied",
-  "available",
-  "cleaning",
-  "maintenance",
-];
+const ROOM_STATUS_ORDER: RoomStatus[] = ["occupied", "available", "cleaning", "maintenance"];
 
 /**
  * Per-room state overriding the default "available". The booking seed uses
@@ -872,10 +860,7 @@ export async function getRoomsPageData(): Promise<RoomsPageData> {
       acc[t.status] += 1;
       return acc;
     },
-    { occupied: 0, available: 0, cleaning: 0, maintenance: 0 } as Record<
-      RoomStatus,
-      number
-    >,
+    { occupied: 0, available: 0, cleaning: 0, maintenance: 0 } as Record<RoomStatus, number>,
   );
 
   const typeCards: RoomTypeCard[] = ROOM_TYPES.map((rt) => ({
@@ -884,9 +869,7 @@ export async function getRoomsPageData(): Promise<RoomsPageData> {
     count: rt.count,
     areaSqm: rt.areaSqm,
     pricePerNight: rt.pricePerNight,
-    available: tiles.filter(
-      (t) => t.type === rt.type && t.status === "available",
-    ).length,
+    available: tiles.filter((t) => t.type === rt.type && t.status === "available").length,
   }));
 
   const legend: RoomsLegendItem[] = ROOM_STATUS_ORDER.map((status) => ({
@@ -952,9 +935,36 @@ const BAND_ORDER: OccupancyBand[] = ["low", "medium", "high", "full"];
  * derive the percent back — that keeps the "% + n/14" pair honest by construction.
  */
 const JULY_2026_OCCUPANCY: Record<number, number> = {
-  1: 5, 2: 6, 3: 7, 4: 10, 5: 9, 6: 7, 7: 6, 8: 8, 9: 9, 10: 11,
-  11: 12, 12: 10, 13: 9, 14: 9, 15: 7, 16: 8, 17: 10, 18: 11, 19: 13, 20: 12,
-  21: 9, 22: 10, 23: 11, 24: 12, 25: 14, 26: 14, 27: 12, 28: 10, 29: 9, 30: 11,
+  1: 5,
+  2: 6,
+  3: 7,
+  4: 10,
+  5: 9,
+  6: 7,
+  7: 6,
+  8: 8,
+  9: 9,
+  10: 11,
+  11: 12,
+  12: 10,
+  13: 9,
+  14: 9,
+  15: 7,
+  16: 8,
+  17: 10,
+  18: 11,
+  19: 13,
+  20: 12,
+  21: 9,
+  22: 10,
+  23: 11,
+  24: 12,
+  25: 14,
+  26: 14,
+  27: 12,
+  28: 10,
+  29: 9,
+  30: 11,
   31: 10,
 };
 
@@ -997,10 +1007,7 @@ function eventsForMonth(year: number, month: number): Map<string, string> {
  * weeks so the first falls on its real weekday and the last row squares off.
  * A real DB swap turns the occupancy seed into a per-date aggregate query.
  */
-export async function getCalendarPageData(
-  year = 2026,
-  month = 7,
-): Promise<CalendarPageData> {
+export async function getCalendarPageData(year = 2026, month = 7): Promise<CalendarPageData> {
   const total = ROOM_NUMBERS.length;
   const isDisplayMonth = year === 2026 && month === 7;
   const events = eventsForMonth(year, month);
@@ -1015,9 +1022,7 @@ export async function getCalendarPageData(
 
   for (let day = 1; day <= daysInMonth; day++) {
     const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    const occupied = isDisplayMonth
-      ? JULY_2026_OCCUPANCY[day]
-      : occupiedRoomsOn(date).size;
+    const occupied = isDisplayMonth ? JULY_2026_OCCUPANCY[day] : occupiedRoomsOn(date).size;
     const pct = Math.round((occupied / total) * 100);
     cells.push({
       kind: "day",

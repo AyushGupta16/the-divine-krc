@@ -22,7 +22,7 @@ export function About() {
               loading="lazy"
               className="w-full aspect-[4/5] object-cover"
             />
-            <div className="absolute -bottom-6 -right-6 hidden md:block bg-obsidian text-ivory p-6 max-w-[200px]">
+            <div className="absolute -bottom-6 -right-6 hidden md:block bg-obsidian text-ivory p-6 max-w-50">
               <div className="font-display italic text-gold text-3xl leading-none mb-2">"</div>
               <p className="text-xs leading-relaxed text-ivory/80">
                 A pocket of calm in the heart of the city.

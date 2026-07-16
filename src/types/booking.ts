@@ -4,24 +4,12 @@
 export type RoomType = "deluxe" | "deluxe_balcony";
 
 export type BookingSource =
-  | "direct"
-  | "walk_in"
-  | "phone"
-  | "booking_com"
-  | "makemytrip"
-  | "goibibo"
-  | "agoda"
-  | "oyo";
+  "direct" | "walk_in" | "phone" | "booking_com" | "makemytrip" | "goibibo" | "agoda" | "oyo";
 
 export type MealPlan = "EP" | "CP" | "MAP" | "AP";
 
 export type BookingStatus =
-  | "confirmed"
-  | "checked_in"
-  | "checked_out"
-  | "pending_payment"
-  | "cancelled"
-  | "no_show";
+  "confirmed" | "checked_in" | "checked_out" | "pending_payment" | "cancelled" | "no_show";
 
 export type PayMethod = "razorpay" | "pay_at_hotel";
 
@@ -82,11 +70,7 @@ export interface Guest {
 
 export type PartyHallSlot = "morning" | "afternoon" | "evening" | "full_day";
 
-export type PartyHallStatus =
-  | "enquiry"
-  | "confirmed"
-  | "completed"
-  | "cancelled";
+export type PartyHallStatus = "enquiry" | "confirmed" | "completed" | "cancelled";
 
 export interface PartyHallEnquiry {
   id: string;
@@ -158,11 +142,7 @@ export interface RevenuePeriod {
   bars: { label: string; value: number }[];
 }
 
-export type ActivityKind =
-  | "check_in"
-  | "enquiry"
-  | "payment"
-  | "cancellation";
+export type ActivityKind = "check_in" | "enquiry" | "payment" | "cancellation";
 
 export interface ActivityItem {
   id: string;

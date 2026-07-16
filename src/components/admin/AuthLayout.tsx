@@ -32,13 +32,9 @@ export function AuthLayout({
   return (
     <div className="flex min-h-screen flex-col bg-ivory font-sans text-obsidian md:flex-row">
       {/* Brand panel */}
-      <div className="relative flex flex-col overflow-hidden bg-obsidian px-7 py-8 text-ivory md:w-[520px] md:flex-none md:px-13 md:py-12">
+      <div className="relative flex flex-col overflow-hidden bg-obsidian px-7 py-8 text-ivory md:w-130 md:flex-none md:px-13 md:py-12">
         <div className="flex items-center gap-3">
-          <img
-            src={krcLogo}
-            alt="The Divine KRC crest"
-            className="h-11 w-11 object-contain"
-          />
+          <img src={krcLogo} alt="The Divine KRC crest" className="h-11 w-11 object-contain" />
           <span className="whitespace-pre-line font-display text-[12px] italic uppercase leading-tight tracking-[0.25em] text-gold-soft">
             {"THE\nDIVINE\nKRC"}
           </span>
@@ -56,21 +52,15 @@ export function AuthLayout({
             <br />
             <span className="italic text-gold-soft">{titleAccent}</span>
           </h1>
-          <p className="m-0 max-w-[360px] text-[13.5px] leading-[1.7] text-[#c9c3b6]">
-            {description}
-          </p>
+          <p className="m-0 max-w-90 text-[13.5px] leading-[1.7] text-[#c9c3b6]">{description}</p>
         </div>
 
-        {panelFooter && (
-          <div className="mt-10 border-t border-gold/20 pt-6">
-            {panelFooter}
-          </div>
-        )}
+        {panelFooter && <div className="mt-10 border-t border-gold/20 pt-6">{panelFooter}</div>}
       </div>
 
       {/* Form area */}
       <div className="flex flex-1 items-center justify-center p-8 md:p-10">
-        <div className="w-full max-w-[352px]">{children}</div>
+        <div className="w-full max-w-88">{children}</div>
       </div>
     </div>
   );
