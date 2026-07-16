@@ -13,7 +13,15 @@ import type {
   DashboardData,
   Guest,
   OccupancyBand,
+  PartyHallCalendarCell,
   PartyHallEnquiry,
+  PartyHallEventItem,
+  PartyHallMiniCalendar,
+  PartyHallPackage,
+  PartyHallPageData,
+  PartyHallPill,
+  PartyHallStat,
+  PartyHallStatus,
   RoomFloor,
   RoomsLegendItem,
   RoomsPageData,
@@ -22,7 +30,12 @@ import type {
   RoomType,
   RoomTypeCard,
 } from "@/types/booking";
-import { computeTotalBill, computeTotalCollected, formatINR } from "@/lib/booking-math";
+import {
+  computeTotalBill,
+  computeTotalCollected,
+  formatINR,
+  formatINRCompact,
+} from "@/lib/booking-math";
 
 export interface RoomTypeInfo {
   type: RoomType;
@@ -471,32 +484,198 @@ const BOOKINGS: Booking[] = [
   }),
 ];
 
-const PARTY_HALL_ENQUIRIES: PartyHallEnquiry[] = [
+/** Share of the total taken up-front to hold a date (design: "25% advance"). */
+export const PARTY_HALL_ADVANCE_PCT = 25;
+
+/** The up-front payment that confirms a booking, to the nearest rupee. */
+export function partyHallAdvance(amount: number): number {
+  return Math.round((amount * PARTY_HALL_ADVANCE_PCT) / 100);
+}
+
+/**
+ * Money actually in hand for an event. Derived from the total and where the
+ * event sits in the pipeline, so the seed can never claim an advance that
+ * disagrees with the 25% rule: nothing before the advance is paid, the advance
+ * once a date is held, and the full amount once the event is settled.
+ */
+function collectedFor(status: PartyHallStatus, amount: number): number {
+  if (status === "completed") return amount;
+  if (status === "advance_paid" || status === "confirmed") return partyHallAdvance(amount);
+  return 0;
+}
+
+function withAdvance(e: Omit<PartyHallEnquiry, "advancePaid">): PartyHallEnquiry {
+  return { ...e, advancePaid: collectedFor(e.status, e.amount) };
+}
+
+/**
+ * The party-hall pipeline, mirroring `Admin Party Hall.dc.html`. Amounts are
+ * seeded; advances are derived (see `withAdvance`). An un-quoted enquiry has an
+ * amount of 0, which the screen renders as "₹—" rather than a false zero.
+ */
+const PARTY_HALL_SEED: Omit<PartyHallEnquiry, "advancePaid">[] = [
   {
-    id: "PH-20260801-001",
-    title: "Sharma Family — Engagement",
-    date: "2026-08-01",
+    id: "PH-20260622-001",
+    title: "Birthday — Nanda family",
+    date: "2026-06-21",
     slot: "evening",
-    guests: 120,
-    package: "Silver Banquet",
-    addOns: ["DJ", "Floral Stage"],
-    status: "confirmed",
-    amount: 85000,
-    advancePaid: 21250,
+    guests: 65,
+    package: "Silver",
+    addOns: ["Decor", "DJ"],
+    status: "completed",
+    amount: 52000,
   },
   {
-    id: "PH-20260809-002",
-    title: "Corporate Offsite — Nexus Labs",
-    date: "2026-08-09",
+    id: "PH-20260702-002",
+    title: "Sangeet — Sharma family",
+    date: "2026-07-02",
     slot: "full_day",
-    guests: 80,
-    package: "Conference Full-Day",
-    addOns: ["Projector", "Lunch Buffet"],
+    guests: 120,
+    package: "Platinum",
+    addOns: ["Catering"],
+    status: "completed",
+    amount: 190000,
+  },
+  {
+    id: "PH-20260730-003",
+    title: "Wedding reception — Rao family",
+    date: "2026-07-30",
+    slot: "evening",
+    guests: 150,
+    package: "Platinum",
+    addOns: ["Catering", "Decor", "DJ"],
+    status: "confirmed",
+    amount: 240000,
+  },
+  {
+    id: "PH-20260808-004",
+    title: "Anniversary — Iyer family",
+    date: "2026-08-08",
+    slot: "evening",
+    guests: 70,
+    package: "Gold",
+    addOns: ["Catering", "Decor"],
+    status: "confirmed",
+    amount: 80000,
+  },
+  {
+    id: "PH-20260812-005",
+    title: "Birthday — Meera Krishnan",
+    date: "2026-08-12",
+    slot: "afternoon",
+    guests: 55,
+    package: "Silver",
+    addOns: ["Decor"],
+    status: "advance_paid",
+    amount: 88000,
+  },
+  {
+    id: "PH-20260816-006",
+    title: "Naming ceremony — Pillai family",
+    date: "2026-08-16",
+    slot: "morning",
+    guests: 40,
+    package: "Silver",
+    addOns: ["Decor"],
+    status: "confirmed",
+    amount: 36000,
+  },
+  {
+    id: "PH-20260822-007",
+    title: "Reception — Priya & Arjun",
+    date: "2026-08-22",
+    slot: "evening",
+    guests: 140,
+    package: "Platinum",
+    addOns: ["Catering", "Decor"],
     status: "enquiry",
-    amount: 62000,
-    advancePaid: 0,
+    amount: 0,
+  },
+  {
+    id: "PH-20260829-008",
+    title: "Sangeet — Bhatia family",
+    date: "2026-08-29",
+    slot: "evening",
+    guests: 130,
+    package: "Platinum",
+    addOns: ["Catering", "DJ"],
+    status: "confirmed",
+    amount: 130000,
+  },
+  {
+    id: "PH-20260905-009",
+    title: "Corporate offsite — Nexus Ltd",
+    date: "2026-09-05",
+    slot: "full_day",
+    guests: 90,
+    package: "Gold",
+    addOns: ["Catering", "AV"],
+    status: "quote_sent",
+    amount: 110000,
+  },
+  {
+    id: "PH-20260919-010",
+    title: "Birthday — Kapoor family",
+    date: "2026-09-19",
+    slot: "afternoon",
+    guests: 60,
+    package: "Silver",
+    addOns: ["Decor"],
+    status: "enquiry",
+    amount: 0,
+  },
+  {
+    id: "PH-20260926-011",
+    title: "Corporate AGM — Vector Systems",
+    date: "2026-09-26",
+    slot: "full_day",
+    guests: 100,
+    package: "Gold",
+    addOns: ["Projector", "Lunch Buffet"],
+    status: "quote_sent",
+    amount: 95000,
+  },
+  {
+    id: "PH-20261003-012",
+    title: "Reception — Fernandes & D'Souza",
+    date: "2026-10-03",
+    slot: "evening",
+    guests: 110,
+    package: "Platinum",
+    addOns: ["Catering", "Decor", "DJ"],
+    status: "enquiry",
+    amount: 0,
   },
 ];
+
+const PARTY_HALL_ENQUIRIES: PartyHallEnquiry[] = PARTY_HALL_SEED.map(withAdvance);
+
+/**
+ * Events still ahead of the hall — anything not called off and not already
+ * settled. This is the one rule behind "next event", the rooms card and the
+ * calendar's event flags, so the three can never disagree about what counts.
+ */
+function isUpcomingEvent(e: PartyHallEnquiry): boolean {
+  return e.status !== "cancelled" && e.status !== "completed";
+}
+
+/** Soonest upcoming event, or undefined when the hall has nothing booked. */
+function nextPartyHallEvent(): PartyHallEnquiry | undefined {
+  return [...PARTY_HALL_ENQUIRIES]
+    .filter(isUpcomingEvent)
+    .sort((a, b) => a.date.localeCompare(b.date))[0];
+}
+
+/** "30 Jul · Evening" — the shared next-event line. */
+function nextEventLabel(e: PartyHallEnquiry | undefined): string {
+  if (!e) return "No events booked";
+  const date = new Date(`${e.date}T00:00:00Z`).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  });
+  return `${date} · ${SLOT_LABEL[e.slot]}`;
+}
 
 // Simulated async so callers/loaders already await — real DB swap keeps signature.
 export async function getBookings(): Promise<Booking[]> {
@@ -513,10 +692,6 @@ export async function getGuests(): Promise<Guest[]> {
 
 export async function getGuest(id: string): Promise<Guest | undefined> {
   return GUESTS.find((g) => g.id === id);
-}
-
-export async function getPartyHallEnquiries(): Promise<PartyHallEnquiry[]> {
-  return PARTY_HALL_ENQUIRIES;
 }
 
 export async function getRoomTypes(): Promise<RoomTypeInfo[]> {
@@ -884,17 +1059,8 @@ export async function getRoomsPageData(): Promise<RoomsPageData> {
     rooms: tiles.filter((t) => t.floor === floor),
   }));
 
-  // Next party-hall booking = soonest upcoming event by date.
-  const nextEvent = [...PARTY_HALL_ENQUIRIES]
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .find((e) => e.status !== "cancelled");
   const partyHall = {
-    nextLabel: nextEvent
-      ? `${new Date(nextEvent.date).toLocaleDateString("en-IN", {
-          day: "numeric",
-          month: "short",
-        })} · ${SLOT_LABEL[nextEvent.slot]}`
-      : "No events booked",
+    nextLabel: nextEventLabel(nextPartyHallEvent()),
     availability: "Available 14–21 Jul",
   };
 
@@ -992,7 +1158,7 @@ function eventsForMonth(year: number, month: number): Map<string, string> {
   const events = new Map<string, string>();
 
   for (const e of PARTY_HALL_ENQUIRIES) {
-    if (e.status === "cancelled" || !e.date.startsWith(prefix)) continue;
+    if (!isUpcomingEvent(e) || !e.date.startsWith(prefix)) continue;
     events.set(e.date, `${e.title} · ${e.guests} pax`);
   }
   // Seed wins — it is what the design shows for the July display month.
@@ -1050,5 +1216,209 @@ export async function getCalendarPageData(year = 2026, month = 7): Promise<Calen
     cells,
     legend: BAND_ORDER.map((band) => ({ band, label: BAND_LABEL[band] })),
     totalRooms: total,
+  };
+}
+
+// ── Party hall screen ──────────────────────────────────────────────────────
+
+const PARTY_HALL_STATUS_LABEL: Record<PartyHallStatus, string> = {
+  enquiry: "New",
+  quote_sent: "Quote sent",
+  advance_paid: "Advance paid",
+  confirmed: "Confirmed",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+/** Pipeline order — cards sort by this, so what needs action floats up. */
+const PARTY_HALL_STATUS_ORDER: PartyHallStatus[] = [
+  "enquiry",
+  "quote_sent",
+  "advance_paid",
+  "confirmed",
+  "completed",
+  "cancelled",
+];
+
+/**
+ * Package tiers, per the design's reference card. Capacities ladder up to the
+ * hall's 150-guest ceiling; Platinum is quoted per-event rather than listed.
+ */
+const PARTY_HALL_PACKAGES: PartyHallPackage[] = [
+  { name: "Silver", capacity: "up to 60", price: "from ₹35k" },
+  { name: "Gold", capacity: "up to 100", price: "from ₹60k" },
+  { name: "Platinum", capacity: "up to 150", price: "tailored" },
+];
+
+/** Slot line for a card: "Full day" reads oddly as "Full day slot". */
+function slotLine(slot: PartyHallEnquiry["slot"]): string {
+  return slot === "full_day" ? "Full day" : `${SLOT_LABEL[slot]} slot`;
+}
+
+/** The status-dependent tail of a card's meta line. */
+function metaNote(e: PartyHallEnquiry): string {
+  switch (e.status) {
+    case "enquiry":
+      return "awaiting quote";
+    case "quote_sent":
+      return "quote sent";
+    case "advance_paid":
+      return `advance ${formatINRCompact(e.advancePaid)} paid`;
+    case "confirmed":
+      return "balance due on day";
+    case "completed":
+      return "settled";
+    case "cancelled":
+      return "cancelled";
+  }
+}
+
+/** What the card's amount means, given where the event sits in the pipeline. */
+function amountLabel(status: PartyHallStatus): string {
+  switch (status) {
+    case "enquiry":
+      return "Est. quote";
+    case "quote_sent":
+      return "Quoted";
+    case "completed":
+      return "Collected";
+    default:
+      return "Total";
+  }
+}
+
+/**
+ * The one action that matters for this event. Only a new enquiry gets a primary
+ * CTA — it is the sole state where the hall owes someone a response.
+ */
+function ctaFor(status: PartyHallStatus): { cta: string; ctaPrimary: boolean } {
+  switch (status) {
+    case "enquiry":
+      return { cta: "Send quote", ctaPrimary: true };
+    case "quote_sent":
+      return { cta: "Send reminder", ctaPrimary: false };
+    case "completed":
+      return { cta: "Invoice", ctaPrimary: false };
+    default:
+      return { cta: "View details", ctaPrimary: false };
+  }
+}
+
+function buildEventItem(e: PartyHallEnquiry): PartyHallEventItem {
+  const day = e.date.slice(8, 10);
+  const monthName = new Date(`${e.date}T00:00:00Z`).toLocaleDateString("en-IN", {
+    month: "short",
+    timeZone: "UTC",
+  });
+
+  return {
+    enquiry: e,
+    day,
+    mon: monthName,
+    statusLabel: PARTY_HALL_STATUS_LABEL[e.status],
+    meta: `${slotLine(e.slot)} · ${e.guests} guests · ${metaNote(e)}`,
+    tags: [e.package, ...e.addOns],
+    amountLabel: amountLabel(e.status),
+    // An un-quoted enquiry has no number yet — say so rather than show "₹0".
+    amount: e.amount > 0 ? formatINRCompact(e.amount) : "₹—",
+    ...ctaFor(e.status),
+  };
+}
+
+/** Days of a month the hall is held, from the live enquiry set. */
+function bookedDaysIn(year: number, month: number): Set<number> {
+  const prefix = `${year}-${String(month).padStart(2, "0")}`;
+  const days = new Set<number>();
+  for (const e of PARTY_HALL_ENQUIRIES) {
+    if (isUpcomingEvent(e) && e.date.startsWith(prefix)) days.add(Number(e.date.slice(8, 10)));
+  }
+  return days;
+}
+
+/**
+ * The rail's availability mini-calendar. Same UTC/blank-padding approach as the
+ * main calendar grid, but a day is simply booked or not — the hall is one room.
+ */
+function miniCalendar(year: number, month: number): PartyHallMiniCalendar {
+  const booked = bookedDaysIn(year, month);
+  const firstOfMonth = new Date(Date.UTC(year, month - 1, 1));
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+  const cells: PartyHallCalendarCell[] = [];
+  for (let i = 0; i < firstOfMonth.getUTCDay(); i++) cells.push({ kind: "blank" });
+  for (let day = 1; day <= daysInMonth; day++) {
+    cells.push({
+      kind: "day",
+      date: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+      day,
+      booked: booked.has(day),
+    });
+  }
+  while (cells.length % 7 !== 0) cells.push({ kind: "blank" });
+
+  return {
+    monthLabel: firstOfMonth.toLocaleDateString("en-IN", {
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC",
+    }),
+    weekdays: CALENDAR_WEEKDAYS.map((d) => d.charAt(0)),
+    cells,
+  };
+}
+
+/**
+ * Everything the admin Party Hall screen renders. Every figure is derived from
+ * the enquiry set: the stat strip, the pill counts, each card's copy and the
+ * rail's booked days. Nothing here is seeded, so the strip cannot claim three
+ * new enquiries while the list shows two.
+ *
+ * `year`/`month` select the rail's availability month (default: the design's
+ * August 2026 display month). A real DB swap turns the enquiry set into a query
+ * behind the same signature.
+ */
+export async function getPartyHallPageData(year = 2026, month = 8): Promise<PartyHallPageData> {
+  const events = [...PARTY_HALL_ENQUIRIES].sort(
+    (a, b) =>
+      PARTY_HALL_STATUS_ORDER.indexOf(a.status) - PARTY_HALL_STATUS_ORDER.indexOf(b.status) ||
+      a.date.localeCompare(b.date),
+  );
+
+  const newEnquiries = events.filter((e) => e.status === "enquiry").length;
+  const confirmedUpcoming = events.filter(
+    (e) => e.status === "confirmed" && isUpcomingEvent(e),
+  ).length;
+
+  // Money held against events still to come — a settled event's takings are
+  // revenue already booked, not an advance the hall is sitting on.
+  const advanceCollected = events
+    .filter(isUpcomingEvent)
+    .reduce((sum, e) => sum + e.advancePaid, 0);
+
+  const stats: PartyHallStat[] = [
+    { key: "newEnquiries", label: "New enquiries", value: String(newEnquiries) },
+    { key: "confirmed", label: "Confirmed · upcoming", value: String(confirmedUpcoming) },
+    {
+      key: "advanceCollected",
+      label: "Advance collected",
+      value: formatINRCompact(advanceCollected),
+    },
+    { key: "nextEvent", label: "Next event", value: nextEventLabel(nextPartyHallEvent()) },
+  ];
+
+  const pills: PartyHallPill[] = [
+    { key: "all", label: "All", count: events.length },
+    { key: "new", label: "New", count: newEnquiries },
+    { key: "confirmed", label: "Confirmed", count: confirmedUpcoming },
+  ];
+
+  return {
+    subtitle: `Up to 150 guests · tailored pricing · ${newEnquiries} enquiries need a quote`,
+    stats,
+    pills,
+    events: events.map(buildEventItem),
+    calendar: miniCalendar(year, month),
+    packages: PARTY_HALL_PACKAGES,
+    addOnsLine: `Add-ons: catering ₹450/plate · decor · DJ. ${PARTY_HALL_ADVANCE_PCT}% advance to confirm.`,
   };
 }

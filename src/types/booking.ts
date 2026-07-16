@@ -70,7 +70,9 @@ export interface Guest {
 
 export type PartyHallSlot = "morning" | "afternoon" | "evening" | "full_day";
 
-export type PartyHallStatus = "enquiry" | "confirmed" | "completed" | "cancelled";
+/** Pipeline an event moves through, in order; `cancelled` leaves it. */
+export type PartyHallStatus =
+  "enquiry" | "quote_sent" | "advance_paid" | "confirmed" | "completed" | "cancelled";
 
 export interface PartyHallEnquiry {
   id: string;
@@ -79,10 +81,13 @@ export interface PartyHallEnquiry {
   date: string;
   slot: PartyHallSlot;
   guests: number;
+  /** Package tier name, matching a `PartyHallPackage` — e.g. "Platinum". */
   package: string;
   addOns: string[];
   status: PartyHallStatus;
+  /** Quoted/agreed total in rupees; 0 until the enquiry has been quoted. */
   amount: number;
+  /** Money in hand — derived from `amount` and `status`, never seeded. */
   advancePaid: number;
 }
 
@@ -278,7 +283,7 @@ export interface RoomFloor {
 
 /** Ground-floor party-hall card summary. */
 export interface RoomsPartyHall {
-  /** Next event line, e.g. "1 Aug · Evening". */
+  /** Next event line, e.g. "30 Jul · Evening". */
   nextLabel: string;
   /** Free-text availability window, e.g. "Available 14–21 Jul". */
   availability: string;
@@ -343,4 +348,84 @@ export interface CalendarPageData {
   legend: CalendarLegendItem[];
   /** Room inventory the occupancy is measured against (14). */
   totalRooms: number;
+}
+
+// ── Admin party hall (PR #7) ─────────────────────────────────────────────
+// The party-hall screen renders a stat strip, the enquiry/event pipeline and
+// a right rail (month availability + package reference). Every figure — stat
+// values, pill counts, per-card copy, booked days — is derived from the live
+// enquiry set, so the screen can never contradict the data behind it.
+
+export type PartyHallStatKey = "newEnquiries" | "confirmed" | "advanceCollected" | "nextEvent";
+
+export interface PartyHallStat {
+  key: PartyHallStatKey;
+  label: string;
+  /** Pre-formatted display value, e.g. "3" or "₹1.4L". */
+  value: string;
+}
+
+export type PartyHallPillKey = "all" | "new" | "confirmed";
+
+/** A filter chip over the pipeline; counts derive from the event set. */
+export interface PartyHallPill {
+  key: PartyHallPillKey;
+  label: string;
+  count: number;
+}
+
+/** One enquiry/event card: the raw record plus its rendered copy. */
+export interface PartyHallEventItem {
+  enquiry: PartyHallEnquiry;
+  /** Date chip, e.g. "22" / "Aug". */
+  day: string;
+  mon: string;
+  /** Status pill text, e.g. "Quote sent". */
+  statusLabel: string;
+  /** Sub-line, e.g. "Evening slot · 140 guests · advance ₹22k paid". */
+  meta: string;
+  /** Package tier followed by each add-on. */
+  tags: string[];
+  /** What the amount means for this status, e.g. "Quoted" / "Collected". */
+  amountLabel: string;
+  /** Pre-formatted amount, or "₹—" before a quote exists. */
+  amount: string;
+  /** Context action, e.g. "Send quote" when new, else View/Invoice. */
+  cta: string;
+  /** Only the action that moves a *new* enquiry forward is emphasised. */
+  ctaPrimary: boolean;
+}
+
+/** A day slot in the rail's availability mini-calendar. */
+export type PartyHallCalendarCell =
+  { kind: "blank" } | { kind: "day"; date: string; day: number; booked: boolean };
+
+export interface PartyHallMiniCalendar {
+  /** e.g. "August 2026". */
+  monthLabel: string;
+  /** Single-letter column headers, Sunday-first. */
+  weekdays: string[];
+  cells: PartyHallCalendarCell[];
+}
+
+/** A package tier in the rail's reference card. */
+export interface PartyHallPackage {
+  name: string;
+  /** Guest ceiling, e.g. "up to 60". */
+  capacity: string;
+  /** Pre-formatted price, e.g. "from ₹35k" or "tailored". */
+  price: string;
+}
+
+export interface PartyHallPageData {
+  /** Sub-title under "Party Hall", e.g. "Up to 150 guests · …". */
+  subtitle: string;
+  stats: PartyHallStat[];
+  pills: PartyHallPill[];
+  /** Pipeline order: new first, completed last; then by date. */
+  events: PartyHallEventItem[];
+  calendar: PartyHallMiniCalendar;
+  packages: PartyHallPackage[];
+  /** Add-on pricing line under the package reference. */
+  addOnsLine: string;
 }

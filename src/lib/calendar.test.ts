@@ -78,8 +78,14 @@ describe("getCalendarPageData", () => {
   it("picks up live party-hall enquiries in months without a seed", async () => {
     const { cells } = await getCalendarPageData(2026, 8);
     const flagged = daysOf(cells).filter((d) => d.event !== null);
-    expect(flagged.map((d) => d.day)).toEqual([1, 9]);
-    expect(flagged[0].event).toContain("Sharma Family");
+    expect(flagged.map((d) => d.day)).toEqual([8, 12, 16, 22, 29]);
+    expect(flagged[0].event).toContain("Iyer family");
+  });
+
+  it("does not flag events already settled", async () => {
+    // The hall's 21 Jun event is completed — history, not a booking to plan around.
+    const { cells } = await getCalendarPageData(2026, 6);
+    expect(daysOf(cells).filter((d) => d.event !== null)).toEqual([]);
   });
 
   it("labels the month and squares off other month lengths", async () => {
