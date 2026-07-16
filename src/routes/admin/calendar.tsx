@@ -1,13 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { getBookings } from "@/lib/bookings";
-import { RoutePlaceholder } from "@/components/booking/RoutePlaceholder";
+import { getCalendarPageData } from "@/lib/bookings";
+import { Calendar } from "@/components/admin/Calendar";
 
 export const Route = createFileRoute("/admin/calendar")({
-  loader: async () => ({ bookings: await getBookings() }),
+  loader: async () => ({ calendar: await getCalendarPageData() }),
   component: AdminCalendar,
 });
 
 function AdminCalendar() {
-  const { bookings } = Route.useLoaderData();
-  return <RoutePlaceholder title="Calendar" count={bookings.length} />;
+  const { calendar } = Route.useLoaderData();
+  return <Calendar data={calendar} />;
 }
