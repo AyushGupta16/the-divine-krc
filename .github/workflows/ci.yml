@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+
+# A second push to a PR makes the first run pointless — don't pay for it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    name: gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Each gate is its own step so a red run names what broke without
+      # anyone opening the log.
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npx vitest run
+
+      - name: Build
+        run: npm run build
+
+      # Must follow Build: it reads dist/client. This is the gate the other
+      # four cannot be: all of them passed while the admin password sat in the
+      # production bundle.
+      - name: No credentials in the client bundle
+        run: npm run check:bundle
