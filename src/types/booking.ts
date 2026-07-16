@@ -465,3 +465,95 @@ export interface GuestsPageData {
   /** Highest lifetime value first — the directory leads with the best guests. */
   guests: GuestListItem[];
 }
+
+// ── Admin payments (PR #9) ───────────────────────────────────────────────
+// The payments screen is a *view over the booking set*, not a second ledger.
+// Every amount on it — the KPI row, each transaction, the OTA panel and the
+// monthly rollup — is derived from `Booking.collection`, so the screen can
+// never claim takings the bookings behind it don't show. Only how the money
+// moved (`method`) and when (`at`) are seeded: a booking records how much was
+// collected, but not by what instrument or at what time.
+
+/** Instrument the money moved by. The first three are Razorpay-processed. */
+export type PaymentMethod = "upi" | "card" | "net_banking" | "cash" | "ota";
+
+/** Where a transaction stands: money in, money promised, money given back. */
+export type TransactionStatus = "success" | "pending" | "refunded";
+
+/** One movement of money against a booking. Derived — see `getPaymentsPageData`. */
+export interface PaymentTransaction {
+  /** `<bookingId>-<status>`, e.g. "KRC-20260714-001-success". */
+  id: string;
+  bookingId: string;
+  guestName: string;
+  method: PaymentMethod;
+  /** ISO timestamp the money moved (or is due, when pending). */
+  at: string;
+  /** Signed rupees: positive is money in, negative is a refund out. */
+  amount: number;
+  status: TransactionStatus;
+}
+
+/** A transaction plus the copy its row renders. */
+export interface PaymentsTxnItem {
+  txn: PaymentTransaction;
+  /** e.g. "Net Banking". */
+  methodLabel: string;
+  /** Signed and formatted, e.g. "+₹5,040" / "−₹3,000". */
+  amount: string;
+  /** Clock time today, else a short date — e.g. "9:42 am" / "Yesterday" / "20 Jul". */
+  time: string;
+  /** e.g. "Success". */
+  statusLabel: string;
+}
+
+export type PaymentsKpiKey =
+  "collectedToday" | "razorpaySettled" | "otaReceivables" | "pendingFromGuests";
+
+export interface PaymentsKpi {
+  key: PaymentsKpiKey;
+  label: string;
+  /** Pre-formatted amount, e.g. "₹10,696". */
+  value: string;
+  /** Sub-line counting what makes up the figure, e.g. "2 transactions". */
+  note: string;
+}
+
+/** One channel's settlement row: what it owes us and what it keeps. */
+export interface OtaSettlement {
+  source: BookingSource;
+  /** e.g. "Booking.com". */
+  name: string;
+  /** Single-letter disc, e.g. "B". */
+  abbr: string;
+  /** Bookings of this channel with money collected. */
+  count: number;
+  /** Commission as a whole percent — derived from the money, never seeded. */
+  commissionPct: number;
+  /** Gross collected by the channel, before its commission. */
+  amount: number;
+}
+
+/** The month's net takings: gross, less what the OTAs keep, less refunds. */
+export interface PaymentsMonthlyRollup {
+  /** e.g. "This month". */
+  label: string;
+  gross: number;
+  commission: number;
+  refunds: number;
+  /** gross − commission − refunds. */
+  net: number;
+}
+
+export interface PaymentsPageData {
+  /** ISO date the page is anchored to (drives "today" and the rollup month). */
+  today: string;
+  /** Sub-title under "Payments", e.g. "14 Jul 2026 · Razorpay + OTA settlements". */
+  subtitle: string;
+  kpis: PaymentsKpi[];
+  /** Most recent movement first. */
+  transactions: PaymentsTxnItem[];
+  /** Largest amount owed first; only channels holding money appear. */
+  ota: OtaSettlement[];
+  rollup: PaymentsMonthlyRollup;
+}
