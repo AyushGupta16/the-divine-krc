@@ -42,11 +42,26 @@ export default tseslint.config(
                 "TanStack Start does not use the Next.js `server-only` package. Rename the module to `*.server.ts` or mark it with `@tanstack/react-start/server-only`.",
             },
           ],
+          patterns: [
+            {
+              group: ["**/__fixtures__/**"],
+              message:
+                "Seed rows are server-only. Route loaders run in the browser, so importing fixtures from client-reachable code compiles every guest's name, email and phone into dist/client — the chunk the landing page serves anonymous visitors. Read them through a server function in `lib/bookings-data.ts`. Tests may import them directly.",
+            },
+          ],
         },
       ],
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       "@typescript-eslint/no-unused-vars": "off",
     },
+  },
+  {
+    // The fixtures exist to be derived against, and the suite is where that
+    // happens. `bookings-data.ts` is the one non-test module allowed to read
+    // them: its handler bodies never reach the browser, and PR #12b swaps that
+    // import for a query.
+    files: ["src/lib/**/*.test.ts", "src/lib/bookings-data.ts"],
+    rules: { "no-restricted-imports": "off" },
   },
   {
     // shadcn/ui primitives are vendored in and deliberately export their

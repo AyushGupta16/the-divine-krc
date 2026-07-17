@@ -46,6 +46,21 @@ const FORBIDDEN = [
   // server-only module got pulled in.
   { needle: "ADMIN_PASSWORD", why: "a server-only env read" },
   { needle: "SESSION_SECRET", why: "a server-only env read" },
+
+  // Guest data. These rows used to live in `lib/bookings.ts`, which loaders
+  // import, so every guest's name, email and phone shipped in the entry chunk
+  // the landing page hands anonymous visitors. Mock rows made that survivable;
+  // spec #14's real ones would not. The fixtures now sit behind
+  // `bookings-data.ts`'s server functions — if any of these come back, that
+  // boundary has broken and the next leak is somebody's actual phone number.
+  //
+  // Deliberately NOT guest *names*: "Aarav Mehta" and "Priya" also name the
+  // landing page's testimonials, which are public marketing copy and belong in
+  // the bundle. An email, a phone and the row ids are unambiguous.
+  { needle: "aarav.mehta@example.com", why: "a seeded guest's email" },
+  { needle: "98110 22334", why: "a seeded guest's phone number" },
+  { needle: "KRC-20260714-001", why: "a seeded booking row" },
+  { needle: "PH-20260622-001", why: "a seeded party-hall enquiry" },
 ];
 
 function jsFiles(dir) {

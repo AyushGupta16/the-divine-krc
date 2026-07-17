@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { getBookings, getDashboardData, getReportsPageData } from "@/lib/bookings";
+import { getDashboardData, getReportsPageData } from "@/lib/bookings";
+import { fixtures } from "@/lib/__fixtures__/bookings";
 import { formatINRCompact } from "@/lib/booking-math";
 import type { ReportsKpi, ReportsRange, RevenuePeriodKey } from "@/types/booking";
 
@@ -26,7 +27,7 @@ function rupees(value: string): number {
 
 describe("getReportsPageData", () => {
   it("offers every range the toggle does, each with a full set of widgets", async () => {
-    const { ranges } = await getReportsPageData(TODAY);
+    const { ranges } = await getReportsPageData(fixtures, TODAY);
 
     expect(ranges.map((r) => r.key)).toEqual(["7d", "30d", "12m"]);
     for (const r of ranges) {
@@ -38,7 +39,7 @@ describe("getReportsPageData", () => {
   });
 
   it("drives every widget off the range, not just the headline", async () => {
-    const { ranges } = await getReportsPageData(TODAY);
+    const { ranges } = await getReportsPageData(fixtures, TODAY);
     const week = range(ranges, "7d");
     const month = range(ranges, "30d");
 
@@ -52,7 +53,7 @@ describe("getReportsPageData", () => {
   });
 
   it("holds RevPAR to ADR times occupancy in every range", async () => {
-    const { ranges } = await getReportsPageData(TODAY);
+    const { ranges } = await getReportsPageData(fixtures, TODAY);
 
     for (const r of ranges) {
       const adr = rupees(kpi(r, "adr").value);
@@ -65,8 +66,8 @@ describe("getReportsPageData", () => {
   });
 
   it("charges every stay's bill across its own nights, and voids none of it twice", async () => {
-    const { ranges } = await getReportsPageData(TODAY);
-    const bookings = await getBookings();
+    const { ranges } = await getReportsPageData(fixtures, TODAY);
+    const bookings = fixtures.bookings;
     const week = range(ranges, "7d");
 
     // Each bar splits into exactly its two series.
@@ -83,7 +84,7 @@ describe("getReportsPageData", () => {
   });
 
   it("adds the source donut up to exactly 100%", async () => {
-    const { ranges } = await getReportsPageData(TODAY);
+    const { ranges } = await getReportsPageData(fixtures, TODAY);
 
     for (const r of ranges) {
       expect(r.sources.reduce((sum, s) => sum + s.pct, 0)).toBe(100);
@@ -93,7 +94,7 @@ describe("getReportsPageData", () => {
   });
 
   it("counts the meal mix over the nights it sold", async () => {
-    const { ranges } = await getReportsPageData(TODAY);
+    const { ranges } = await getReportsPageData(fixtures, TODAY);
 
     for (const r of ranges) {
       const total = r.mealPlans.reduce((sum, m) => sum + m.pct, 0);
@@ -105,7 +106,7 @@ describe("getReportsPageData", () => {
   });
 
   it("sizes the performance bars against the best performer", async () => {
-    const { ranges } = await getReportsPageData(TODAY);
+    const { ranges } = await getReportsPageData(fixtures, TODAY);
     const month = range(ranges, "30d");
 
     expect(month.roomTypes[0].barPct).toBe(100);
@@ -117,7 +118,7 @@ describe("getReportsPageData", () => {
   });
 
   it("states no trend when the window before it earned nothing", async () => {
-    const { ranges } = await getReportsPageData(TODAY);
+    const { ranges } = await getReportsPageData(fixtures, TODAY);
     const year = range(ranges, "12m");
 
     // Nothing precedes the seed, so a year-on-year change cannot be computed —
@@ -133,8 +134,8 @@ describe("getReportsPageData", () => {
 
 describe("revenue agrees across screens", () => {
   it("quotes the dashboard and the reports screen the same revenue per window", async () => {
-    const { ranges } = await getReportsPageData(TODAY);
-    const { revenue } = await getDashboardData(TODAY);
+    const { ranges } = await getReportsPageData(fixtures, TODAY);
+    const { revenue } = await getDashboardData(fixtures, TODAY);
 
     expect(revenue.map((p) => p.key)).toEqual(ranges.map((r) => r.key));
     for (const period of revenue) {
@@ -143,8 +144,8 @@ describe("revenue agrees across screens", () => {
   });
 
   it("draws both charts from the same bars", async () => {
-    const { ranges } = await getReportsPageData(TODAY);
-    const { revenue } = await getDashboardData(TODAY);
+    const { ranges } = await getReportsPageData(fixtures, TODAY);
+    const { revenue } = await getDashboardData(fixtures, TODAY);
 
     for (const period of revenue) {
       const bars = range(ranges, period.key).bars;
@@ -156,7 +157,7 @@ describe("revenue agrees across screens", () => {
   });
 
   it("totals a window to the sum of the bars beneath it", async () => {
-    const { ranges } = await getReportsPageData(TODAY);
+    const { ranges } = await getReportsPageData(fixtures, TODAY);
 
     for (const r of ranges) {
       // The buckets tile the window exactly, so the chart accounts for every

@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { getDashboardData } from "@/lib/bookings";
+import { dashboardPage } from "@/lib/bookings-data";
 import { Dashboard } from "@/components/admin/Dashboard";
 
 export const Route = createFileRoute("/admin/")({
-  loader: async () => ({ dashboard: await getDashboardData() }),
+  loader: async () => ({ dashboard: await dashboardPage() }),
   component: AdminDashboard,
 });
 

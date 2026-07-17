@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { getPartyHallPageData, PARTY_HALL_ADVANCE_PCT, partyHallAdvance } from "@/lib/bookings";
+import { fixtures } from "@/lib/__fixtures__/bookings";
 import type { PartyHallCalendarCell, PartyHallStatKey, PartyHallStatus } from "@/types/booking";
 
 const statValue = (stats: { key: PartyHallStatKey; value: string }[], key: PartyHallStatKey) =>
@@ -23,7 +24,7 @@ describe("partyHallAdvance", () => {
 
 describe("getPartyHallPageData", () => {
   it("derives every advance from the total and the pipeline state", async () => {
-    const { events } = await getPartyHallPageData();
+    const { events } = await getPartyHallPageData(fixtures);
 
     for (const { enquiry } of events) {
       const expected =
@@ -37,7 +38,7 @@ describe("getPartyHallPageData", () => {
   });
 
   it("stat strip agrees with the list it sits above", async () => {
-    const { stats, events, pills } = await getPartyHallPageData();
+    const { stats, events, pills } = await getPartyHallPageData(fixtures);
 
     const newCount = events.filter((e) => e.enquiry.status === "enquiry").length;
     expect(statValue(stats, "newEnquiries")).toBe(String(newCount));
@@ -46,7 +47,7 @@ describe("getPartyHallPageData", () => {
   });
 
   it("counts advance collected across upcoming events only", async () => {
-    const { stats, events } = await getPartyHallPageData();
+    const { stats, events } = await getPartyHallPageData(fixtures);
 
     const held = events
       .filter((e) => e.enquiry.status !== "completed" && e.enquiry.status !== "cancelled")
@@ -58,12 +59,12 @@ describe("getPartyHallPageData", () => {
   });
 
   it("names the soonest event still ahead as the next one", async () => {
-    const { stats } = await getPartyHallPageData();
+    const { stats } = await getPartyHallPageData(fixtures);
     expect(statValue(stats, "nextEvent")).toBe("30 Jul · Evening");
   });
 
   it("orders cards up the pipeline, new first and completed last", async () => {
-    const { events } = await getPartyHallPageData();
+    const { events } = await getPartyHallPageData(fixtures);
     const rank: PartyHallStatus[] = [
       "enquiry",
       "quote_sent",
@@ -79,7 +80,7 @@ describe("getPartyHallPageData", () => {
   });
 
   it("gives a new enquiry the primary quote CTA and everything else a quiet one", async () => {
-    const { events } = await getPartyHallPageData();
+    const { events } = await getPartyHallPageData(fixtures);
 
     for (const e of events) {
       if (e.enquiry.status === "enquiry") {
@@ -94,7 +95,7 @@ describe("getPartyHallPageData", () => {
   });
 
   it("shows a dash rather than a false zero before an enquiry is quoted", async () => {
-    const { events } = await getPartyHallPageData();
+    const { events } = await getPartyHallPageData(fixtures);
     const unquoted = events.filter((e) => e.enquiry.amount === 0);
 
     expect(unquoted.length).toBeGreaterThan(0);
@@ -105,7 +106,7 @@ describe("getPartyHallPageData", () => {
   });
 
   it("tags each card with its package tier and add-ons", async () => {
-    const { events } = await getPartyHallPageData();
+    const { events } = await getPartyHallPageData(fixtures);
     const reception = events.find((e) => e.enquiry.title.includes("Priya & Arjun"))!;
 
     expect(reception.tags).toEqual(["Platinum", "Catering", "Decor"]);
@@ -115,13 +116,13 @@ describe("getPartyHallPageData", () => {
   });
 
   it("spells the advance into the meta line once it is paid", async () => {
-    const { events } = await getPartyHallPageData();
+    const { events } = await getPartyHallPageData(fixtures);
     const paid = events.find((e) => e.enquiry.status === "advance_paid")!;
     expect(paid.meta).toContain("advance ₹22k paid");
   });
 
   it("marks the rail's booked days from the live enquiries for that month", async () => {
-    const august = await getPartyHallPageData(2026, 8);
+    const august = await getPartyHallPageData(fixtures, 2026, 8);
     expect(august.calendar.monthLabel).toBe("August 2026");
     expect(bookedDays(august.calendar.cells)).toEqual([8, 12, 16, 22, 29]);
 
@@ -132,12 +133,12 @@ describe("getPartyHallPageData", () => {
   });
 
   it("leaves a month with no events unbooked", async () => {
-    const { calendar } = await getPartyHallPageData(2026, 12);
+    const { calendar } = await getPartyHallPageData(fixtures, 2026, 12);
     expect(bookedDays(calendar.cells)).toEqual([]);
   });
 
   it("states the 25% advance in the package reference", async () => {
-    const { addOnsLine, packages } = await getPartyHallPageData();
+    const { addOnsLine, packages } = await getPartyHallPageData(fixtures);
     expect(addOnsLine).toContain("25% advance to confirm");
     expect(packages.map((p) => p.name)).toEqual(["Silver", "Gold", "Platinum"]);
   });

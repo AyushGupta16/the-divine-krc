@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { getCalendarPageData } from "@/lib/bookings";
+import { calendarPage } from "@/lib/bookings-data";
 import { Calendar } from "@/components/admin/Calendar";
 
 export const Route = createFileRoute("/admin/calendar")({
-  loader: async () => ({ calendar: await getCalendarPageData() }),
+  loader: async () => ({ calendar: await calendarPage() }),
   component: AdminCalendar,
 });
 

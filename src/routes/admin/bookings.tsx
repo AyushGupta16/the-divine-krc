@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { getBookingsPageData } from "@/lib/bookings";
+import { bookingsPage } from "@/lib/bookings-data";
 import { Bookings } from "@/components/admin/Bookings";
 
 export const Route = createFileRoute("/admin/bookings")({
-  loader: async () => ({ data: await getBookingsPageData() }),
+  loader: async () => ({ data: await bookingsPage() }),
   component: AdminBookings,
 });
 

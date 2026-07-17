@@ -4,10 +4,10 @@ import {
   GST_PCT,
   PARTY_HALL_ADVANCE_PCT,
   ROOM_TYPES,
-  getBookings,
   getPaymentsPageData,
   getSettingsPageData,
 } from "@/lib/bookings";
+import { fixtures } from "@/lib/__fixtures__/bookings";
 import type { ChargeSetting } from "@/types/booking";
 
 function charge(charges: ChargeSetting[], key: ChargeSetting["key"]): string {
@@ -16,7 +16,7 @@ function charge(charges: ChargeSetting[], key: ChargeSetting["key"]): string {
 
 describe("getSettingsPageData", () => {
   it("gives the section nav a panel to scroll to, and every panel a section", async () => {
-    const { sections } = await getSettingsPageData();
+    const { sections } = await getSettingsPageData(fixtures);
 
     expect(sections.map((s) => s.id)).toEqual([
       "property",
@@ -29,7 +29,7 @@ describe("getSettingsPageData", () => {
   });
 
   it("quotes the tariff the rooms are actually sold at", async () => {
-    const { pricing } = await getSettingsPageData();
+    const { pricing } = await getSettingsPageData(fixtures);
 
     // The panel edits inventory, so it must list every room type exactly once
     // and at the price that type carries — not a second copy of it.
@@ -42,8 +42,8 @@ describe("getSettingsPageData", () => {
   });
 
   it("states the GST rate every booking is billed at", async () => {
-    const { pricing } = await getSettingsPageData();
-    const bookings = await getBookings();
+    const { pricing } = await getSettingsPageData(fixtures);
+    const bookings = fixtures.bookings;
 
     expect(charge(pricing.charges, "gst")).toBe(`${GST_PCT}%`);
     // A rate on this screen that no bill applies would be a lie about the price.
@@ -51,14 +51,14 @@ describe("getSettingsPageData", () => {
   });
 
   it("states the advance the party hall actually holds dates for", async () => {
-    const { pricing } = await getSettingsPageData();
+    const { pricing } = await getSettingsPageData(fixtures);
 
     expect(charge(pricing.charges, "partyHallAdvance")).toBe(`${PARTY_HALL_ADVANCE_PCT}%`);
   });
 
   it("quotes each channel the commission its own money proves", async () => {
-    const { channels } = await getSettingsPageData();
-    const { ota } = await getPaymentsPageData();
+    const { channels } = await getSettingsPageData(fixtures);
+    const { ota } = await getPaymentsPageData(fixtures);
 
     // Settings states the contracted rate; Payments works the rate back out of
     // the rupees the channel kept. Wherever both exist they are the same claim,
@@ -71,8 +71,8 @@ describe("getSettingsPageData", () => {
   });
 
   it("never shows a channel as disconnected once it has sent us a booking", async () => {
-    const { channels } = await getSettingsPageData();
-    const bookings = await getBookings();
+    const { channels } = await getSettingsPageData(fixtures);
+    const bookings = fixtures.bookings;
 
     // A booking is proof the channel manager is live, and a cancellation does
     // not undo that proof — Agoda's one booking was cancelled, so it sold no
@@ -84,8 +84,8 @@ describe("getSettingsPageData", () => {
   });
 
   it("counts each channel's stays off the live set and ranks by them", async () => {
-    const { channels } = await getSettingsPageData();
-    const bookings = await getBookings();
+    const { channels } = await getSettingsPageData(fixtures);
+    const bookings = fixtures.bookings;
 
     for (const c of channels) {
       const sold = bookings.filter(
@@ -100,7 +100,7 @@ describe("getSettingsPageData", () => {
   });
 
   it("lists the account that can log in, and spells everyone's badge from their name", async () => {
-    const { team } = await getSettingsPageData();
+    const { team } = await getSettingsPageData(fixtures);
 
     // The console's own login must appear in the list of who can log in.
     const owner = team.find((m) => m.email === "admin@thedivinekrc.in");
@@ -117,7 +117,7 @@ describe("getSettingsPageData", () => {
   });
 
   it("hands the toggles their state, each under a key of its own", async () => {
-    const { payments, notifications } = await getSettingsPageData();
+    const { payments, notifications } = await getSettingsPageData(fixtures);
 
     const keys = [...payments.toggles, ...notifications].map((t) => t.key);
     expect(new Set(keys).size).toBe(keys.length);
