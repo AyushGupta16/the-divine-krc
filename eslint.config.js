@@ -53,6 +53,11 @@ export default tseslint.config(
               message:
                 "The database client is server-only: it reads DATABASE_URL, a production credential, and this repo is public. Only modules whose every export is a server function may import it (bookings-data.ts, invites.ts, auth.ts). Importing it from client-reachable code puts the connection string one careless line away from dist/client.",
             },
+            {
+              group: ["**/lib/roster", "**/lib/password"],
+              message:
+                "The roster store is server-only: it reads the database and is the only code that can read a password hash. `lib/team.ts` holds the rules and is safe to import from anywhere; this holds the rows. Importing it from client-reachable code is how #12 shipped `krc-admin` to every browser.",
+            },
           ],
         },
       ],
@@ -75,6 +80,7 @@ export default tseslint.config(
       "src/lib/invites.ts",
       "src/lib/auth.ts",
       "src/lib/db.ts",
+      "src/lib/roster.ts",
       "scripts/**/*.ts",
     ],
     rules: { "no-restricted-imports": "off" },

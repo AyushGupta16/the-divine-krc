@@ -78,6 +78,16 @@ const FORBIDDEN = [
   // a client chunk, which means the connection string is one careless line away.
   { needle: "@neondatabase/serverless", why: "the database driver (server-only)" },
   { needle: "drizzle-orm/neon-http", why: "the database client (server-only)" },
+
+  // Password hashing (#12b). `team.password_hash` is the one column TeamAccount
+  // must never gain — `bookings.ts` imports the roster for Settings and route
+  // loaders run in the browser, which is exactly how #12 shipped `krc-admin`.
+  // These names appearing means `roster.ts` or `password.ts` got pulled into a
+  // client chunk, and a hash is only ever one property away behind them.
+  { needle: "password_hash", why: "the credential column (server-only)" },
+  { needle: "passwordHashFor", why: "the only read of a password hash (server-only)" },
+  { needle: "hashPassword", why: "password hashing (server-only)" },
+  { needle: "scrypt", why: "password hashing (server-only)" },
 ];
 
 function jsFiles(dir) {

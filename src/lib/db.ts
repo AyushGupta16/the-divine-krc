@@ -4,9 +4,24 @@
 //
 // `DATABASE_URL` is a production credential and the repo is public. Route
 // loaders run in the browser, so anything reachable from `lib/bookings.ts` is
-// compiled into `dist/client`. This file is imported only by `bookings-data.ts`,
-// `invites.ts` and `auth.ts` — all of whose exports are server functions, whose
-// handler bodies never reach the browser — and eslint enforces that.
+// compiled into `dist/client`. This file is imported by `bookings-data.ts` and
+// `roster.ts`, and eslint enforces that only server-side modules do so.
+//
+// "Server-side module" is a sharper rule than it first looks, and #12b's second
+// leak is why it is spelled out here. It is NOT enough that every *caller* of a
+// db function sits inside a stripped handler. If the importing module is
+// retained in the client graph at all — as `auth.ts` is, because
+// `routes/admin/route.tsx` imports its plain `requireAuth` — then a *static*
+// `import ... from "@/lib/roster"` is a module-level edge the bundler keeps, and
+// it drags `schema.ts` and the neon driver into `dist/client` with it. The
+// caller being dead code does not save you; the import edge is what ships.
+//
+// So `bookings-data.ts` and `roster.ts` may import this statically, because
+// every one of *their* exports is either a server function or itself only
+// reached from one. `auth.ts` has a plain client-reachable export, so it reaches
+// `roster.ts` through a **dynamic** `import()` instead — see the comment there.
+// That is the real invariant; "all exports are server functions" was the wording
+// that let this leak through once already.
 //
 // Lazy on purpose, and the laziness is load-bearing:
 //
