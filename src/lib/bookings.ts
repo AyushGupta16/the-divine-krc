@@ -190,6 +190,31 @@ export function withTotal(b: Omit<Booking, "totalBill">): Booking {
   return { ...b, totalBill: computeTotalBill(b.revenue) };
 }
 
+/**
+ * The booking number — the `nnn` an id ends with, and the first column the
+ * Bookings table shows. See `bookingId(date, seq)`.
+ */
+function bookingNumber(id: string): number {
+  return Number(id.slice(id.lastIndexOf("-") + 1));
+}
+
+/**
+ * The order the Bookings screen lists in: by booking number, as the design does
+ * (`KRC-…-001` through `-010`, across several dates).
+ *
+ * Stated here rather than inherited from the row order, because there is no row
+ * order to inherit. These rows arrive from Postgres, which without an ORDER BY
+ * returns whatever the planner finds cheapest and may answer differently after
+ * an UPDATE. This function is what makes the table's order a decision instead of
+ * an accident of storage — and it is testable with no database, which an ORDER
+ * BY is not.
+ *
+ * The id breaks ties: `seq` is not promised to be unique across dates.
+ */
+export function byBookingNumber(a: Booking, b: Booking): number {
+  return bookingNumber(a.id) - bookingNumber(b.id) || a.id.localeCompare(b.id);
+}
+
 /** Share of the total taken up-front to hold a date (design: "25% advance"). */
 export const PARTY_HALL_ADVANCE_PCT = 25;
 
@@ -413,7 +438,7 @@ export async function getBookingsPageData(
   today: string = new Date().toISOString().slice(0, 10),
 ): Promise<BookingsPageData> {
   const guestName = new Map(data.guests.map((g) => [g.id, g.name]));
-  const rows = data.bookings.map((booking) => ({
+  const rows = [...data.bookings].sort(byBookingNumber).map((booking) => ({
     booking,
     guestName: guestName.get(booking.guestId) ?? "—",
   }));
@@ -956,7 +981,10 @@ export async function getPartyHallPageData(
   const events = [...data.partyHall].sort(
     (a, b) =>
       PARTY_HALL_STATUS_ORDER.indexOf(a.status) - PARTY_HALL_STATUS_ORDER.indexOf(b.status) ||
-      a.date.localeCompare(b.date),
+      a.date.localeCompare(b.date) ||
+      // Two events can share a status and a date — the hall has slots. Without
+      // this the pair would be ordered by row order, which Postgres does not have.
+      a.id.localeCompare(b.id),
   );
 
   const newEnquiries = events.filter((e) => e.status === "enquiry").length;
@@ -1057,7 +1085,16 @@ export async function getGuestsPageData(data: BookingData): Promise<GuestsPageDa
   }
 
   const guests: GuestListItem[] = [...data.guests]
-    .sort((a, b) => b.lifetimeValue - a.lifetimeValue || a.name.localeCompare(b.name))
+    // Biggest spender first, then by name. `id` last, because two guests can
+    // share a name and the avatar each gets is keyed off this position — so a
+    // tie resolved by row order would reshuffle the badges from one query to
+    // the next.
+    .sort(
+      (a, b) =>
+        b.lifetimeValue - a.lifetimeValue ||
+        a.name.localeCompare(b.name) ||
+        a.id.localeCompare(b.id),
+    )
     .map((guest, i) => {
       const stayed = lastStayOn.get(guest.id);
       const avatar = AVATAR_TOKENS[i % AVATAR_TOKENS.length];
@@ -1203,7 +1240,10 @@ function transactionsFrom(
     });
   }
 
-  return txns.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  // Newest first, and `id` breaks the tie: two payments can share a timestamp,
+  // and `sort` is stable, so without this the list would fall back on the order
+  // the rows happened to arrive in — which, from Postgres, is no order at all.
+  return txns.sort((a, b) => Date.parse(b.at) - Date.parse(a.at) || a.id.localeCompare(b.id));
 }
 
 /** "9:42 am" for a movement today, "Yesterday", else "20 Jul". */
@@ -1256,16 +1296,20 @@ function otaSettlements(bookings: Booking[]): OtaSettlement[] {
     byChannel.set(b.source, acc);
   }
 
-  return [...byChannel.entries()]
-    .map(([source, acc]) => ({
-      source,
-      name: OTA_CHANNELS[source].name,
-      abbr: OTA_CHANNELS[source].abbr,
-      count: acc.count,
-      commissionPct: Math.round((acc.commission / acc.amount) * 100),
-      amount: acc.amount,
-    }))
-    .sort((a, b) => b.amount - a.amount);
+  return (
+    [...byChannel.entries()]
+      .map(([source, acc]) => ({
+        source,
+        name: OTA_CHANNELS[source].name,
+        abbr: OTA_CHANNELS[source].abbr,
+        count: acc.count,
+        commissionPct: Math.round((acc.commission / acc.amount) * 100),
+        amount: acc.amount,
+      }))
+      // Biggest first; the channel name breaks the tie, since two OTAs owing the
+      // same amount must not be ordered by whatever the query returned.
+      .sort((a, b) => b.amount - a.amount || a.name.localeCompare(b.name))
+  );
 }
 
 /**

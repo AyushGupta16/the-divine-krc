@@ -154,10 +154,16 @@ async function load(): Promise<BookingData> {
     return fixtures;
   }
 
+  // ORDER BY on every one of them. Postgres guarantees nothing about row order
+  // without it — the planner is free to hand back whatever is cheapest, and the
+  // answer can change after an UPDATE or a vacuum. The derivation states its own
+  // order (see `bookingNumber` and the sorts in `bookings.ts`), so this is not
+  // what makes the screens deterministic; it is what stops the *query* from
+  // being a coin flip, which matters the moment anyone debugs one or pages it.
   const [guestRows, bookingRows, partyHallRows] = await Promise.all([
-    conn.select().from(schema.guests),
-    conn.select().from(schema.bookings),
-    conn.select().from(schema.partyHallEnquiries),
+    conn.select().from(schema.guests).orderBy(schema.guests.id),
+    conn.select().from(schema.bookings).orderBy(schema.bookings.id),
+    conn.select().from(schema.partyHallEnquiries).orderBy(schema.partyHallEnquiries.id),
   ]);
 
   return {
