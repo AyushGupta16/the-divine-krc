@@ -38,6 +38,7 @@ import {
 } from "@/lib/bookings";
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import { db, missingDbInProduction } from "@/lib/db";
+import { loadRoster } from "@/lib/roster";
 import * as schema from "@/lib/schema";
 import type {
   Booking,
@@ -206,7 +207,13 @@ export const reportsPage = createServerFn({ method: "GET" }).handler(
 );
 
 export const settingsPage = createServerFn({ method: "GET" }).handler(
-  async (): Promise<SettingsPageData> => getSettingsPageData(await load()),
+  async (): Promise<SettingsPageData> => {
+    // The roster is a separate load, not part of `BookingData`: it is the one
+    // screen that reads both, and folding people into "booking rows" would put
+    // `lib/team.ts` back in reach of everything that reads a booking.
+    const [data, roster] = await Promise.all([load(), loadRoster()]);
+    return getSettingsPageData(data, roster);
+  },
 );
 
 /** Sidebar badges. Counts only — the shell has no use for the rows themselves. */

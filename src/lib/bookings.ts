@@ -81,7 +81,7 @@ import {
   formatINR,
   formatINRCompact,
 } from "@/lib/booking-math";
-import { isActive, team } from "@/lib/team";
+import { isActive, type TeamAccount } from "@/lib/team";
 import { initialsOf } from "@/lib/utils";
 
 /**
@@ -1917,16 +1917,18 @@ const PROPERTY: PropertyProfile = {
  * which pulls in server-only session code; the DB swap unifies the two.
  */
 /**
- * Who can log in, read off the one roster in `lib/team.ts`. PR #11 seeded this
- * list here and noted the duplication with `auth.ts`; PR #12 removed it, because
- * once an invite can add someone, a roster that Settings keeps privately would
- * be a roster that goes stale the first time anyone joins.
+ * Who can log in, read off the one roster. PR #11 seeded this list here and
+ * noted the duplication with `auth.ts`; PR #12 removed it, because once an
+ * invite can add someone, a roster that Settings keeps privately would be a
+ * roster that goes stale the first time anyone joins. #12b moved that roster
+ * into Postgres, so it now arrives as an argument for the same reason the
+ * booking rows do — this file cannot reach the database and must not.
  *
  * Only accepted members appear. Someone invited and still deciding is on the
  * Team & access screen under their invite, not on the list of people with keys.
  */
-function activeTeam(): TeamMember[] {
-  return team
+function activeTeam(roster: TeamAccount[]): TeamMember[] {
+  return roster
     .filter(isActive)
     .map((m) => ({ name: m.name, email: m.email, role: m.role, initials: initialsOf(m.name) }));
 }
@@ -2032,7 +2034,10 @@ function channelSettings(bookings: Booking[]): ChannelSetting[] {
     .sort((a, b) => b.bookings - a.bookings || a.name.localeCompare(b.name));
 }
 
-export async function getSettingsPageData(data: BookingData): Promise<SettingsPageData> {
+export async function getSettingsPageData(
+  data: BookingData,
+  roster: TeamAccount[],
+): Promise<SettingsPageData> {
   const bookings = data.bookings;
 
   return {
@@ -2041,7 +2046,7 @@ export async function getSettingsPageData(data: BookingData): Promise<SettingsPa
     pricing: { tariffs: tariffSettings(), charges: chargeSettings() },
     payments: paymentSettings(),
     channels: channelSettings(bookings),
-    team: activeTeam(),
+    team: activeTeam(roster),
     notifications: NOTIFICATION_TOGGLES,
   };
 }

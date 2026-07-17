@@ -1,19 +1,30 @@
 // Team invitations for the admin console.
 //
-// PR #12 scope: a REAL invite lifecycle — tokenised, expiring, single-use —
-// over the in-memory roster in `lib/team.ts`. Only delivery is stubbed: the
-// accept link is logged rather than emailed, exactly as `auth.ts` has stubbed
-// the password-reset mail since PR #1. Swap the console.info for a
-// transactional email provider and nothing above it changes.
+// PR #12 scope: a REAL invite lifecycle — tokenised, expiring, single-use — over
+// the roster. Only delivery is stubbed: the accept link is logged rather than
+// emailed, exactly as `auth.ts` has stubbed the password-reset mail since PR #1.
+// Swap the console.info for a transactional email provider and nothing above it
+// changes.
 //
-// This file is the permission boundary and nothing else. The rules it guards
-// live in `team.ts`; what lives here is the check that they may be invoked at
-// all. Roles are read off the session, never off the caller's input, so the
-// screen's hidden buttons are a courtesy and this is the closed door.
+// This file is the permission boundary, and since #12b it is also the write.
+// The rules it guards live in `team.ts` and decide without touching a database;
+// the rows live in `roster.ts`. So each mutation below reads the same three
+// beats: load the state the rule needs, ask the rule, persist what it decided.
+// The rule stays testable with no connection, which is why it does not fetch.
 
 import { createServerFn } from "@tanstack/react-start";
 
-import { getSessionMember, setMemberCredential } from "@/lib/auth";
+import { getSessionMember } from "@/lib/auth";
+import { hashPassword } from "@/lib/password";
+import {
+  acceptMember,
+  deleteInvite,
+  findInviteByToken,
+  loadInvites,
+  loadRoster,
+  purgeExpiredInvites,
+  putInvite,
+} from "@/lib/roster";
 import {
   INVITABLE_ROLES,
   ROLE_HINTS,
@@ -21,17 +32,15 @@ import {
   can,
   createInvite,
   displayNameFromEmail,
-  findInvite,
   inviteStatus,
-  invites,
   isActive,
   passwordProblem,
   refreshInvite,
   revokeInvite,
-  team,
   type Invite,
   type Result,
   type Role,
+  type TeamAccount,
 } from "@/lib/team";
 import { initialsOf } from "@/lib/utils";
 import type { InvitePageData, RoleOption, TeamRow } from "@/types/booking";
@@ -58,8 +67,8 @@ async function requireManager(): Promise<Result> {
 
 // --- Reads --------------------------------------------------------------
 
-function memberRows(): TeamRow[] {
-  return team.filter(isActive).map((m) => ({
+function memberRows(roster: TeamAccount[]): TeamRow[] {
+  return roster.filter(isActive).map((m) => ({
     name: m.name,
     email: m.email,
     role: m.role,
@@ -69,8 +78,8 @@ function memberRows(): TeamRow[] {
   }));
 }
 
-function inviteRows(now: number): TeamRow[] {
-  return invites.map((i) => {
+function inviteRows(pending: Invite[], now: number): TeamRow[] {
+  return pending.map((i) => {
     const name = displayNameFromEmail(i.email);
     return {
       name,
@@ -89,10 +98,14 @@ function inviteRows(now: number): TeamRow[] {
  */
 export const getInvitePageData = createServerFn({ method: "GET" }).handler(
   async (): Promise<InvitePageData> => {
-    const member = await getSessionMember();
+    const [member, roster, pending] = await Promise.all([
+      getSessionMember(),
+      loadRoster(),
+      loadInvites(),
+    ]);
     const now = Date.now();
-    const rows = [...memberRows(), ...inviteRows(now)];
-    const pending = rows.filter((r) => r.status === "Pending").length;
+    const rows = [...memberRows(roster), ...inviteRows(pending, now)];
+    const pendingCount = rows.filter((r) => r.status === "Pending").length;
     const members = rows.filter((r) => r.status === "Active").length;
 
     const roles: RoleOption[] = INVITABLE_ROLES.map((role) => ({
@@ -103,7 +116,7 @@ export const getInvitePageData = createServerFn({ method: "GET" }).handler(
     return {
       rows,
       roles,
-      seatLabel: `${members} member${members === 1 ? "" : "s"} · ${pending} pending`,
+      seatLabel: `${members} member${members === 1 ? "" : "s"} · ${pendingCount} pending`,
       canManage: member ? can(member.role, "team:manage") : false,
     };
   },
@@ -117,7 +130,7 @@ export const getInvitePageData = createServerFn({ method: "GET" }).handler(
 export const getInviteFn = createServerFn({ method: "GET" })
   .inputValidator((data: { token: string }) => data)
   .handler(async ({ data }): Promise<Result<{ email: string }>> => {
-    const invite = findInvite(data.token);
+    const invite = await findInviteByToken(data.token);
     if (!invite || inviteStatus(invite) === "Expired") {
       return { ok: false, error: "This invite link is invalid or has expired." };
     }
@@ -132,9 +145,13 @@ export const sendInviteFn = createServerFn({ method: "POST" })
     const auth = await requireManager();
     if (!auth.ok) return auth;
 
-    const res = createInvite(data);
+    const [roster, pending] = await Promise.all([loadRoster(), loadInvites()]);
+    const res = createInvite({ roster, pending }, data);
     if (!res.ok) return res;
 
+    // Replaces any invite this address already had — one person, one row. The
+    // `email` unique constraint is the same rule where the database can hold it.
+    await putInvite(res.invite);
     sendInviteEmail(res.invite);
     return { ok: true, email: res.invite.email };
   });
@@ -145,9 +162,13 @@ export const resendInviteFn = createServerFn({ method: "POST" })
     const auth = await requireManager();
     if (!auth.ok) return auth;
 
-    const res = refreshInvite(data.token);
+    const res = refreshInvite(await findInviteByToken(data.token));
     if (!res.ok) return res;
 
+    // The rotated invite keeps the address, so the upsert on `email` replaces
+    // the old row — the previous token dies with it, which is the point of
+    // resending rather than re-sending.
+    await putInvite(res.invite);
     sendInviteEmail(res.invite);
     return { ok: true, email: res.invite.email };
   });
@@ -158,7 +179,11 @@ export const revokeInviteFn = createServerFn({ method: "POST" })
     const auth = await requireManager();
     if (!auth.ok) return auth;
 
-    return revokeInvite(data.token);
+    const res = revokeInvite(await findInviteByToken(data.token));
+    if (!res.ok) return res;
+
+    await deleteInvite(data.token);
+    return res;
   });
 
 /**
@@ -168,16 +193,27 @@ export const revokeInviteFn = createServerFn({ method: "POST" })
 export const acceptInviteFn = createServerFn({ method: "POST" })
   .inputValidator((data: { token: string; password: string }) => data)
   .handler(async ({ data }): Promise<Result<{ email: string }>> => {
-    // Check the password before the token is spent, so a rejected one leaves
-    // the invite usable rather than stranding them with a burnt link.
+    // Check the password before the token is spent, so a rejected one leaves the
+    // invite usable rather than stranding them with a burnt link.
     const problem = passwordProblem(data.password);
     if (problem) return { ok: false, error: problem };
 
-    const res = acceptInvite(data.token);
-    if (!res.ok) return res;
+    const [roster, invite] = await Promise.all([loadRoster(), findInviteByToken(data.token)]);
+    const { burn, result } = acceptInvite({ roster, invite });
 
-    // The roster now says they accepted, so the credential must exist for that
-    // to be true. This is the one place both are set.
-    setMemberCredential(res.email, data.password);
-    return { ok: true, email: res.email };
+    if (!result.ok) {
+      // A dead token is burnt on sight rather than left to be retried.
+      if (burn) await deleteInvite(burn);
+      return result;
+    }
+
+    // One statement sets the roster row and the credential together. "Accepted"
+    // and "can log in" are the same fact, so they must not be two writes with a
+    // cold start available in between.
+    await acceptMember(result.member, await hashPassword(data.password));
+    if (burn) await deleteInvite(burn); // single use
+
+    // Opportunistic tidy: tokens that died unused are of no interest to anyone.
+    await purgeExpiredInvites();
+    return { ok: true, email: result.member.email };
   });

@@ -12,6 +12,7 @@
 // for the preview branch (#14). It has no delete path on purpose.
 
 import { fixtures } from "@/lib/__fixtures__/bookings";
+import { openInvite, team as roster } from "@/lib/__fixtures__/team";
 import { db } from "@/lib/db";
 import * as schema from "@/lib/schema";
 
@@ -40,14 +41,42 @@ async function main() {
   }));
   const partyHall = fixtures.partyHall.map(({ advancePaid: _a, ...e }) => e);
 
+  // No password hash. The seeded staff accepted long before the console existed,
+  // so nothing here has any business inventing a credential for them — a null
+  // hash says "Active but nobody can log in as them", which is the truth. The
+  // Owner never gets one either: ADMIN_PASSWORD is the Owner's credential and
+  // lives in the env, so it is not in this table to steal.
+  const members = roster.map((m) => ({
+    email: m.email,
+    name: m.name,
+    role: m.role,
+    acceptedAt: m.acceptedAt ? new Date(m.acceptedAt) : null,
+  }));
+
+  // A fresh token per run — a token committed to a public repo is a token
+  // anyone can redeem, and this seed reaches production until #14.
+  const invite = openInvite();
+
   // Guests before bookings — the FK points that way.
   await conn.insert(schema.guests).values(guests).onConflictDoNothing();
   await conn.insert(schema.bookings).values(bookings).onConflictDoNothing();
   await conn.insert(schema.partyHallEnquiries).values(partyHall).onConflictDoNothing();
+  await conn.insert(schema.team).values(members).onConflictDoNothing();
+  await conn
+    .insert(schema.invites)
+    .values({
+      token: invite.token,
+      email: invite.email,
+      role: invite.role,
+      message: invite.message ?? null,
+      createdAt: new Date(invite.createdAt),
+      expiresAt: new Date(invite.expiresAt),
+    })
+    .onConflictDoNothing();
 
   console.log(
     `seeded: ${guests.length} guests, ${bookings.length} bookings, ` +
-      `${partyHall.length} enquiries`,
+      `${partyHall.length} enquiries, ${members.length} members, 1 open invite`,
   );
 }
 

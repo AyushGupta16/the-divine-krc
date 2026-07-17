@@ -9,9 +9,15 @@
 //
 // It is deliberately free of `@tanstack/react-start/server` imports. That is the
 // whole reason it exists as its own module: `bookings.ts` feeds a client loader
-// and cannot pull server-only session code, so the shared store has to sit below
-// both. Server functions live in `invites.ts`; this file is just the data and
-// the rules. Swap the arrays for a DB and everything above them still holds.
+// and cannot pull server-only session code, so the shared rules have to sit below
+// both. Server functions live in `invites.ts`; this file is just the rules.
+//
+// #12b took the arrays out. The promise above them — "swap the arrays for a DB
+// and everything here still holds" — is the one this file now has to keep, so
+// the lifecycle functions below decide and return; they no longer mutate. The
+// caller (`invites.ts`) is what writes, because writing is what needs the
+// database and the rules must not. That is what keeps them testable with no
+// connection, which is the same trick `bookings.ts` plays with `BookingData`.
 //
 // !! Which is exactly why NO CREDENTIAL MAY EVER LIVE IN THIS FILE. !!
 //
@@ -96,21 +102,6 @@ export interface TeamAccount {
   acceptedAt?: number;
 }
 
-/** Long enough ago to be uninteresting; the seed pre-dates the console. */
-const SEEDED_AT = Date.parse("2026-01-05T00:00:00Z");
-
-export const team: TeamAccount[] = [
-  { email: "admin@thedivinekrc.in", name: "Admin Ayush", role: "Owner", acceptedAt: SEEDED_AT },
-  { email: "shivam@thedivinekrc.in", name: "Shivam Gupta", role: "Manager", acceptedAt: SEEDED_AT },
-  {
-    email: "sneha@thedivinekrc.in",
-    name: "Sneha Pillai",
-    role: "Front desk",
-    acceptedAt: SEEDED_AT,
-  },
-  { email: "vinod@thedivinekrc.in", name: "Vinod Kumar", role: "Accounts", acceptedAt: SEEDED_AT },
-];
-
 /** Accepted, and therefore holding a credential `auth.ts` knows and this file does not. */
 export function isActive(member: TeamAccount): boolean {
   return member.acceptedAt != null;
@@ -120,9 +111,10 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-export function findMember(email: string): TeamAccount | undefined {
+/** The roster, as whoever loaded it has it. */
+export function findMember(roster: TeamAccount[], email: string): TeamAccount | undefined {
   const key = normalizeEmail(email);
-  return team.find((m) => m.email.toLowerCase() === key);
+  return roster.find((m) => m.email.toLowerCase() === key);
 }
 
 // --- Invites ------------------------------------------------------------
@@ -141,8 +133,6 @@ export interface Invite {
  *  someone asked for and is waiting on, it is a request landing in their inbox. */
 export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-export const invites: Invite[] = [];
-
 export function makeToken(): string {
   return (
     Math.random().toString(36).slice(2) +
@@ -151,13 +141,13 @@ export function makeToken(): string {
   );
 }
 
-export function findInvite(token: string): Invite | undefined {
-  return invites.find((i) => i.token === token);
+export function findInvite(list: Invite[], token: string): Invite | undefined {
+  return list.find((i) => i.token === token);
 }
 
-export function findInviteByEmail(email: string): Invite | undefined {
+export function findInviteByEmail(list: Invite[], email: string): Invite | undefined {
   const key = normalizeEmail(email);
-  return invites.find((i) => i.email.toLowerCase() === key);
+  return list.find((i) => i.email.toLowerCase() === key);
 }
 
 /**
@@ -196,56 +186,62 @@ export type Result<T = object> = ({ ok: true } & T) | { ok: false; error: string
 
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
 
-export function createInvite(input: {
-  email: string;
-  role: Role;
-  message?: string;
-}): Result<{ invite: Invite }> {
+/**
+ * Decide an invite. The caller writes it: delete any invite for this address,
+ * insert this one.
+ *
+ * `roster` and `pending` are the state as the caller loaded it — a query in
+ * production, an array in the tests. The rule is the same either way, which is
+ * the point of it not fetching its own.
+ */
+export function createInvite(
+  state: { roster: TeamAccount[]; pending: Invite[] },
+  input: { email: string; role: Role; message?: string },
+  now = Date.now(),
+): Result<{ invite: Invite }> {
   const email = normalizeEmail(input.email);
   if (!EMAIL_RE.test(email)) return { ok: false, error: "Enter a valid email address." };
   if (!INVITABLE_ROLES.includes(input.role)) {
     return { ok: false, error: "Pick a role for this invite." };
   }
-  const member = findMember(email);
+  const member = findMember(state.roster, email);
   if (member && isActive(member)) {
     return { ok: false, error: `${email} is already on the team.` };
   }
 
   // Re-inviting someone who already has an invite replaces it rather than
-  // stacking a second one, so a person is only ever one row and the newest
-  // link is the only one that works.
-  const existing = findInviteByEmail(email);
-  if (existing) invites.splice(invites.indexOf(existing), 1);
-
+  // stacking a second one, so a person is only ever one row and the newest link
+  // is the only one that works. The `invites.email` unique constraint is the
+  // same rule, stated where the database can enforce it.
   const invite: Invite = {
     email,
     role: input.role,
     message: input.message?.trim() || undefined,
     token: makeToken(),
-    createdAt: Date.now(),
-    expiresAt: Date.now() + INVITE_TTL_MS,
+    createdAt: now,
+    expiresAt: now + INVITE_TTL_MS,
   };
-  invites.push(invite);
   return { ok: true, invite };
 }
 
 /** Resend mints a fresh token: the old link dies, so a forwarded mail cannot
- *  outlive the one the person was actually meant to use. */
-export function refreshInvite(token: string): Result<{ invite: Invite }> {
-  const invite = findInvite(token);
+ *  outlive the one the person was actually meant to use. The caller replaces the
+ *  row keyed by the *old* token. */
+export function refreshInvite(
+  invite: Invite | undefined,
+  now = Date.now(),
+): Result<{ invite: Invite }> {
   if (!invite) return { ok: false, error: "That invite no longer exists." };
 
-  invite.token = makeToken();
-  invite.createdAt = Date.now();
-  invite.expiresAt = Date.now() + INVITE_TTL_MS;
-  return { ok: true, invite };
+  return {
+    ok: true,
+    invite: { ...invite, token: makeToken(), createdAt: now, expiresAt: now + INVITE_TTL_MS },
+  };
 }
 
-export function revokeInvite(token: string): Result<{ email: string }> {
-  const invite = findInvite(token);
+/** The caller deletes the row. */
+export function revokeInvite(invite: Invite | undefined): Result<{ email: string }> {
   if (!invite) return { ok: false, error: "That invite no longer exists." };
-
-  invites.splice(invites.indexOf(invite), 1);
   return { ok: true, email: invite.email };
 }
 
@@ -267,38 +263,40 @@ export function passwordProblem(password: string): string | null {
  * token is untouched, which is what keeps "accepted" and "has a credential" the
  * same fact.
  */
-export function acceptInvite(token: string): Result<{ email: string; role: Role }> {
-  const invite = findInvite(token);
-  if (!invite || inviteStatus(invite) === "Expired") {
-    // Burn an expired token on sight rather than leaving it to be retried.
-    if (invite) invites.splice(invites.indexOf(invite), 1);
-    return { ok: false, error: "This invite link is invalid or has expired." };
+export interface AcceptDecision {
+  /**
+   * The token to delete, on success *and* on failure — an expired link is burnt
+   * on sight rather than left to be retried. Null only when there was no invite
+   * to burn. Separate from `result` precisely because it is not conditional on
+   * it; folding it into the success case is how a dead token survives.
+   */
+  burn: string | null;
+  result: Result<{ member: TeamAccount }>;
+}
+
+export function acceptInvite(
+  state: { roster: TeamAccount[]; invite: Invite | undefined },
+  now = Date.now(),
+): AcceptDecision {
+  const { invite } = state;
+  if (!invite || inviteStatus(invite, now) === "Expired") {
+    return {
+      burn: invite?.token ?? null,
+      result: { ok: false, error: "This invite link is invalid or has expired." },
+    };
   }
 
   const email = invite.email;
-  const existing = findMember(email);
-  if (existing) {
-    existing.acceptedAt = Date.now();
-    existing.role = invite.role;
-  } else {
-    team.push({
-      email,
-      name: displayNameFromEmail(email),
-      role: invite.role,
-      acceptedAt: Date.now(),
-    });
-  }
-  invites.splice(invites.indexOf(invite), 1); // single use
-  return { ok: true, email, role: invite.role };
-}
+  const existing = findMember(state.roster, email);
 
-// Seed: one invite still open, so the screen has a Pending row to act on.
-// Deliberately just the one — an Expired row is reachable by letting a token
-// die rather than by seeding a corpse, and the tests age this one to prove it.
-invites.push({
-  email: "aarti@thedivinekrc.in",
-  role: "Front desk",
-  token: makeToken(),
-  createdAt: Date.now(),
-  expiresAt: Date.now() + INVITE_TTL_MS,
-});
+  // An existing row keeps its name — the person typed it, or an earlier accept
+  // derived it; either way it beats re-deriving from the address. A new one has
+  // no name to keep, because the invite form never asked for one.
+  const member: TeamAccount = {
+    email,
+    name: existing?.name ?? displayNameFromEmail(email),
+    role: invite.role,
+    acceptedAt: now,
+  };
+  return { burn: invite.token, result: { ok: true, member } };
+}

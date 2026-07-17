@@ -89,15 +89,42 @@ export const partyHallEnquiries = pgTable("party_hall_enquiries", {
   // advancePaid: derived from amount + status. See rule 1.
 });
 
-// `team` and `invites` are deliberately NOT here yet.
-//
-// They arrive in the next PR, together with the writes that use them. Creating
-// them now would mean a `team` table sitting unread beside the live roster array
-// in `lib/team.ts` — two rosters, which is exactly the bug #18 fixed. And their
-// mutations (`createInvite`, `acceptInvite`, …) are synchronous array operations
-// that `invites.test.ts` exercises with no database; moving them needs a
-// rules/storage split worth its own review, not a footnote to this one.
-//
-// Migrations are additive-only from here (the migration Action races Netlify's
-// deploy), so adding those two tables later costs nothing that adding them now
-// would save.
+/**
+ * Who exists. Mirrors `TeamAccount` in `lib/team.ts` — and deliberately carries
+ * one column that type does not have.
+ */
+export const team = pgTable("team", {
+  /** Lower-cased on the way in; `normalizeEmail` is the only door. */
+  email: text("email").primaryKey(),
+  name: text("name").notNull(),
+  role: text("role").notNull(),
+  /** Presence is what makes a member Active, so status stays derived. */
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+
+  // !! The one column `TeamAccount` must never gain. !!
+  //
+  // `lib/team.ts` is client-reachable, and `invites.test.ts` asserts every
+  // TeamAccount's keys are exactly [acceptedAt, email, name, role] — that test
+  // exists because #12 shipped passwords to every browser. The hash lives here
+  // and is read only by `auth.ts`, whose every export is a server function.
+  // Never select it into a roster row; never widen TeamAccount to hold it.
+  //
+  // scrypt (Node core): no native module, nothing to bundle on Lambda. Null
+  // until someone accepts an invite and sets one — the Owner never has one,
+  // because ADMIN_PASSWORD is the Owner's credential and lives in the env.
+  passwordHash: text("password_hash"),
+});
+
+export const invites = pgTable("invites", {
+  /** The accept link's secret. Single-use, and the primary key. */
+  token: text("token").primaryKey(),
+  /** Not unique by accident — `createInvite` replaces rather than stacks, so one
+   *  person is only ever one row and the newest link is the only live one. */
+  email: text("email").notNull().unique(),
+  role: text("role").notNull(),
+  /** The optional note the sender types; it rides along in the email. */
+  message: text("message"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  /** A week. `inviteStatus` derives Pending/Expired from this, never a column. */
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
