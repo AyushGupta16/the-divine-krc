@@ -1,6 +1,6 @@
 import { createFileRoute, Outlet, useRouterState } from "@tanstack/react-router";
 import { requireAuth } from "@/lib/auth";
-import { getBookings, getGuests, getAvailableRoomCount } from "@/lib/bookings";
+import { sidebarCounts } from "@/lib/bookings-data";
 import { AdminShell } from "@/components/admin/AdminShell";
 
 // Public auth pages live under /admin but must NOT be gated (guarding them
@@ -31,18 +31,7 @@ export const Route = createFileRoute("/admin")({
     if (!context.adminUser) {
       return { counts: { bookings: 0, guests: 0, rooms: 0 } };
     }
-    const [bookings, guests, availableRooms] = await Promise.all([
-      getBookings(),
-      getGuests(),
-      getAvailableRoomCount(),
-    ]);
-    return {
-      counts: {
-        bookings: bookings.length,
-        guests: guests.length,
-        rooms: availableRooms,
-      },
-    };
+    return { counts: await sidebarCounts() };
   },
   component: AdminLayout,
 });

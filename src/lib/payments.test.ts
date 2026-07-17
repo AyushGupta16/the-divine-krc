@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { getBookings, getBookingsPageData, getPaymentsPageData } from "@/lib/bookings";
+import { getBookingsPageData, getPaymentsPageData } from "@/lib/bookings";
+import { fixtures } from "@/lib/__fixtures__/bookings";
 import { formatINR } from "@/lib/booking-math";
 import type { PaymentsKpi } from "@/types/booking";
 
@@ -12,7 +13,7 @@ function kpi(kpis: PaymentsKpi[], key: PaymentsKpi["key"]): PaymentsKpi {
 
 describe("getPaymentsPageData", () => {
   it("signs money out negative and money in positive", async () => {
-    const { transactions } = await getPaymentsPageData(TODAY);
+    const { transactions } = await getPaymentsPageData(fixtures, TODAY);
 
     for (const t of transactions) {
       expect(t.txn.amount).not.toBe(0);
@@ -27,8 +28,8 @@ describe("getPaymentsPageData", () => {
   });
 
   it("separates OTA money from direct money", async () => {
-    const { transactions, ota } = await getPaymentsPageData(TODAY);
-    const bookings = await getBookings();
+    const { transactions, ota } = await getPaymentsPageData(fixtures, TODAY);
+    const bookings = fixtures.bookings;
     const otaSourced = new Set(ota.map((o) => o.source));
 
     // Every OTA-method row belongs to a channel booking, and vice versa.
@@ -44,8 +45,8 @@ describe("getPaymentsPageData", () => {
   });
 
   it("derives each channel's commission rate from the money beside it", async () => {
-    const { ota } = await getPaymentsPageData(TODAY);
-    const bookings = await getBookings();
+    const { ota } = await getPaymentsPageData(fixtures, TODAY);
+    const bookings = fixtures.bookings;
 
     expect(ota.length).toBeGreaterThan(0);
     for (const o of ota) {
@@ -57,15 +58,15 @@ describe("getPaymentsPageData", () => {
   });
 
   it("computes the month's net as gross less commission and refunds", async () => {
-    const { rollup } = await getPaymentsPageData(TODAY);
+    const { rollup } = await getPaymentsPageData(fixtures, TODAY);
 
     expect(rollup.net).toBe(rollup.gross - rollup.commission - rollup.refunds);
     expect(rollup.label).toBe("July 2026");
   });
 
   it("counts as gross only the stays that billed", async () => {
-    const { rollup } = await getPaymentsPageData(TODAY);
-    const bookings = await getBookings();
+    const { rollup } = await getPaymentsPageData(fixtures, TODAY);
+    const bookings = fixtures.bookings;
 
     // A cancelled booking and a no-show earned nothing, so neither is in gross.
     const billed = bookings.filter(
@@ -76,8 +77,8 @@ describe("getPaymentsPageData", () => {
   });
 
   it("quotes the same OTA receivable the bookings screen does", async () => {
-    const { kpis } = await getPaymentsPageData(TODAY);
-    const { summary } = await getBookingsPageData(TODAY);
+    const { kpis } = await getPaymentsPageData(fixtures, TODAY);
+    const { summary } = await getBookingsPageData(fixtures, TODAY);
 
     const here = kpi(kpis, "otaReceivables").value;
     const there = summary.find((s) => s.key === "otaReceivables")!.value;
@@ -85,14 +86,14 @@ describe("getPaymentsPageData", () => {
   });
 
   it("quotes the same pending collection the bookings screen does", async () => {
-    const { kpis } = await getPaymentsPageData(TODAY);
-    const { totals } = await getBookingsPageData(TODAY);
+    const { kpis } = await getPaymentsPageData(fixtures, TODAY);
+    const { totals } = await getBookingsPageData(fixtures, TODAY);
 
     expect(kpi(kpis, "pendingFromGuests").value).toBe(formatINR(totals.pending));
   });
 
   it("counts toward 'collected today' only successful movements dated today", async () => {
-    const { kpis, transactions } = await getPaymentsPageData(TODAY);
+    const { kpis, transactions } = await getPaymentsPageData(fixtures, TODAY);
 
     const today = transactions.filter(
       (t) => t.txn.status === "success" && t.txn.at.startsWith(TODAY),
@@ -105,7 +106,7 @@ describe("getPaymentsPageData", () => {
   });
 
   it("settles through Razorpay only what Razorpay processed", async () => {
-    const { kpis, transactions } = await getPaymentsPageData(TODAY);
+    const { kpis, transactions } = await getPaymentsPageData(fixtures, TODAY);
 
     const online = transactions.filter(
       (t) => t.txn.status === "success" && ["upi", "card", "net_banking"].includes(t.txn.method),
@@ -118,7 +119,7 @@ describe("getPaymentsPageData", () => {
   });
 
   it("lists the most recent movement first, and dates it against today", async () => {
-    const { transactions } = await getPaymentsPageData(TODAY);
+    const { transactions } = await getPaymentsPageData(fixtures, TODAY);
 
     const times = transactions.map((t) => Date.parse(t.txn.at));
     expect(times).toEqual([...times].sort((a, b) => b - a));

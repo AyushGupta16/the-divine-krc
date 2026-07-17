@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { getBookingsPageData, getGuests, getGuestsPageData, guestTier } from "@/lib/bookings";
+import { getBookingsPageData, getGuestsPageData, guestTier } from "@/lib/bookings";
+import { fixtures } from "@/lib/__fixtures__/bookings";
 import { formatINRCompact } from "@/lib/booking-math";
 import type { GuestStat } from "@/types/booking";
 
@@ -19,7 +20,7 @@ describe("guestTier", () => {
   });
 
   it("gives every guest a badge that matches their stay count", async () => {
-    for (const g of await getGuests()) {
+    for (const g of fixtures.guests) {
       expect(g.tier).toBe(guestTier(g.stays));
     }
   });
@@ -27,8 +28,8 @@ describe("guestTier", () => {
 
 describe("getGuestsPageData", () => {
   it("returns one row per guest, best lifetime value first", async () => {
-    const { guests } = await getGuestsPageData();
-    const all = await getGuests();
+    const { guests } = await getGuestsPageData(fixtures);
+    const all = fixtures.guests;
 
     expect(guests).toHaveLength(all.length);
     const ltvs = guests.map((g) => g.guest.lifetimeValue);
@@ -36,7 +37,7 @@ describe("getGuestsPageData", () => {
   });
 
   it("stat strip agrees with the directory it sits above", async () => {
-    const { stats, guests, subtitle } = await getGuestsPageData();
+    const { stats, guests, subtitle } = await getGuestsPageData(fixtures);
 
     const repeat = guests.filter((g) => g.guest.stays >= 2).length;
     const topLtv = Math.max(...guests.map((g) => g.guest.lifetimeValue));
@@ -49,8 +50,8 @@ describe("getGuestsPageData", () => {
   });
 
   it("marks in-house exactly the guests the bookings screen shows checked in", async () => {
-    const { guests } = await getGuestsPageData();
-    const { rows } = await getBookingsPageData("2026-07-15");
+    const { guests } = await getGuestsPageData(fixtures);
+    const { rows } = await getBookingsPageData(fixtures, "2026-07-15");
 
     const checkedIn = new Set(
       rows.filter((r) => r.booking.status === "checked_in").map((r) => r.booking.guestId),
@@ -63,8 +64,8 @@ describe("getGuestsPageData", () => {
   });
 
   it("dates the last stay from a stay that happened, never a booking that didn't", async () => {
-    const { guests } = await getGuestsPageData();
-    const { rows } = await getBookingsPageData("2026-07-15");
+    const { guests } = await getGuestsPageData(fixtures);
+    const { rows } = await getBookingsPageData(fixtures, "2026-07-15");
     const byId = new Map(guests.map((g) => [g.guest.id, g]));
 
     // A cancelled booking and a no-show are stays the guest never took, so
@@ -81,7 +82,7 @@ describe("getGuestsPageData", () => {
   });
 
   it("gives every row initials and an avatar colour", async () => {
-    const { guests } = await getGuestsPageData();
+    const { guests } = await getGuestsPageData(fixtures);
     for (const g of guests) {
       expect(g.initials).toMatch(/^[A-Z]{1,2}$/);
       expect(g.avatarBg).toMatch(/^#[0-9a-f]{6}$/);

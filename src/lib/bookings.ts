@@ -1,8 +1,19 @@
-// Data access layer for the booking system.
+// Derivation layer for the booking system: the rules that turn rows into the
+// view model each admin screen renders.
 //
-// This is an in-memory mock returning seed data that mirrors the design files.
-// It is intentionally the single choke point every route/loader reads through,
-// so swapping to a real database later is a one-file change.
+// !! THIS FILE HOLDS NO DATA, AND MUST NOT. !!
+//
+// Route loaders import it, so whatever it can reach, the bundler compiles into
+// `dist/client` and hands to every anonymous visitor to the landing page. The
+// seed rows used to live here, which put ten guests' names and email addresses
+// in the entry chunk. Mock names made that survivable; real ones would not.
+// The rows now arrive as an argument (`BookingData`) from `bookings.server.ts`,
+// whose handler bodies never reach the browser. Same rule as `lib/team.ts`:
+// what this file imports is public.
+//
+// Everything here is a pure function of its arguments, which is what keeps the
+// test suite able to run without a database, and what lets the DB swap change
+// only where the rows come from — never how they are read.
 
 import type {
   Booking,
@@ -72,6 +83,17 @@ import {
 } from "@/lib/booking-math";
 import { isActive, team } from "@/lib/team";
 import { initialsOf } from "@/lib/utils";
+
+/**
+ * Every row an admin screen derives from, fetched once per request and threaded
+ * through. One bundle rather than three arguments because most screens read more
+ * than one of them, and because the DB swap then changes one signature, not ten.
+ */
+export interface BookingData {
+  bookings: Booking[];
+  guests: Guest[];
+  partyHall: PartyHallEnquiry[];
+}
 
 export interface RoomTypeInfo {
   type: RoomType;
@@ -144,104 +166,6 @@ export const EARLY_CHECKIN_FEE = 400;
 export const LATE_CHECKOUT_FEE = 500;
 
 /**
- * The guest directory, mirroring `Admin Guests.dc.html`. Stays and lifetime
- * value are seeded; tier is derived (see `guestTier`), so a guest's badge can
- * never drift out of step with the stays it is supposed to reflect.
- */
-const GUEST_SEED: Omit<Guest, "tier">[] = [
-  {
-    id: "G-001",
-    name: "Aarav Mehta",
-    phone: "+91 98110 22334",
-    email: "aarav.mehta@example.com",
-    city: "New Delhi",
-    stays: 6,
-    lifetimeValue: 48200,
-  },
-  {
-    id: "G-002",
-    name: "Priya Nair",
-    phone: "+91 99870 55212",
-    email: "priya.nair@example.com",
-    city: "Bengaluru",
-    stays: 3,
-    lifetimeValue: 21400,
-  },
-  {
-    id: "G-003",
-    name: "Rohan Verma",
-    phone: "+91 90000 78451",
-    email: "rohan.verma@example.com",
-    city: "Greater Noida",
-    stays: 1,
-    lifetimeValue: 3400,
-  },
-  {
-    id: "G-004",
-    name: "Meera Krishnan",
-    phone: "+91 98400 11223",
-    email: "meera.krishnan@example.com",
-    city: "Chennai",
-    stays: 4,
-    lifetimeValue: 32600,
-  },
-  {
-    id: "G-005",
-    name: "Rohit Kapoor",
-    phone: "+91 94140 66789",
-    email: "rohit.kapoor@example.com",
-    city: "Jaipur",
-    stays: 2,
-    lifetimeValue: 11800,
-  },
-  {
-    id: "G-006",
-    name: "Fatima Sheikh",
-    phone: "+91 90050 44120",
-    email: "fatima.sheikh@example.com",
-    city: "Lucknow",
-    stays: 2,
-    lifetimeValue: 9600,
-  },
-  {
-    id: "G-007",
-    name: "Deepak Rao",
-    phone: "+91 99490 33087",
-    email: "deepak.rao@example.com",
-    city: "Hyderabad",
-    stays: 1,
-    lifetimeValue: 3400,
-  },
-  {
-    id: "G-008",
-    name: "Karan Malhotra",
-    phone: "+91 98150 90011",
-    email: "karan.malhotra@example.com",
-    city: "Chandigarh",
-    stays: 1,
-    lifetimeValue: 0,
-  },
-  {
-    id: "G-009",
-    name: "Vikram Nair",
-    phone: "+91 90720 55340",
-    email: "vikram.nair@example.com",
-    city: "Kochi",
-    stays: 1,
-    lifetimeValue: 0,
-  },
-  {
-    id: "G-010",
-    name: "Sunita Verma",
-    phone: "+91 98730 21980",
-    email: "sunita.verma@example.com",
-    city: "New Delhi",
-    stays: 3,
-    lifetimeValue: 18900,
-  },
-];
-
-/**
  * Loyalty standing, by stays alone: four stays earns Gold, a second stay earns
  * Silver, and a first-time guest is New.
  *
@@ -256,298 +180,15 @@ export function guestTier(stays: number): GuestTier {
   return "new";
 }
 
-function withTier(g: Omit<Guest, "tier">): Guest {
+/** Hydrates a seeded guest with the tier its stays earn. */
+export function withTier(g: Omit<Guest, "tier">): Guest {
   return { ...g, tier: guestTier(g.stays) };
 }
 
-const GUESTS: Guest[] = GUEST_SEED.map(withTier);
-
-function withTotal(b: Omit<Booking, "totalBill">): Booking {
+/** Hydrates a seeded booking with the bill its charges add up to. */
+export function withTotal(b: Omit<Booking, "totalBill">): Booking {
   return { ...b, totalBill: computeTotalBill(b.revenue) };
 }
-
-const BOOKINGS: Booking[] = [
-  withTotal({
-    id: "KRC-20260714-001",
-    guestId: "G-001",
-    roomNo: "102",
-    roomType: "deluxe",
-    checkIn: "2026-07-14",
-    checkOut: "2026-07-17",
-    urn: 3,
-    source: "direct",
-    mealPlan: "CP",
-    revenue: {
-      room: 4500,
-      earlyCheckIn: 0,
-      lateCheckOut: 0,
-      other: 0,
-      discount: 0,
-      taxPct: GST_PCT,
-    },
-    collection: {
-      paidToHotel: 5040,
-      otaCollection: 0,
-      otaCommission: 0,
-      complimentary: 0,
-      pending: 0,
-    },
-    status: "checked_in",
-    createdAt: "2026-07-10T09:12:00.000Z",
-  }),
-  withTotal({
-    id: "KRC-20260715-002",
-    guestId: "G-002",
-    roomNo: "205",
-    roomType: "deluxe_balcony",
-    checkIn: "2026-07-15",
-    checkOut: "2026-07-16",
-    urn: 1,
-    source: "booking_com",
-    mealPlan: "EP",
-    revenue: {
-      room: 1700,
-      earlyCheckIn: 0,
-      lateCheckOut: 300,
-      other: 0,
-      discount: 0,
-      taxPct: GST_PCT,
-    },
-    collection: {
-      paidToHotel: 0,
-      otaCollection: 2240,
-      otaCommission: 336,
-      complimentary: 0,
-      pending: 0,
-    },
-    status: "confirmed",
-    createdAt: "2026-07-12T14:40:00.000Z",
-  }),
-  withTotal({
-    id: "KRC-20260715-003",
-    guestId: "G-003",
-    roomNo: null,
-    roomType: "deluxe",
-    checkIn: "2026-07-20",
-    checkOut: "2026-07-22",
-    urn: 2,
-    source: "phone",
-    mealPlan: "MAP",
-    revenue: {
-      room: 3000,
-      earlyCheckIn: 0,
-      lateCheckOut: 0,
-      other: 0,
-      discount: 200,
-      taxPct: GST_PCT,
-    },
-    collection: {
-      paidToHotel: 0,
-      otaCollection: 0,
-      otaCommission: 0,
-      complimentary: 0,
-      pending: 3136,
-    },
-    status: "pending_payment",
-    createdAt: "2026-07-15T08:05:00.000Z",
-  }),
-  withTotal({
-    id: "KRC-20260714-004",
-    guestId: "G-004",
-    roomNo: "112",
-    roomType: "deluxe",
-    checkIn: "2026-07-13",
-    checkOut: "2026-07-16",
-    urn: 3,
-    source: "booking_com",
-    mealPlan: "MAP",
-    revenue: {
-      room: 4500,
-      earlyCheckIn: 0,
-      lateCheckOut: 0,
-      other: 600,
-      discount: 0,
-      taxPct: GST_PCT,
-    },
-    collection: {
-      paidToHotel: 0,
-      otaCollection: 5712,
-      otaCommission: 856,
-      complimentary: 0,
-      pending: 0,
-    },
-    status: "checked_in",
-    createdAt: "2026-07-09T11:20:00.000Z",
-  }),
-  withTotal({
-    id: "KRC-20260711-005",
-    guestId: "G-005",
-    roomNo: "108",
-    roomType: "deluxe",
-    checkIn: "2026-07-11",
-    checkOut: "2026-07-13",
-    urn: 2,
-    source: "walk_in",
-    mealPlan: "EP",
-    revenue: {
-      room: 3000,
-      earlyCheckIn: 0,
-      lateCheckOut: 500,
-      other: 0,
-      discount: 0,
-      taxPct: GST_PCT,
-    },
-    collection: {
-      paidToHotel: 3920,
-      otaCollection: 0,
-      otaCommission: 0,
-      complimentary: 0,
-      pending: 0,
-    },
-    status: "checked_out",
-    createdAt: "2026-07-08T16:30:00.000Z",
-  }),
-  withTotal({
-    id: "KRC-20260710-006",
-    guestId: "G-006",
-    roomNo: "207",
-    roomType: "deluxe_balcony",
-    checkIn: "2026-07-10",
-    checkOut: "2026-07-12",
-    urn: 2,
-    source: "goibibo",
-    mealPlan: "CP",
-    revenue: {
-      room: 3400,
-      earlyCheckIn: 0,
-      lateCheckOut: 0,
-      other: 300,
-      discount: 0,
-      taxPct: GST_PCT,
-    },
-    collection: {
-      paidToHotel: 0,
-      otaCollection: 4144,
-      otaCommission: 622,
-      complimentary: 0,
-      pending: 0,
-    },
-    status: "checked_out",
-    createdAt: "2026-07-06T10:15:00.000Z",
-  }),
-  withTotal({
-    id: "KRC-20260714-007",
-    guestId: "G-007",
-    roomNo: "201",
-    roomType: "deluxe_balcony",
-    checkIn: "2026-07-16",
-    checkOut: "2026-07-18",
-    urn: 2,
-    source: "direct",
-    mealPlan: "EP",
-    revenue: {
-      room: 3400,
-      earlyCheckIn: 0,
-      lateCheckOut: 0,
-      other: 0,
-      discount: 0,
-      taxPct: GST_PCT,
-    },
-    collection: {
-      paidToHotel: 0,
-      otaCollection: 0,
-      otaCommission: 0,
-      complimentary: 0,
-      pending: 3808,
-    },
-    status: "confirmed",
-    createdAt: "2026-07-14T13:00:00.000Z",
-  }),
-  withTotal({
-    id: "KRC-20260715-008",
-    guestId: "G-008",
-    roomNo: null,
-    roomType: "deluxe",
-    checkIn: "2026-07-15",
-    checkOut: "2026-07-17",
-    urn: 2,
-    source: "agoda",
-    mealPlan: "EP",
-    revenue: {
-      room: 3000,
-      earlyCheckIn: 0,
-      lateCheckOut: 0,
-      other: 0,
-      discount: 0,
-      taxPct: GST_PCT,
-    },
-    collection: {
-      paidToHotel: 0,
-      otaCollection: 0,
-      otaCommission: 0,
-      complimentary: 0,
-      pending: 0,
-    },
-    status: "cancelled",
-    createdAt: "2026-07-13T19:45:00.000Z",
-  }),
-  withTotal({
-    id: "KRC-20260713-009",
-    guestId: "G-009",
-    roomNo: null,
-    roomType: "deluxe",
-    checkIn: "2026-07-13",
-    checkOut: "2026-07-14",
-    urn: 1,
-    source: "direct",
-    mealPlan: "EP",
-    revenue: {
-      room: 1500,
-      earlyCheckIn: 0,
-      lateCheckOut: 0,
-      other: 0,
-      discount: 0,
-      taxPct: GST_PCT,
-    },
-    collection: {
-      paidToHotel: 0,
-      otaCollection: 0,
-      otaCommission: 0,
-      complimentary: 0,
-      pending: 0,
-    },
-    status: "no_show",
-    createdAt: "2026-07-12T21:10:00.000Z",
-  }),
-  withTotal({
-    id: "KRC-20260712-010",
-    guestId: "G-010",
-    roomNo: "104",
-    roomType: "deluxe",
-    checkIn: "2026-07-12",
-    checkOut: "2026-07-15",
-    urn: 3,
-    source: "phone",
-    mealPlan: "CP",
-    revenue: {
-      room: 4500,
-      earlyCheckIn: 400,
-      lateCheckOut: 0,
-      other: 150,
-      discount: 0,
-      taxPct: GST_PCT,
-    },
-    collection: {
-      paidToHotel: 5656,
-      otaCollection: 0,
-      otaCommission: 0,
-      complimentary: 0,
-      pending: 0,
-    },
-    status: "checked_out",
-    createdAt: "2026-07-05T09:40:00.000Z",
-  }),
-];
 
 /** Share of the total taken up-front to hold a date (design: "25% advance"). */
 export const PARTY_HALL_ADVANCE_PCT = 25;
@@ -569,151 +210,10 @@ function collectedFor(status: PartyHallStatus, amount: number): number {
   return 0;
 }
 
-function withAdvance(e: Omit<PartyHallEnquiry, "advancePaid">): PartyHallEnquiry {
+/** Hydrates a seeded enquiry with the advance its pipeline stage implies. */
+export function withAdvance(e: Omit<PartyHallEnquiry, "advancePaid">): PartyHallEnquiry {
   return { ...e, advancePaid: collectedFor(e.status, e.amount) };
 }
-
-/**
- * The party-hall pipeline, mirroring `Admin Party Hall.dc.html`. Amounts are
- * seeded; advances are derived (see `withAdvance`). An un-quoted enquiry has an
- * amount of 0, which the screen renders as "₹—" rather than a false zero.
- */
-const PARTY_HALL_SEED: Omit<PartyHallEnquiry, "advancePaid">[] = [
-  {
-    id: "PH-20260622-001",
-    title: "Birthday — Nanda family",
-    date: "2026-06-21",
-    slot: "evening",
-    guests: 65,
-    package: "Silver",
-    addOns: ["Decor", "DJ"],
-    status: "completed",
-    amount: 52000,
-  },
-  {
-    id: "PH-20260702-002",
-    title: "Sangeet — Sharma family",
-    date: "2026-07-02",
-    slot: "full_day",
-    guests: 120,
-    package: "Platinum",
-    addOns: ["Catering"],
-    status: "completed",
-    amount: 190000,
-  },
-  {
-    id: "PH-20260730-003",
-    title: "Wedding reception — Rao family",
-    date: "2026-07-30",
-    slot: "evening",
-    guests: 150,
-    package: "Platinum",
-    addOns: ["Catering", "Decor", "DJ"],
-    status: "confirmed",
-    amount: 240000,
-  },
-  {
-    id: "PH-20260808-004",
-    title: "Anniversary — Iyer family",
-    date: "2026-08-08",
-    slot: "evening",
-    guests: 70,
-    package: "Gold",
-    addOns: ["Catering", "Decor"],
-    status: "confirmed",
-    amount: 80000,
-  },
-  {
-    id: "PH-20260812-005",
-    title: "Birthday — Meera Krishnan",
-    date: "2026-08-12",
-    slot: "afternoon",
-    guests: 55,
-    package: "Silver",
-    addOns: ["Decor"],
-    status: "advance_paid",
-    amount: 88000,
-  },
-  {
-    id: "PH-20260816-006",
-    title: "Naming ceremony — Pillai family",
-    date: "2026-08-16",
-    slot: "morning",
-    guests: 40,
-    package: "Silver",
-    addOns: ["Decor"],
-    status: "confirmed",
-    amount: 36000,
-  },
-  {
-    id: "PH-20260822-007",
-    title: "Reception — Priya & Arjun",
-    date: "2026-08-22",
-    slot: "evening",
-    guests: 140,
-    package: "Platinum",
-    addOns: ["Catering", "Decor"],
-    status: "enquiry",
-    amount: 0,
-  },
-  {
-    id: "PH-20260829-008",
-    title: "Sangeet — Bhatia family",
-    date: "2026-08-29",
-    slot: "evening",
-    guests: 130,
-    package: "Platinum",
-    addOns: ["Catering", "DJ"],
-    status: "confirmed",
-    amount: 130000,
-  },
-  {
-    id: "PH-20260905-009",
-    title: "Corporate offsite — Nexus Ltd",
-    date: "2026-09-05",
-    slot: "full_day",
-    guests: 90,
-    package: "Gold",
-    addOns: ["Catering", "AV"],
-    status: "quote_sent",
-    amount: 110000,
-  },
-  {
-    id: "PH-20260919-010",
-    title: "Birthday — Kapoor family",
-    date: "2026-09-19",
-    slot: "afternoon",
-    guests: 60,
-    package: "Silver",
-    addOns: ["Decor"],
-    status: "enquiry",
-    amount: 0,
-  },
-  {
-    id: "PH-20260926-011",
-    title: "Corporate AGM — Vector Systems",
-    date: "2026-09-26",
-    slot: "full_day",
-    guests: 100,
-    package: "Gold",
-    addOns: ["Projector", "Lunch Buffet"],
-    status: "quote_sent",
-    amount: 95000,
-  },
-  {
-    id: "PH-20261003-012",
-    title: "Reception — Fernandes & D'Souza",
-    date: "2026-10-03",
-    slot: "evening",
-    guests: 110,
-    package: "Platinum",
-    addOns: ["Catering", "Decor", "DJ"],
-    status: "enquiry",
-    amount: 0,
-  },
-];
-
-const PARTY_HALL_ENQUIRIES: PartyHallEnquiry[] = PARTY_HALL_SEED.map(withAdvance);
 
 /**
  * Events still ahead of the hall — anything not called off and not already
@@ -725,10 +225,8 @@ function isUpcomingEvent(e: PartyHallEnquiry): boolean {
 }
 
 /** Soonest upcoming event, or undefined when the hall has nothing booked. */
-function nextPartyHallEvent(): PartyHallEnquiry | undefined {
-  return [...PARTY_HALL_ENQUIRIES]
-    .filter(isUpcomingEvent)
-    .sort((a, b) => a.date.localeCompare(b.date))[0];
+function nextPartyHallEvent(partyHall: PartyHallEnquiry[]): PartyHallEnquiry | undefined {
+  return [...partyHall].filter(isUpcomingEvent).sort((a, b) => a.date.localeCompare(b.date))[0];
 }
 
 /** "30 Jul · Evening" — the shared next-event line. */
@@ -742,25 +240,17 @@ function nextEventLabel(e: PartyHallEnquiry | undefined): string {
   return `${date} · ${SLOT_LABEL[e.slot]}`;
 }
 
-// Simulated async so callers/loaders already await — real DB swap keeps signature.
-export async function getBookings(): Promise<Booking[]> {
-  return BOOKINGS;
-}
-
-export async function getBooking(id: string): Promise<Booking | undefined> {
-  return BOOKINGS.find((b) => b.id === id);
-}
-
-export async function getGuests(): Promise<Guest[]> {
-  return GUESTS;
-}
-
-export async function getGuest(id: string): Promise<Guest | undefined> {
-  return GUESTS.find((g) => g.id === id);
-}
-
+/** Room types are inventory, not booking data — static config, safe to ship. */
 export async function getRoomTypes(): Promise<RoomTypeInfo[]> {
   return ROOM_TYPES;
+}
+
+export function findBooking(data: BookingData, id: string): Booking | undefined {
+  return data.bookings.find((b) => b.id === id);
+}
+
+export function findGuest(data: BookingData, id: string): Guest | undefined {
+  return data.guests.find((g) => g.id === id);
 }
 
 /** Statuses that hold a physical room off the market. */
@@ -813,12 +303,13 @@ function occupancyNow(): Occupancy {
 /**
  * Everything the admin dashboard renders, in one round-trip. `unassignedRooms`,
  * `occupancy` and `revenue` are derived from the live booking set so the card
- * figures stay truthful; the rest still mirrors `Admin Dashboard.dc.html`. When
- * this swaps to a real DB these become aggregate queries behind the same
- * signature.
+ * figures stay truthful; the rest still mirrors `Admin Dashboard.dc.html`.
  */
-export async function getDashboardData(today = "2026-07-14"): Promise<DashboardData> {
-  const unassignedRooms = BOOKINGS.filter(
+export async function getDashboardData(
+  data: BookingData,
+  today = "2026-07-14",
+): Promise<DashboardData> {
+  const unassignedRooms = data.bookings.filter(
     (b) => b.roomNo === null && OCCUPYING_STATUSES.has(b.status),
   ).length;
 
@@ -828,7 +319,7 @@ export async function getDashboardData(today = "2026-07-14"): Promise<DashboardD
     expectedArrivals: { total: 5, nextTime: "2:30 PM", nextLabel: "Sharma +2" },
     unassignedRooms,
     occupancy: occupancyNow(),
-    revenue: revenuePeriods(today),
+    revenue: revenuePeriods(data, today),
     activity: [
       {
         id: "act-1",
@@ -903,9 +394,9 @@ export async function getDashboardData(today = "2026-07-14"): Promise<DashboardD
 }
 
 /** Physical rooms held off the market on a date by an occupying booking. */
-function occupiedRoomsOn(onDate: string): Set<string> {
+function occupiedRoomsOn(bookings: Booking[], onDate: string): Set<string> {
   const occupied = new Set<string>();
-  for (const b of BOOKINGS) {
+  for (const b of bookings) {
     if (!b.roomNo || !OCCUPYING_STATUSES.has(b.status)) continue;
     if (b.checkIn <= onDate && onDate < b.checkOut) occupied.add(b.roomNo);
   }
@@ -916,18 +407,18 @@ function occupiedRoomsOn(onDate: string): Set<string> {
  * Everything the admin Bookings screen renders. Summary figures, tab counts
  * and the period-totals footer are all derived from the live booking set (not
  * seeded), so "totals auto" holds and the numbers stay honest across edits.
- * A real DB swap turns these into aggregate queries behind the same signature.
  */
 export async function getBookingsPageData(
+  data: BookingData,
   today: string = new Date().toISOString().slice(0, 10),
 ): Promise<BookingsPageData> {
-  const guestName = new Map(GUESTS.map((g) => [g.id, g.name]));
-  const rows = BOOKINGS.map((booking) => ({
+  const guestName = new Map(data.guests.map((g) => [g.id, g.name]));
+  const rows = data.bookings.map((booking) => ({
     booking,
     guestName: guestName.get(booking.guestId) ?? "—",
   }));
 
-  const countsByStatus = BOOKINGS.reduce(
+  const countsByStatus = data.bookings.reduce(
     (acc, b) => {
       acc[b.status] += 1;
       return acc;
@@ -942,7 +433,7 @@ export async function getBookingsPageData(
     } as Record<BookingStatus, number>,
   );
 
-  const totals = BOOKINGS.reduce<BookingsPageData["totals"]>(
+  const totals = data.bookings.reduce<BookingsPageData["totals"]>(
     (acc, b) => {
       acc.roomRev += b.revenue.room;
       acc.earlyCheckIn += b.revenue.earlyCheckIn;
@@ -969,19 +460,22 @@ export async function getBookingsPageData(
   // Room state comes off the floor board, not this booking set — its room
   // numbers are illustrative and fall outside the real inventory.
   const tonight = occupancyNow();
-  const totalUrn = BOOKINGS.reduce((sum, b) => sum + b.urn, 0);
-  const totalCollected = BOOKINGS.reduce((sum, b) => sum + computeTotalCollected(b.collection), 0);
+  const totalUrn = data.bookings.reduce((sum, b) => sum + b.urn, 0);
+  const totalCollected = data.bookings.reduce(
+    (sum, b) => sum + computeTotalCollected(b.collection),
+    0,
+  );
 
   const summary: BookingsPageData["summary"] = [
     {
       key: "checkInsToday",
       label: "Today's check-ins",
-      value: String(BOOKINGS.filter((b) => b.checkIn === today).length),
+      value: String(data.bookings.filter((b) => b.checkIn === today).length),
     },
     {
       key: "checkOutsToday",
       label: "Today's check-outs",
-      value: String(BOOKINGS.filter((b) => b.checkOut === today).length),
+      value: String(data.bookings.filter((b) => b.checkOut === today).length),
     },
     {
       key: "occupied",
@@ -1019,7 +513,7 @@ export async function getBookingsPageData(
     },
   ];
 
-  return { today, total: BOOKINGS.length, summary, countsByStatus, rows, totals };
+  return { today, total: data.bookings.length, summary, countsByStatus, rows, totals };
 }
 
 // ── Rooms screen ───────────────────────────────────────────────────────────
@@ -1087,10 +581,12 @@ function buildRoomTile(unit: RoomUnit): RoomTile {
 /**
  * Everything the admin Rooms screen renders. Tile statuses are seeded to mirror
  * the design; the legend counts and each type card's availability are derived
- * from the tiles so they can never drift out of sync. A real DB swap turns the
- * seed into a per-room status query behind the same signature.
+ * from the tiles so they can never drift out of sync.
+ *
+ * Only the party-hall line reads `data` — the floor board is the source of truth
+ * for room state and is deliberately not derived from the booking set.
  */
-export async function getRoomsPageData(): Promise<RoomsPageData> {
+export async function getRoomsPageData(data: BookingData): Promise<RoomsPageData> {
   const tiles = ROOM_UNITS.map(buildRoomTile);
 
   const countByStatus = tiles.reduce(
@@ -1123,7 +619,7 @@ export async function getRoomsPageData(): Promise<RoomsPageData> {
   }));
 
   const partyHall = {
-    nextLabel: nextEventLabel(nextPartyHallEvent()),
+    nextLabel: nextEventLabel(nextPartyHallEvent(data.partyHall)),
     availability: "Available 14–21 Jul",
   };
 
@@ -1216,11 +712,15 @@ export function occupancyBand(pct: number): OccupancyBand {
 }
 
 /** Party-hall events for a month: design seed first, then live enquiries. */
-function eventsForMonth(year: number, month: number): Map<string, string> {
+function eventsForMonth(
+  partyHall: PartyHallEnquiry[],
+  year: number,
+  month: number,
+): Map<string, string> {
   const prefix = `${year}-${String(month).padStart(2, "0")}`;
   const events = new Map<string, string>();
 
-  for (const e of PARTY_HALL_ENQUIRIES) {
+  for (const e of partyHall) {
     if (!isUpcomingEvent(e) || !e.date.startsWith(prefix)) continue;
     events.set(e.date, `${e.title} · ${e.guests} pax`);
   }
@@ -1234,12 +734,15 @@ function eventsForMonth(year: number, month: number): Map<string, string> {
 /**
  * The month grid the admin Calendar screen renders. Blanks pad the grid to whole
  * weeks so the first falls on its real weekday and the last row squares off.
- * A real DB swap turns the occupancy seed into a per-date aggregate query.
  */
-export async function getCalendarPageData(year = 2026, month = 7): Promise<CalendarPageData> {
+export async function getCalendarPageData(
+  data: BookingData,
+  year = 2026,
+  month = 7,
+): Promise<CalendarPageData> {
   const total = ROOM_NUMBERS.length;
   const isDisplayMonth = year === 2026 && month === 7;
-  const events = eventsForMonth(year, month);
+  const events = eventsForMonth(data.partyHall, year, month);
 
   // UTC throughout: local-time dates shift the weekday offset west of GMT.
   const firstOfMonth = new Date(Date.UTC(year, month - 1, 1));
@@ -1251,7 +754,9 @@ export async function getCalendarPageData(year = 2026, month = 7): Promise<Calen
 
   for (let day = 1; day <= daysInMonth; day++) {
     const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    const occupied = isDisplayMonth ? JULY_2026_OCCUPANCY[day] : occupiedRoomsOn(date).size;
+    const occupied = isDisplayMonth
+      ? JULY_2026_OCCUPANCY[day]
+      : occupiedRoomsOn(data.bookings, date).size;
     const pct = Math.round((occupied / total) * 100);
     cells.push({
       kind: "day",
@@ -1389,10 +894,10 @@ function buildEventItem(e: PartyHallEnquiry): PartyHallEventItem {
 }
 
 /** Days of a month the hall is held, from the live enquiry set. */
-function bookedDaysIn(year: number, month: number): Set<number> {
+function bookedDaysIn(partyHall: PartyHallEnquiry[], year: number, month: number): Set<number> {
   const prefix = `${year}-${String(month).padStart(2, "0")}`;
   const days = new Set<number>();
-  for (const e of PARTY_HALL_ENQUIRIES) {
+  for (const e of partyHall) {
     if (isUpcomingEvent(e) && e.date.startsWith(prefix)) days.add(Number(e.date.slice(8, 10)));
   }
   return days;
@@ -1402,8 +907,12 @@ function bookedDaysIn(year: number, month: number): Set<number> {
  * The rail's availability mini-calendar. Same UTC/blank-padding approach as the
  * main calendar grid, but a day is simply booked or not — the hall is one room.
  */
-function miniCalendar(year: number, month: number): PartyHallMiniCalendar {
-  const booked = bookedDaysIn(year, month);
+function miniCalendar(
+  partyHall: PartyHallEnquiry[],
+  year: number,
+  month: number,
+): PartyHallMiniCalendar {
+  const booked = bookedDaysIn(partyHall, year, month);
   const firstOfMonth = new Date(Date.UTC(year, month - 1, 1));
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
 
@@ -1437,11 +946,14 @@ function miniCalendar(year: number, month: number): PartyHallMiniCalendar {
  * new enquiries while the list shows two.
  *
  * `year`/`month` select the rail's availability month (default: the design's
- * August 2026 display month). A real DB swap turns the enquiry set into a query
- * behind the same signature.
+ * August 2026 display month).
  */
-export async function getPartyHallPageData(year = 2026, month = 8): Promise<PartyHallPageData> {
-  const events = [...PARTY_HALL_ENQUIRIES].sort(
+export async function getPartyHallPageData(
+  data: BookingData,
+  year = 2026,
+  month = 8,
+): Promise<PartyHallPageData> {
+  const events = [...data.partyHall].sort(
     (a, b) =>
       PARTY_HALL_STATUS_ORDER.indexOf(a.status) - PARTY_HALL_STATUS_ORDER.indexOf(b.status) ||
       a.date.localeCompare(b.date),
@@ -1466,7 +978,11 @@ export async function getPartyHallPageData(year = 2026, month = 8): Promise<Part
       label: "Advance collected",
       value: formatINRCompact(advanceCollected),
     },
-    { key: "nextEvent", label: "Next event", value: nextEventLabel(nextPartyHallEvent()) },
+    {
+      key: "nextEvent",
+      label: "Next event",
+      value: nextEventLabel(nextPartyHallEvent(data.partyHall)),
+    },
   ];
 
   const pills: PartyHallPill[] = [
@@ -1480,7 +996,7 @@ export async function getPartyHallPageData(year = 2026, month = 8): Promise<Part
     stats,
     pills,
     events: events.map(buildEventItem),
-    calendar: miniCalendar(year, month),
+    calendar: miniCalendar(data.partyHall, year, month),
     packages: PARTY_HALL_PACKAGES,
     addOnsLine: `Add-ons: catering ₹450/plate · decor · DJ. ${PARTY_HALL_ADVANCE_PCT}% advance to confirm.`,
   };
@@ -1525,14 +1041,12 @@ function longDate(iso: string): string {
  * Note the booking set is a recent slice, not a full history: a guest whose
  * stays predate it shows a last stay of "—" despite a stay count above zero.
  * The design carries that same case (its Deepak Rao has one stay and no date).
- *
- * A real DB swap turns these into aggregate queries behind the same signature.
  */
-export async function getGuestsPageData(): Promise<GuestsPageData> {
+export async function getGuestsPageData(data: BookingData): Promise<GuestsPageData> {
   const inHouse = new Set<string>();
   const lastStayOn = new Map<string, string>();
 
-  for (const b of BOOKINGS) {
+  for (const b of data.bookings) {
     if (!BEGUN_STAY_STATUSES.has(b.status)) continue;
     if (b.status === "checked_in") inHouse.add(b.guestId);
 
@@ -1542,7 +1056,7 @@ export async function getGuestsPageData(): Promise<GuestsPageData> {
     if (!previous || b.checkIn > previous) lastStayOn.set(b.guestId, b.checkIn);
   }
 
-  const guests: GuestListItem[] = [...GUESTS]
+  const guests: GuestListItem[] = [...data.guests]
     .sort((a, b) => b.lifetimeValue - a.lifetimeValue || a.name.localeCompare(b.name))
     .map((guest, i) => {
       const stayed = lastStayOn.get(guest.id);
@@ -1791,18 +1305,20 @@ function monthlyRollup(bookings: Booking[], today: string): PaymentsMonthlyRollu
  * OTA owes, or what a guest still has to pay.
  *
  * `today` anchors the "collected today" KPI and the rollup's month; it defaults
- * to the design's display date so the screen reads as designed. A real DB swap
- * turns these into aggregate queries behind the same signature.
+ * to the design's display date so the screen reads as designed.
  */
-export async function getPaymentsPageData(today = "2026-07-14"): Promise<PaymentsPageData> {
-  const guestName = new Map(GUESTS.map((g) => [g.id, g.name]));
-  const txns = transactionsFrom(BOOKINGS, guestName);
+export async function getPaymentsPageData(
+  data: BookingData,
+  today = "2026-07-14",
+): Promise<PaymentsPageData> {
+  const guestName = new Map(data.guests.map((g) => [g.id, g.name]));
+  const txns = transactionsFrom(data.bookings, guestName);
 
   const collectedToday = txns.filter((t) => t.status === "success" && t.at.startsWith(today));
   const razorpaySettled = txns.filter(
     (t) => t.status === "success" && RAZORPAY_METHODS.has(t.method),
   );
-  const ota = otaSettlements(BOOKINGS);
+  const ota = otaSettlements(data.bookings);
   const pendingFromGuests = txns.filter((t) => t.status === "pending" && t.method !== "ota");
 
   const sum = (list: PaymentTransaction[]) => list.reduce((total, t) => total + t.amount, 0);
@@ -1850,7 +1366,7 @@ export async function getPaymentsPageData(today = "2026-07-14"): Promise<Payment
     kpis,
     transactions,
     ota,
-    rollup: monthlyRollup(BOOKINGS, today),
+    rollup: monthlyRollup(data.bookings, today),
   };
 }
 
@@ -1920,10 +1436,10 @@ function nightsFrom(bookings: Booking[]): NightFact[] {
  * has earned anything — a confirmed booking is a promise, and the money against
  * it is an advance, which the party-hall screen already reports separately.
  */
-function partyHallRevenueIn(start: string, end: string): number {
-  return PARTY_HALL_ENQUIRIES.filter(
-    (e) => e.status === "completed" && e.date >= start && e.date <= end,
-  ).reduce((sum, e) => sum + e.amount, 0);
+function partyHallRevenueIn(partyHall: PartyHallEnquiry[], start: string, end: string): number {
+  return partyHall
+    .filter((e) => e.status === "completed" && e.date >= start && e.date <= end)
+    .reduce((sum, e) => sum + e.amount, 0);
 }
 
 /** A trailing window: `days` long, ending on (and including) `end`. */
@@ -1974,9 +1490,9 @@ function inWindow(date: string, w: Window): boolean {
 }
 
 /** Total earned in a window: what the rooms billed, plus what the hall billed. */
-function revenueIn(nights: NightFact[], w: Window): number {
+function revenueIn(nights: NightFact[], partyHall: PartyHallEnquiry[], w: Window): number {
   const rooms = nights.filter((n) => inWindow(n.date, w)).reduce((sum, n) => sum + n.bill, 0);
-  return rooms + partyHallRevenueIn(w.start, w.end);
+  return rooms + partyHallRevenueIn(partyHall, w.start, w.end);
 }
 
 /**
@@ -2001,7 +1517,12 @@ function deltaAgainst(current: number, previous: number): { text: string; up: bo
  * week, five 6-day bars for a month (30 divides evenly, so no bar covers a
  * short period and reads artificially low), and 12 monthly bars for a year.
  */
-function barsFor(nights: NightFact[], key: RevenuePeriodKey, today: string): RevenueBar[] {
+function barsFor(
+  nights: NightFact[],
+  partyHall: PartyHallEnquiry[],
+  key: RevenuePeriodKey,
+  today: string,
+): RevenueBar[] {
   const w = windowFor(key, today);
   const buckets: { label: string; start: string; end: string }[] = [];
 
@@ -2047,7 +1568,7 @@ function barsFor(nights: NightFact[], key: RevenuePeriodKey, today: string): Rev
 
     // The hall is sold by us, never by a channel, so it lands on the direct side.
     const direct =
-      sum(rooms.filter((n) => !isOtaSource(n.source))) + partyHallRevenueIn(start, end);
+      sum(rooms.filter((n) => !isOtaSource(n.source))) + partyHallRevenueIn(partyHall, start, end);
     const ota = sum(rooms.filter((n) => isOtaSource(n.source)));
     return {
       label,
@@ -2127,7 +1648,11 @@ function mealPlansFor(nights: NightFact[], w: Window): MealPlanShare[] {
 }
 
 /** Each room type's takings and occupancy, with the party hall alongside. */
-function roomTypesFor(nights: NightFact[], w: Window): RoomTypePerf[] {
+function roomTypesFor(
+  nights: NightFact[],
+  partyHall: PartyHallEnquiry[],
+  w: Window,
+): RoomTypePerf[] {
   const inWin = nights.filter((n) => inWindow(n.date, w));
 
   const rows: RoomTypePerf[] = ROOM_TYPES.map((rt) => {
@@ -2142,7 +1667,7 @@ function roomTypesFor(nights: NightFact[], w: Window): RoomTypePerf[] {
     };
   });
 
-  const hall = partyHallRevenueIn(w.start, w.end);
+  const hall = partyHallRevenueIn(partyHall, w.start, w.end);
   rows.push({
     key: "party_hall",
     name: "Party Hall",
@@ -2186,13 +1711,18 @@ const RANGE_KEYS: RevenuePeriodKey[] = ["7d", "30d", "12m"];
  * same two denominators, RevPAR = ADR × occupancy holds by construction rather
  * than by three figures happening to agree.
  */
-function kpisFor(nights: NightFact[], w: Window, key: RevenuePeriodKey): ReportsKpi[] {
+function kpisFor(
+  nights: NightFact[],
+  partyHall: PartyHallEnquiry[],
+  w: Window,
+  key: RevenuePeriodKey,
+): ReportsKpi[] {
   const inWin = nights.filter((n) => inWindow(n.date, w));
   const roomRev = inWin.reduce((sum, n) => sum + n.roomRev, 0);
   const sold = inWin.length;
   const available = SELLABLE_ROOMS * w.days;
 
-  const revenue = revenueIn(nights, w);
+  const revenue = revenueIn(nights, partyHall, w);
   const prev = previousWindow(w);
   const occPct = (sold / available) * 100;
   const prevIn = nights.filter((n) => inWindow(n.date, prev));
@@ -2209,7 +1739,7 @@ function kpisFor(nights: NightFact[], w: Window, key: RevenuePeriodKey): Reports
       "revenue",
       `Revenue · ${RANGE_LABEL[key]}`,
       formatINRCompact(revenue),
-      deltaAgainst(revenue, revenueIn(nights, prev)),
+      deltaAgainst(revenue, revenueIn(nights, partyHall, prev)),
     ),
     build(
       "occupancy",
@@ -2248,8 +1778,11 @@ function kpisFor(nights: NightFact[], w: Window, key: RevenuePeriodKey): Reports
  * these numbers are smaller than the design's: the mock draws a full hotel, and
  * our seed holds ten bookings in one week of July.
  */
-export async function getReportsPageData(today = "2026-07-14"): Promise<ReportsPageData> {
-  const nights = nightsFrom(BOOKINGS);
+export async function getReportsPageData(
+  data: BookingData,
+  today = "2026-07-14",
+): Promise<ReportsPageData> {
+  const nights = nightsFrom(data.bookings);
 
   const ranges: ReportsRange[] = RANGE_KEYS.map((key) => {
     const w = windowFor(key, today);
@@ -2257,10 +1790,10 @@ export async function getReportsPageData(today = "2026-07-14"): Promise<ReportsP
       key,
       switchLabel: RANGE_SWITCH[key],
       rangeLabel: RANGE_LABEL[key],
-      kpis: kpisFor(nights, w, key),
-      bars: barsFor(nights, key, today),
+      kpis: kpisFor(nights, data.partyHall, w, key),
+      bars: barsFor(nights, data.partyHall, key, today),
       sources: sourcesFor(nights, w),
-      roomTypes: roomTypesFor(nights, w),
+      roomTypes: roomTypesFor(nights, data.partyHall, w),
       mealPlans: mealPlansFor(nights, w),
     };
   });
@@ -2279,8 +1812,8 @@ export async function getReportsPageData(today = "2026-07-14"): Promise<ReportsP
  * last 30 days" differently — and did. Deriving both from one place is what
  * stops that.
  */
-function revenuePeriods(today: string): RevenuePeriod[] {
-  const nights = nightsFrom(BOOKINGS);
+function revenuePeriods(data: BookingData, today: string): RevenuePeriod[] {
+  const nights = nightsFrom(data.bookings);
   const switchLabel: Record<RevenuePeriodKey, string> = {
     "7d": "7 days",
     "30d": "30 days",
@@ -2289,8 +1822,8 @@ function revenuePeriods(today: string): RevenuePeriod[] {
 
   return RANGE_KEYS.map((key) => {
     const w = windowFor(key, today);
-    const total = revenueIn(nights, w);
-    const delta = deltaAgainst(total, revenueIn(nights, previousWindow(w)));
+    const total = revenueIn(nights, data.partyHall, w);
+    const delta = deltaAgainst(total, revenueIn(nights, data.partyHall, previousWindow(w)));
 
     return {
       key,
@@ -2298,7 +1831,10 @@ function revenuePeriods(today: string): RevenuePeriod[] {
       rangeLabel: rangeLabelFor(key, w),
       total: formatINRCompact(total),
       delta: delta && `${delta.text} vs prev`,
-      bars: barsFor(nights, key, today).map((b) => ({ label: b.label, value: b.total })),
+      bars: barsFor(nights, data.partyHall, key, today).map((b) => ({
+        label: b.label,
+        value: b.total,
+      })),
     };
   });
 }
@@ -2452,8 +1988,8 @@ function channelSettings(bookings: Booking[]): ChannelSetting[] {
     .sort((a, b) => b.bookings - a.bookings || a.name.localeCompare(b.name));
 }
 
-export async function getSettingsPageData(): Promise<SettingsPageData> {
-  const bookings = await getBookings();
+export async function getSettingsPageData(data: BookingData): Promise<SettingsPageData> {
+  const bookings = data.bookings;
 
   return {
     sections: SETTINGS_SECTIONS,

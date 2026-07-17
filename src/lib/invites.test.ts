@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { getSettingsPageData } from "@/lib/bookings";
+import { fixtures } from "@/lib/__fixtures__/bookings";
 import {
   INVITABLE_ROLES,
   INVITE_TTL_MS,
@@ -85,7 +86,7 @@ describe("the invite lifecycle", () => {
     // The acceptance criterion, end to end: they land on the roster Settings
     // renders. That screen keeps no list of its own, so this cannot pass by
     // coincidence — it reads the store the invite just wrote to.
-    const { team: roster } = await getSettingsPageData();
+    const { team: roster } = await getSettingsPageData(fixtures);
     const row = roster.find((m) => m.email === "priya@thedivinekrc.in");
     expect(row).toBeDefined();
     expect(row!.role).toBe("Accounts");
@@ -96,7 +97,7 @@ describe("the invite lifecycle", () => {
     send("nobody@thedivinekrc.in");
 
     // On the roster you are a person with keys, and they have not taken theirs.
-    const { team: roster } = await getSettingsPageData();
+    const { team: roster } = await getSettingsPageData(fixtures);
     expect(roster.map((m) => m.email)).not.toContain("nobody@thedivinekrc.in");
   });
 

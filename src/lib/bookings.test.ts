@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { getBookingsPageData } from "@/lib/bookings";
+import { fixtures } from "@/lib/__fixtures__/bookings";
 import { computeTotalBill, computeTotalCollected } from "@/lib/booking-math";
 
 describe("getBookingsPageData", () => {
   it("returns one row per seeded booking and a joined guest name", async () => {
-    const data = await getBookingsPageData("2026-07-15");
+    const data = await getBookingsPageData(fixtures, "2026-07-15");
     expect(data.rows.length).toBe(data.total);
     expect(data.rows.length).toBeGreaterThan(0);
     for (const { guestName } of data.rows) {
@@ -14,13 +15,13 @@ describe("getBookingsPageData", () => {
   });
 
   it("status tab counts partition the full row set", async () => {
-    const data = await getBookingsPageData("2026-07-15");
+    const data = await getBookingsPageData(fixtures, "2026-07-15");
     const summed = Object.values(data.countsByStatus).reduce((a, b) => a + b, 0);
     expect(summed).toBe(data.total);
   });
 
   it("footer totals equal the column sums over every booking", async () => {
-    const data = await getBookingsPageData("2026-07-15");
+    const data = await getBookingsPageData(fixtures, "2026-07-15");
     const expected = data.rows.reduce(
       (acc, { booking: b }) => {
         acc.roomRev += b.revenue.room;
@@ -48,14 +49,14 @@ describe("getBookingsPageData", () => {
   });
 
   it("each booking's stored totalBill matches the pure helper", async () => {
-    const data = await getBookingsPageData("2026-07-15");
+    const data = await getBookingsPageData(fixtures, "2026-07-15");
     for (const { booking: b } of data.rows) {
       expect(b.totalBill).toBe(computeTotalBill(b.revenue));
     }
   });
 
   it("occupied + available always accounts for all 14 rooms", async () => {
-    const data = await getBookingsPageData("2026-07-15");
+    const data = await getBookingsPageData(fixtures, "2026-07-15");
     const occupied = data.summary.find((s) => s.key === "occupied")!.value;
     const available = data.summary.find((s) => s.key === "available")!.value;
     const [occ, total] = occupied.split(" / ").map(Number);
@@ -64,7 +65,7 @@ describe("getBookingsPageData", () => {
   });
 
   it("total-collected card equals the sum of collected money in hand", async () => {
-    const data = await getBookingsPageData("2026-07-15");
+    const data = await getBookingsPageData(fixtures, "2026-07-15");
     const expected = data.rows.reduce(
       (sum, { booking: b }) => sum + computeTotalCollected(b.collection),
       0,
