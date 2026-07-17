@@ -61,6 +61,23 @@ const FORBIDDEN = [
   { needle: "98110 22334", why: "a seeded guest's phone number" },
   { needle: "KRC-20260714-001", why: "a seeded booking row" },
   { needle: "PH-20260622-001", why: "a seeded party-hall enquiry" },
+
+  // The database (#12b). `DATABASE_URL` is the production connection string,
+  // and this repo is public — it reaching the browser is the worst outcome in
+  // this file, since it is read/write access to every real guest record rather
+  // than a copy of one page's rows.
+  //
+  // `neondb_owner` and `.neon.tech` are parts of the URL itself: if the string
+  // is ever inlined rather than read from env, the name and host give it away
+  // even when the password does not appear verbatim.
+  { needle: "DATABASE_URL", why: "the database connection string (server-only env)" },
+  { needle: "PGPASSWORD", why: "a database password (server-only env)" },
+  { needle: "neondb_owner", why: "the database role — part of the connection string" },
+  { needle: ".neon.tech", why: "the database host — part of the connection string" },
+  // Server-only modules. These names surviving means the driver got pulled into
+  // a client chunk, which means the connection string is one careless line away.
+  { needle: "@neondatabase/serverless", why: "the database driver (server-only)" },
+  { needle: "drizzle-orm/neon-http", why: "the database client (server-only)" },
 ];
 
 function jsFiles(dir) {

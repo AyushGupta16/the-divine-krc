@@ -48,6 +48,11 @@ export default tseslint.config(
               message:
                 "Seed rows are server-only. Route loaders run in the browser, so importing fixtures from client-reachable code compiles every guest's name, email and phone into dist/client — the chunk the landing page serves anonymous visitors. Read them through a server function in `lib/bookings-data.ts`. Tests may import them directly.",
             },
+            {
+              group: ["**/lib/db", "**/lib/schema"],
+              message:
+                "The database client is server-only: it reads DATABASE_URL, a production credential, and this repo is public. Only modules whose every export is a server function may import it (bookings-data.ts, invites.ts, auth.ts). Importing it from client-reachable code puts the connection string one careless line away from dist/client.",
+            },
           ],
         },
       ],
@@ -57,10 +62,21 @@ export default tseslint.config(
   },
   {
     // The fixtures exist to be derived against, and the suite is where that
-    // happens. `bookings-data.ts` is the one non-test module allowed to read
-    // them: its handler bodies never reach the browser, and PR #12b swaps that
-    // import for a query.
-    files: ["src/lib/**/*.test.ts", "src/lib/bookings-data.ts"],
+    // happens. `bookings-data.ts` also reads them, as the no-DATABASE_URL
+    // fallback that keeps local dev and the tests working without a database.
+    //
+    // These three are the server boundary: every export is a `createServerFn`
+    // handler, so nothing here reaches `dist/client`. They are the only modules
+    // allowed to touch `lib/db` — `db.ts` and `schema.ts` themselves included,
+    // since one imports the other.
+    files: [
+      "src/lib/**/*.test.ts",
+      "src/lib/bookings-data.ts",
+      "src/lib/invites.ts",
+      "src/lib/auth.ts",
+      "src/lib/db.ts",
+      "scripts/**/*.ts",
+    ],
     rules: { "no-restricted-imports": "off" },
   },
   {
