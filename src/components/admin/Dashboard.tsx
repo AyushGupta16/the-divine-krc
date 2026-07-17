@@ -76,8 +76,22 @@ function StatCards({ data }: { data: DashboardData }) {
         <span className="font-semibold text-[#b4553f]">{checkOutsToday.late} late</span>
       </StatCard>
       <StatCard icon={Globe} label="Expected arrivals" value={expectedArrivals.total}>
-        Next: <span className="font-semibold text-obsidian">{expectedArrivals.nextTime}</span>,{" "}
-        {expectedArrivals.nextLabel}
+        {expectedArrivals.nextLabel ? (
+          <>
+            {/* No arrival time of day in the data yet (spec 19), so name the
+                guest who is due rather than invent a clock time. */}
+            {expectedArrivals.nextTime && (
+              <>
+                Next:{" "}
+                <span className="font-semibold text-obsidian">{expectedArrivals.nextTime}</span>
+                ,{" "}
+              </>
+            )}
+            {expectedArrivals.nextLabel} due
+          </>
+        ) : (
+          "None still expected"
+        )}
       </StatCard>
       <StatCard
         icon={TriangleAlert}
@@ -303,9 +317,15 @@ function ActivityCard({ items }: { items: ActivityItem[] }) {
         </button>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        {items.map((item, i) => (
-          <ActivityRow key={item.id} item={item} last={i === items.length - 1} />
-        ))}
+        {items.length === 0 ? (
+          <div className="flex flex-1 items-center justify-center py-8 text-[12.5px] text-[#a49d8d]">
+            No recent activity yet
+          </div>
+        ) : (
+          items.map((item, i) => (
+            <ActivityRow key={item.id} item={item} last={i === items.length - 1} />
+          ))
+        )}
       </div>
     </Card>
   );
@@ -329,7 +349,7 @@ function ArrivalRow({ item }: { item: ArrivalItem }) {
         </div>
       </div>
       <div className="text-right">
-        <div className="text-[12.5px] font-bold">{item.time}</div>
+        {item.time && <div className="text-[12.5px] font-bold">{item.time}</div>}
         <div className={cn("text-[10.5px]", item.assigned ? "text-[#5a8a5a]" : "text-[#b4553f]")}>
           {item.assignment}
         </div>
@@ -348,9 +368,13 @@ function ArrivalsCard({ items }: { items: ArrivalItem[] }) {
         </span>
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
-        {items.map((item) => (
-          <ArrivalRow key={item.id} item={item} />
-        ))}
+        {items.length === 0 ? (
+          <div className="flex flex-1 items-center justify-center py-8 text-[12.5px] text-[#a49d8d]">
+            No arrivals due today
+          </div>
+        ) : (
+          items.map((item) => <ArrivalRow key={item.id} item={item} />)
+        )}
       </div>
     </Card>
   );

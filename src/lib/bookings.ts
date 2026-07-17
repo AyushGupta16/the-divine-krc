@@ -16,6 +16,7 @@
 // only where the rows come from — never how they are read.
 
 import type {
+  ArrivalItem,
   Booking,
   BookingSource,
   BookingsPageData,
@@ -281,6 +282,17 @@ export function findGuest(data: BookingData, id: string): Guest | undefined {
 /** Statuses that hold a physical room off the market. */
 const OCCUPYING_STATUSES = new Set(["confirmed", "checked_in", "pending_payment"]);
 
+/** A stay that has begun — the guest has arrived, whether in-house or gone. */
+const ARRIVED_STATUSES = new Set<BookingStatus>(["checked_in", "checked_out"]);
+/** Booked but not yet arrived; excludes the void statuses (cancelled/no_show). */
+const AWAITING_ARRIVAL_STATUSES = new Set<BookingStatus>(["confirmed", "pending_payment"]);
+
+/** Compact room-type label for the arrivals queue, distinct from `ROOM_TYPES`. */
+const ROOM_TYPE_SHORT: Record<RoomType, string> = {
+  deluxe: "Deluxe",
+  deluxe_balcony: "Deluxe Balcony",
+};
+
 /**
  * Rooms free to sell right now — read off the floor board, so the sidebar badge
  * quotes the same figure as the Rooms screen it links to.
@@ -326,9 +338,20 @@ function occupancyNow(): Occupancy {
 }
 
 /**
- * Everything the admin dashboard renders, in one round-trip. `unassignedRooms`,
- * `occupancy` and `revenue` are derived from the live booking set so the card
- * figures stay truthful; the rest still mirrors `Admin Dashboard.dc.html`.
+ * Everything the admin dashboard renders, in one round-trip. The stat cards, the
+ * arrivals queue, `unassignedRooms`, `occupancy` and `revenue` are all derived
+ * from the live booking set so the figures stay truthful.
+ *
+ * Two things are still stubbed, because the data to derive them does not exist
+ * yet — not because the design wants them fixed:
+ *
+ *   - the **recent-activity feed**, which needs an event log nothing writes today
+ *     (there is no create/pay/cancel path outside invites) — spec 13's whole job;
+ *   - each arrival's **time of day** and **party size**, which have no field in
+ *     the booking model — they arrive with manual entry in spec 19.
+ *
+ * These are left as marked FIXME stubs rather than plausible-looking mock, so the
+ * screen never quietly presents an invented number as a real one.
  */
 export async function getDashboardData(
   data: BookingData,
@@ -338,83 +361,64 @@ export async function getDashboardData(
     (b) => b.roomNo === null && OCCUPYING_STATUSES.has(b.status),
   ).length;
 
+  // Today's arrivals: everyone whose check-in is today and who has not voided
+  // (cancelled/no_show). `arrived` and `pending` partition it, so total = sum.
+  const arrivalsToday = data.bookings.filter(
+    (b) =>
+      b.checkIn === today &&
+      (ARRIVED_STATUSES.has(b.status) || AWAITING_ARRIVAL_STATUSES.has(b.status)),
+  );
+  const checkInsToday = {
+    total: arrivalsToday.length,
+    arrived: arrivalsToday.filter((b) => ARRIVED_STATUSES.has(b.status)).length,
+    pending: arrivalsToday.filter((b) => AWAITING_ARRIVAL_STATUSES.has(b.status)).length,
+  };
+
+  // Today's departures: `settled` has checked out, `late` is still in-house on
+  // the checkout date. Same partition, so total = settled + late.
+  const departuresToday = data.bookings.filter(
+    (b) => b.checkOut === today && (b.status === "checked_out" || b.status === "checked_in"),
+  );
+  const checkOutsToday = {
+    total: departuresToday.length,
+    settled: departuresToday.filter((b) => b.status === "checked_out").length,
+    late: departuresToday.filter((b) => b.status === "checked_in").length,
+  };
+
+  const awaitingArrival = arrivalsToday.filter((b) => AWAITING_ARRIVAL_STATUSES.has(b.status));
+  const guestById = new Map(data.guests.map((g) => [g.id, g]));
+
+  const arrivals: ArrivalItem[] = arrivalsToday.map((b) => {
+    const name = guestById.get(b.guestId)?.name ?? "—";
+    return {
+      id: b.id,
+      initials: initialsOf(name),
+      name,
+      roomType: ROOM_TYPE_SHORT[b.roomType],
+      nights: b.urn,
+      time: "", // FIXME(spec-19): booking model has no arrival time of day.
+      assignment: b.roomNo ? `Room ${b.roomNo}` : "unassigned",
+      assigned: b.roomNo !== null,
+    };
+  });
+
   return {
-    checkInsToday: { total: 12, arrived: 4, pending: 8 },
-    checkOutsToday: { total: 8, settled: 5, late: 3 },
-    expectedArrivals: { total: 5, nextTime: "2:30 PM", nextLabel: "Sharma +2" },
+    checkInsToday,
+    checkOutsToday,
+    expectedArrivals: {
+      total: awaitingArrival.length,
+      // FIXME(spec-19): no arrival time means no "next"; show who is due, not a
+      // fabricated 2:30 PM. `nextTime` stays blank until manual entry adds it.
+      nextTime: "",
+      nextLabel: awaitingArrival[0] ? (guestById.get(awaitingArrival[0].guestId)?.name ?? "") : "",
+    },
     unassignedRooms,
     occupancy: occupancyNow(),
     revenue: revenuePeriods(data, today),
-    activity: [
-      {
-        id: "act-1",
-        kind: "check_in",
-        title: "Checked in *Priya Nair* to *Deluxe Balcony 204*",
-        meta: "2 min ago · 2 nights · ₹3,400 paid",
-      },
-      {
-        id: "act-2",
-        kind: "enquiry",
-        title: "New *Party Hall* enquiry — 150 guests, tailored quote",
-        meta: "18 min ago · 22 Aug · advance pending",
-      },
-      {
-        id: "act-3",
-        kind: "payment",
-        title: "*₹1,700* UPI payment received — booking *#BK-2047*",
-        meta: "41 min ago · Classic 110",
-      },
-      {
-        id: "act-4",
-        kind: "cancellation",
-        title: "*#BK-2039* cancelled by guest — refund initiated",
-        meta: "1 hr ago · Deluxe Balcony 118",
-      },
-    ],
-    arrivals: [
-      {
-        id: "arr-1",
-        initials: "AS",
-        name: "Anil Sharma",
-        extra: "+2",
-        roomType: "Deluxe Balcony",
-        nights: 2,
-        time: "2:30 PM",
-        assignment: "unassigned",
-        assigned: false,
-      },
-      {
-        id: "arr-2",
-        initials: "MK",
-        name: "Meera Krishnan",
-        roomType: "Classic",
-        nights: 3,
-        time: "3:00 PM",
-        assignment: "Room 112",
-        assigned: true,
-      },
-      {
-        id: "arr-3",
-        initials: "JT",
-        name: "John Thomas",
-        extra: "+1",
-        roomType: "Deluxe Balcony",
-        nights: 1,
-        time: "4:15 PM",
-        assignment: "Room 206",
-        assigned: true,
-      },
-      {
-        id: "arr-4",
-        initials: "SV",
-        name: "Sunita Verma",
-        roomType: "Classic",
-        nights: 4,
-        time: "6:00 PM",
-        assignment: "unassigned",
-        assigned: false,
-      },
-    ],
+    // FIXME(spec-13): no event log exists to derive this from — nothing writes
+    // check-in/payment/enquiry/cancellation events yet. Empty until spec 13.
+    activity: [],
+    arrivals,
   };
 }
 
