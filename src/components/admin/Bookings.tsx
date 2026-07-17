@@ -12,6 +12,7 @@ import type {
   RoomType,
 } from "@/types/booking";
 import { formatINR } from "@/lib/booking-math";
+import { BookingEntryForm } from "@/components/admin/BookingEntryForm";
 import {
   Table,
   TableBody,
@@ -350,8 +351,15 @@ function BookingsTable({ rows, totals }: { rows: BookingListItem[]; totals: Book
 
 // ── Page ──────────────────────────────────────────────────────────────────
 
-export function Bookings({ data }: { data: BookingsPageData }) {
+export function Bookings({
+  data,
+  openEntryForm = false,
+}: {
+  data: BookingsPageData;
+  openEntryForm?: boolean;
+}) {
   const [active, setActive] = useState<TabKey>("all");
+  const [entryOpen, setEntryOpen] = useState(openEntryForm);
 
   const visible = useMemo(
     () => (active === "all" ? data.rows : data.rows.filter((r) => r.booking.status === active)),
@@ -408,6 +416,7 @@ export function Bookings({ data }: { data: BookingsPageData }) {
           </button>
           <button
             type="button"
+            onClick={() => setEntryOpen(true)}
             className="inline-flex items-center gap-2 rounded-md bg-gold px-3 py-2 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
           >
             <Plus className="size-4" />
@@ -415,6 +424,8 @@ export function Bookings({ data }: { data: BookingsPageData }) {
           </button>
         </div>
       </div>
+
+      <BookingEntryForm open={entryOpen} onOpenChange={setEntryOpen} />
 
       <SummaryCards summary={data.summary} />
 
