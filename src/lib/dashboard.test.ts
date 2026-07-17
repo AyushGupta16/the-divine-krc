@@ -31,6 +31,41 @@ describe("dashboard occupancy", () => {
   });
 });
 
+describe("dashboard stat cards derive from the booking set", () => {
+  it("partitions today's check-ins into arrived + pending", async () => {
+    const d = await getDashboardData(fixtures, "2026-07-14");
+    expect(d.checkInsToday.total).toBe(d.checkInsToday.arrived + d.checkInsToday.pending);
+    // Every arrival today is one row in the queue.
+    expect(d.arrivals.length).toBe(d.checkInsToday.total);
+  });
+
+  it("partitions today's check-outs into settled + late", async () => {
+    const d = await getDashboardData(fixtures, "2026-07-14");
+    expect(d.checkOutsToday.total).toBe(d.checkOutsToday.settled + d.checkOutsToday.late);
+  });
+
+  it("counts only still-awaited arrivals as expected", async () => {
+    const d = await getDashboardData(fixtures, "2026-07-14");
+    expect(d.expectedArrivals.total).toBe(d.checkInsToday.pending);
+  });
+
+  it("does not invent a time of day or an activity feed it has no source for", async () => {
+    const d = await getDashboardData(fixtures, "2026-07-14");
+    // Both are stubbed until specs 19 (arrival time) and 13 (event log) land.
+    expect(d.activity).toEqual([]);
+    expect(d.arrivals.every((a) => a.time === "")).toBe(true);
+    expect(d.expectedArrivals.nextTime).toBe("");
+  });
+
+  it("labels each arrival with a real guest and their assignment", async () => {
+    const d = await getDashboardData(fixtures, "2026-07-14");
+    for (const a of d.arrivals) {
+      expect(a.name).not.toBe("—");
+      expect(a.assigned).toBe(a.assignment !== "unassigned");
+    }
+  });
+});
+
 describe("room state agrees across screens", () => {
   it("counts the same occupied rooms on the dashboard, the board and bookings", async () => {
     const { occupancy } = await getDashboardData(fixtures);
