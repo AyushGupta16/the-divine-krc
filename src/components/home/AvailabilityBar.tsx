@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { format, addDays } from "date-fns";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
@@ -9,8 +10,17 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { CounterField } from "@/components/home/CounterField";
 import { TIME_SLOTS, formatTimeLabel } from "@/lib/time-slots";
+import { checkAvailabilityFn } from "@/lib/bookings-data";
 
 function buildAvailabilityMessage({
   arrivalDate,
@@ -35,6 +45,7 @@ function buildAvailabilityMessage({
 }
 
 export function AvailabilityBar() {
+  const navigate = useNavigate();
   const [arrivalDate, setArrivalDate] = useState(() => new Date());
   const [arrivalTime, setArrivalTime] = useState("14:00");
   const [departureDate, setDepartureDate] = useState(() => addDays(new Date(), 2));
@@ -43,6 +54,8 @@ export function AvailabilityBar() {
   const [rooms, setRooms] = useState(1);
   const [arrivalOpen, setArrivalOpen] = useState(false);
   const [departureOpen, setDepartureOpen] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState<"available" | "unavailable" | "error" | null>(null);
 
   const message = buildAvailabilityMessage({
     arrivalDate,
@@ -53,6 +66,29 @@ export function AvailabilityBar() {
     rooms,
   });
   const whatsappHref = `https://wa.me/918707368307?text=${encodeURIComponent(message)}`;
+
+  async function handleCheckAvailability() {
+    setChecking(true);
+    try {
+      const { available } = await checkAvailabilityFn({
+        data: {
+          checkIn: format(arrivalDate, "yyyy-MM-dd"),
+          checkOut: format(departureDate, "yyyy-MM-dd"),
+          rooms,
+        },
+      });
+      setResult(available ? "available" : "unavailable");
+    } catch {
+      setResult("error");
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  function openWhatsapp() {
+    window.open(whatsappHref, "_blank", "noopener,noreferrer");
+    setResult(null);
+  }
 
   return (
     <div id="book" className="relative z-20 -mt-16 md:-mt-20 px-5 md:px-10">
@@ -167,19 +203,60 @@ export function AvailabilityBar() {
             />
           </div>
 
-          <a
-            href={whatsappHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="col-span-2 flex items-center justify-center bg-obsidian text-gold text-[11px] uppercase tracking-[0.28em] font-semibold py-5 md:col-span-1 md:py-0 hover:bg-gold hover:text-obsidian transition-colors duration-500"
+          <button
+            type="button"
+            onClick={() => void handleCheckAvailability()}
+            disabled={checking}
+            className="col-span-2 flex items-center justify-center bg-obsidian text-gold text-[11px] uppercase tracking-[0.28em] font-semibold py-5 md:col-span-1 md:py-0 hover:bg-gold hover:text-obsidian transition-colors duration-500 disabled:opacity-60"
           >
-            Check Availability
-          </a>
+            {checking ? "Checking…" : "Check Availability"}
+          </button>
         </div>
       </div>
       <p className="mx-auto max-w-6xl mt-3 text-center md:text-right text-[10px] uppercase tracking-[0.25em] text-warm-gray/70">
         Best rate guarantee when you book direct
       </p>
+
+      <Dialog open={result !== null} onOpenChange={(open) => !open && setResult(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {result === "available" && "Rooms are available"}
+              {result === "unavailable" && "Rooms are not available"}
+              {result === "error" && "Couldn't check availability"}
+            </DialogTitle>
+            <DialogDescription>
+              {result === "available" &&
+                "We've got rooms for these dates. Book direct now, or send your enquiry over WhatsApp."}
+              {result === "unavailable" &&
+                "We don't have rooms free for these dates right now. Send your enquiry over WhatsApp and our team will help."}
+              {result === "error" &&
+                "We couldn't reach our booking system just now. Send your enquiry over WhatsApp and our team will help."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            {result === "available" && (
+              <button
+                type="button"
+                onClick={() => {
+                  setResult(null);
+                  void navigate({ to: "/book" });
+                }}
+                className="inline-flex items-center justify-center bg-gold text-obsidian text-[11px] uppercase tracking-[0.25em] font-semibold px-6 py-3 hover:bg-gold-soft transition-colors"
+              >
+                Book Direct
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={openWhatsapp}
+              className="inline-flex items-center justify-center border border-gold/50 text-obsidian text-[11px] uppercase tracking-[0.25em] font-semibold px-6 py-3 hover:bg-gold/10 hover:border-gold transition-colors"
+            >
+              WhatsApp Us
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

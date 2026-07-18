@@ -402,6 +402,41 @@ export function createBooking(
   return { ok: true, guest, booking };
 }
 
+export interface AvailabilityQuery {
+  checkIn: string;
+  checkOut: string;
+  rooms: number;
+}
+
+/**
+ * Whether `rooms` more stays can be sold over the whole `[checkIn, checkOut)`
+ * span. Counts every occupying booking that overlaps a given night, not just
+ * ones with a `roomNo` assigned — guest self-service bookings never get one
+ * (roomNo stays null until check-in, per spec #14), so counting only assigned
+ * rooms would undercount and let the bar oversell.
+ */
+export function checkAvailability(
+  data: { bookings: Booking[] },
+  query: AvailabilityQuery,
+): boolean {
+  if (!query.checkIn || !query.checkOut || query.checkOut <= query.checkIn) return false;
+  if (query.rooms < 1) return false;
+
+  const nights = nightsBetween(query.checkIn, query.checkOut);
+  for (let i = 0; i < nights; i++) {
+    const onDate = new Date(`${query.checkIn}T00:00:00Z`);
+    onDate.setUTCDate(onDate.getUTCDate() + i);
+    const dateStr = onDate.toISOString().slice(0, 10);
+
+    const occupied = data.bookings.filter(
+      (b) => OCCUPYING_STATUSES.has(b.status) && b.checkIn <= dateStr && dateStr < b.checkOut,
+    ).length;
+
+    if (ROOM_UNITS.length - occupied < query.rooms) return false;
+  }
+  return true;
+}
+
 export interface GuestBookingLookup {
   booking: Booking;
   guest: Guest;

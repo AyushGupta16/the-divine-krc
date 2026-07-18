@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  checkAvailability,
   createBooking,
   getBookingsPageData,
   markBookingPaid,
+  ROOM_UNITS,
   type NewBookingInput,
 } from "@/lib/bookings";
 import { fixtures } from "@/lib/__fixtures__/bookings";
@@ -203,5 +205,48 @@ describe("markBookingPaid", () => {
   it("rejects an unknown booking id", () => {
     const { state } = pendingState();
     expect(markBookingPaid(state, "KRC-nope", "order_1", "pay_1").ok).toBe(false);
+  });
+});
+
+describe("checkAvailability", () => {
+  it("is available when nothing overlaps the requested nights", () => {
+    const available = checkAvailability(
+      { bookings: [] },
+      { checkIn: "2026-09-01", checkOut: "2026-09-03", rooms: 2 },
+    );
+    expect(available).toBe(true);
+  });
+
+  it("rejects a backwards or empty date range", () => {
+    expect(
+      checkAvailability({ bookings: [] }, { checkIn: "", checkOut: "2026-09-03", rooms: 1 }),
+    ).toBe(false);
+    expect(
+      checkAvailability(
+        { bookings: [] },
+        { checkIn: "2026-09-05", checkOut: "2026-09-01", rooms: 1 },
+      ),
+    ).toBe(false);
+  });
+
+  it("goes unavailable once every room is held over the span, even unassigned ones", () => {
+    let state = { guests: fixtures.guests, bookings: fixtures.bookings };
+    for (let i = 0; i < ROOM_UNITS.length; i++) {
+      const res = createBooking(
+        state,
+        { ...NEW_BOOKING, guestPhone: `+91 90000 9${String(i).padStart(4, "0")}` },
+        "2026-09-01",
+      );
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      state = { guests: [...state.guests, res.guest], bookings: [...state.bookings, res.booking] };
+    }
+
+    expect(
+      checkAvailability(state, { checkIn: "2026-08-01", checkOut: "2026-08-03", rooms: 1 }),
+    ).toBe(false);
+    expect(
+      checkAvailability(state, { checkIn: "2026-09-10", checkOut: "2026-09-12", rooms: 1 }),
+    ).toBe(true);
   });
 });
