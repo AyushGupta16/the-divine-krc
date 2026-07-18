@@ -344,20 +344,24 @@ function ResultCard({
           >
             Modify via WhatsApp
           </a>
-          {isCancellable && (
-            <button
-              type="button"
-              onClick={() => setConfirmingCancel(true)}
-              className="min-w-[170px] flex-1 rounded-[4px] border border-[#e6cbc2] bg-white py-3.5 text-[11px] font-bold uppercase tracking-[0.16em] text-[#b4553f]"
-            >
-              Cancel booking
-            </button>
-          )}
+          <button
+            type="button"
+            disabled={!isCancellable}
+            onClick={() => setConfirmingCancel(true)}
+            title={
+              isCancellable ? undefined : `Already ${STATUS_LABEL[booking.status].toLowerCase()}`
+            }
+            className="min-w-[170px] flex-1 rounded-[4px] border border-[#e6cbc2] bg-white py-3.5 text-[11px] font-bold uppercase tracking-[0.16em] text-[#b4553f] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Cancel booking
+          </button>
         </div>
       )}
-      {isCancellable && !confirmingCancel && (
+      {!confirmingCancel && (
         <p className="mt-4.5 text-center text-[12px] text-warm-gray">
-          Free cancellation any time before check-in.
+          {isCancellable
+            ? "Free cancellation any time before check-in."
+            : `This booking is already ${STATUS_LABEL[booking.status].toLowerCase()} and can no longer be cancelled.`}
         </p>
       )}
     </div>
