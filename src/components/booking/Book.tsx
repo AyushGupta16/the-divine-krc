@@ -219,9 +219,16 @@ export function Book() {
       return;
     }
 
-    const orderRes = await createRazorpayOrderFn({
-      data: { bookingIds: created.map((b) => b.id) },
-    });
+    let orderRes;
+    try {
+      orderRes = await createRazorpayOrderFn({ data: { bookingIds: created.map((b) => b.id) } });
+    } catch {
+      // Thrown, not a Result — e.g. RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET missing
+      // from the server env, or the Razorpay API itself unreachable/erroring.
+      setBusy(false);
+      setError("Payment could not be started. Please try again shortly.");
+      return;
+    }
     if (!orderRes.ok) {
       setBusy(false);
       setError(orderRes.error);
