@@ -4,6 +4,15 @@
 // gets persisted. Payment is UI-only — no Razorpay SDK — real gateway wiring is
 // spec #16; selecting it here just records the guest's preference for the
 // confirmation screen, as `schema.ts` already documents that split.
+//
+// A guest picks a *quantity per room type* rather than one room per pass, so a
+// family needing two Deluxe rooms and one Balcony room books and pays once.
+// The backend still has no notion of a multi-room booking, though — each unit
+// becomes its own `Booking` row via a sequential loop of the same
+// `createGuestBookingFn` call the single-room flow used, sharing one guest by
+// phone reuse (see `createBooking`). Not a transaction: a mid-loop failure
+// leaves whatever already posted in place, same accepted tradeoff
+// `insertBooking` documents for the two-statement guest+booking write.
 
 import { useState } from "react";
 import { format, parseISO, addDays } from "date-fns";
@@ -60,71 +69,96 @@ const EMPTY_GUEST = {
   specialRequests: "",
 };
 
+const EMPTY_CART: Record<RoomType, number> = Object.fromEntries(
+  ROOM_TYPES.map((rt) => [rt.type, 0]),
+) as Record<RoomType, number>;
+
+interface CartLine {
+  type: RoomType;
+  name: string;
+  pricePerNight: number;
+  qty: number;
+}
+
 export function Book() {
   const [step, setStep] = useState(0);
-  const [roomType, setRoomType] = useState<RoomType | null>(null);
+  const [cart, setCart] = useState<Record<RoomType, number>>(EMPTY_CART);
   const [guests, setGuests] = useState(2);
   const [checkIn, setCheckIn] = useState(todayIso());
   const [checkOut, setCheckOut] = useState(tomorrowIso());
   const [guest, setGuest] = useState(EMPTY_GUEST);
   const [payMethod, setPayMethod] = useState<PayMethod>("razorpay");
-  const [booking, setBooking] = useState<Booking | null>(null);
+  const [bookings, setBookings] = useState<Booking[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const nights = urn(checkIn, checkOut);
-  const selected = ROOM_TYPES.find((rt) => rt.type === roomType) ?? null;
-  const subtotal = selected ? selected.pricePerNight * nights : 0;
-  const total = selected
-    ? computeTotalBill({
-        room: subtotal,
-        earlyCheckIn: 0,
-        lateCheckOut: 0,
-        other: 0,
-        discount: 0,
-        taxPct: GST_PCT,
-      })
-    : 0;
+  const cartLines: CartLine[] = ROOM_TYPES.filter((rt) => cart[rt.type] > 0).map((rt) => ({
+    type: rt.type,
+    name: rt.name,
+    pricePerNight: rt.pricePerNight,
+    qty: cart[rt.type],
+  }));
+  const roomCount = cartLines.reduce((sum, l) => sum + l.qty, 0);
+  const subtotal = cartLines.reduce((sum, l) => sum + l.pricePerNight * nights * l.qty, 0);
+  const total =
+    roomCount > 0
+      ? computeTotalBill({
+          room: subtotal,
+          earlyCheckIn: 0,
+          lateCheckOut: 0,
+          other: 0,
+          discount: 0,
+          taxPct: GST_PCT,
+        })
+      : 0;
 
-  function selectRoom(type: RoomType) {
-    setRoomType(type);
-    setStep(1);
+  function setQty(type: RoomType, qty: number) {
+    setCart((c) => ({ ...c, [type]: qty }));
   }
 
   function restart() {
     setStep(0);
-    setRoomType(null);
+    setCart(EMPTY_CART);
     setGuests(2);
     setGuest(EMPTY_GUEST);
     setPayMethod("razorpay");
-    setBooking(null);
+    setBookings(null);
     setError(null);
   }
 
   async function submit() {
-    if (!selected) return;
+    if (roomCount === 0) return;
     setError(null);
     setBusy(true);
-    const res = await createGuestBookingFn({
-      data: {
-        guestName: `${guest.firstName} ${guest.lastName}`.trim(),
-        guestPhone: guest.phone,
-        guestEmail: guest.email,
-        guestCity: "",
-        roomType: selected.type,
-        roomNo: null,
-        checkIn,
-        checkOut,
-        source: "direct",
-        mealPlan: "EP",
-      },
-    });
-    setBusy(false);
-    if (!res.ok) {
-      setError(res.error);
-      return;
+    const guestName = `${guest.firstName} ${guest.lastName}`.trim();
+    const created: Booking[] = [];
+    for (const line of cartLines) {
+      for (let i = 0; i < line.qty; i++) {
+        const res = await createGuestBookingFn({
+          data: {
+            guestName,
+            guestPhone: guest.phone,
+            guestEmail: guest.email,
+            guestCity: "",
+            roomType: line.type,
+            roomNo: null,
+            checkIn,
+            checkOut,
+            source: "direct",
+            mealPlan: "EP",
+          },
+        });
+        if (!res.ok) {
+          setBusy(false);
+          setError(res.error);
+          return;
+        }
+        created.push(res.booking);
+      }
     }
-    setBooking(res.booking);
+    setBusy(false);
+    setBookings(created);
     setStep(3);
   }
 
@@ -143,15 +177,18 @@ export function Book() {
             checkOut={checkOut}
             setCheckOut={setCheckOut}
             nights={nights}
-            onSelect={selectRoom}
+            cart={cart}
+            setQty={setQty}
+            roomCount={roomCount}
+            onContinue={() => setStep(1)}
           />
         )}
 
-        {step === 1 && selected && (
+        {step === 1 && roomCount > 0 && (
           <DetailsStep
             guest={guest}
             setGuest={setGuest}
-            roomName={selected.name}
+            cartLines={cartLines}
             checkIn={checkIn}
             checkOut={checkOut}
             nights={nights}
@@ -162,11 +199,11 @@ export function Book() {
           />
         )}
 
-        {step === 2 && selected && (
+        {step === 2 && roomCount > 0 && (
           <PaymentStep
             payMethod={payMethod}
             setPayMethod={setPayMethod}
-            roomName={selected.name}
+            cartLines={cartLines}
             checkIn={checkIn}
             checkOut={checkOut}
             nights={nights}
@@ -179,10 +216,10 @@ export function Book() {
           />
         )}
 
-        {step === 3 && booking && selected && (
+        {step === 3 && bookings && (
           <ConfirmedStep
-            booking={booking}
-            roomName={selected.name}
+            bookings={bookings}
+            cartLines={cartLines}
             checkIn={checkIn}
             checkOut={checkOut}
             guests={guests}
@@ -238,7 +275,10 @@ function RoomsStep({
   checkOut,
   setCheckOut,
   nights,
-  onSelect,
+  cart,
+  setQty,
+  roomCount,
+  onContinue,
 }: {
   guests: number;
   setGuests: (n: number) => void;
@@ -247,7 +287,10 @@ function RoomsStep({
   checkOut: string;
   setCheckOut: (v: string) => void;
   nights: number;
-  onSelect: (type: RoomType) => void;
+  cart: Record<RoomType, number>;
+  setQty: (type: RoomType, qty: number) => void;
+  roomCount: number;
+  onContinue: () => void;
 }) {
   const [arrivalTime, setArrivalTime] = useState("14:00");
   const [departureTime, setDepartureTime] = useState("11:00");
@@ -387,36 +430,95 @@ function RoomsStep({
             <div className="p-5">
               <h3 className="font-display text-xl text-obsidian">{rt.name}</h3>
               <p className="mt-1 text-[12.5px] text-warm-gray">{rt.count} rooms available</p>
-              <div className="mt-4 flex items-center justify-between">
+              <div className="mt-4 flex items-center justify-between gap-3">
                 <p className="text-lg font-semibold text-gold">
                   {formatINR(rt.pricePerNight)}{" "}
                   <span className="text-xs text-warm-gray">/night</span>
                 </p>
-                <button
-                  type="button"
-                  onClick={() => onSelect(rt.type)}
-                  className="rounded-[5px] bg-gold px-5 py-2.5 text-[11px] font-bold uppercase tracking-[0.16em] text-obsidian transition-opacity hover:opacity-90"
-                >
-                  Select →
-                </button>
+                <RoomTypeCounter
+                  value={cart[rt.type]}
+                  max={rt.count}
+                  onChange={(n) => setQty(rt.type, n)}
+                />
               </div>
             </div>
           </div>
         ))}
       </div>
+
+      <div className="mt-8 flex items-center justify-between rounded-[6px] border border-gold/15 bg-white px-5 py-4">
+        <p className="text-[12.5px] text-warm-gray">
+          {roomCount > 0
+            ? `${roomCount} room${roomCount === 1 ? "" : "s"} selected`
+            : "Choose at least one room"}
+        </p>
+        <button
+          type="button"
+          disabled={roomCount === 0}
+          onClick={onContinue}
+          className="rounded-[5px] bg-gold px-6 py-2.5 text-[11px] font-bold uppercase tracking-[0.16em] text-obsidian transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          Continue →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** A room type's quantity in the cart — 0 shows a plain "Add" button, 1+ shows a stepper. */
+function RoomTypeCounter({
+  value,
+  max,
+  onChange,
+}: {
+  value: number;
+  max: number;
+  onChange: (n: number) => void;
+}) {
+  if (value === 0) {
+    return (
+      <button
+        type="button"
+        onClick={() => onChange(1)}
+        className="rounded-[5px] bg-gold px-5 py-2.5 text-[11px] font-bold uppercase tracking-[0.16em] text-obsidian transition-opacity hover:opacity-90"
+      >
+        Add
+      </button>
+    );
+  }
+  return (
+    <div className="flex items-center gap-3 rounded-[5px] border border-gold/30 px-2 py-1.5">
+      <button
+        type="button"
+        onClick={() => onChange(value - 1)}
+        aria-label="Fewer rooms"
+        className="flex size-6 items-center justify-center rounded-full border border-gold/30 text-obsidian hover:border-gold"
+      >
+        −
+      </button>
+      <span className="w-4 text-center text-[13.5px] font-semibold text-obsidian">{value}</span>
+      <button
+        type="button"
+        onClick={() => onChange(Math.min(max, value + 1))}
+        disabled={value >= max}
+        aria-label="More rooms"
+        className="flex size-6 items-center justify-center rounded-full border border-gold/30 text-obsidian hover:border-gold disabled:opacity-30"
+      >
+        +
+      </button>
     </div>
   );
 }
 
 function Summary({
-  roomName,
+  cartLines,
   checkIn,
   checkOut,
   nights,
   subtotal,
   total,
 }: {
-  roomName: string;
+  cartLines: CartLine[];
   checkIn: string;
   checkOut: string;
   nights: number;
@@ -425,17 +527,19 @@ function Summary({
 }) {
   return (
     <div className="w-full shrink-0 rounded-[6px] bg-obsidian p-6 text-ivory sm:w-[380px]">
-      <h3 className="font-display text-lg text-gold">{roomName}</h3>
+      <h3 className="font-display text-lg text-gold">Your stay</h3>
       <p className="mt-1 text-[12.5px] text-ivory/70">
         {checkIn} → {checkOut} · {nights} night{nights === 1 ? "" : "s"}
       </p>
       <div className="mt-5 flex flex-col gap-2 border-t border-ivory/10 pt-4 text-[13px]">
-        <div className="flex justify-between text-ivory/80">
-          <span>
-            Room × {nights} night{nights === 1 ? "" : "s"}
-          </span>
-          <span>{formatINR(subtotal)}</span>
-        </div>
+        {cartLines.map((l) => (
+          <div key={l.type} className="flex justify-between text-ivory/80">
+            <span>
+              {l.name} × {l.qty} × {nights} night{nights === 1 ? "" : "s"}
+            </span>
+            <span>{formatINR(l.pricePerNight * nights * l.qty)}</span>
+          </div>
+        ))}
         <div className="flex justify-between text-ivory/80">
           <span>Taxes & fees ({GST_PCT}%)</span>
           <span>{formatINR(total - subtotal)}</span>
@@ -452,7 +556,7 @@ function Summary({
 function DetailsStep({
   guest,
   setGuest,
-  roomName,
+  cartLines,
   checkIn,
   checkOut,
   nights,
@@ -463,7 +567,7 @@ function DetailsStep({
 }: {
   guest: typeof EMPTY_GUEST;
   setGuest: (v: typeof EMPTY_GUEST) => void;
-  roomName: string;
+  cartLines: CartLine[];
   checkIn: string;
   checkOut: string;
   nights: number;
@@ -565,7 +669,7 @@ function DetailsStep({
         </div>
       </div>
       <Summary
-        roomName={roomName}
+        cartLines={cartLines}
         checkIn={checkIn}
         checkOut={checkOut}
         nights={nights}
@@ -579,7 +683,7 @@ function DetailsStep({
 function PaymentStep({
   payMethod,
   setPayMethod,
-  roomName,
+  cartLines,
   checkIn,
   checkOut,
   nights,
@@ -592,7 +696,7 @@ function PaymentStep({
 }: {
   payMethod: PayMethod;
   setPayMethod: (v: PayMethod) => void;
-  roomName: string;
+  cartLines: CartLine[];
   checkIn: string;
   checkOut: string;
   nights: number;
@@ -637,7 +741,7 @@ function PaymentStep({
               <p className="mt-1">UPI · Cards · Net Banking · Wallets</p>
             </>
           ) : (
-            <p>Your room is held; settle the full amount at check-in.</p>
+            <p>Your rooms are held; settle the full amount at check-in.</p>
           )}
         </div>
 
@@ -663,12 +767,12 @@ function PaymentStep({
             className="flex items-center gap-2 rounded-[5px] bg-gold px-5 py-2.5 text-[11px] font-bold uppercase tracking-[0.16em] text-obsidian transition-opacity hover:opacity-90 disabled:opacity-60"
           >
             {busy && <Loader2 className="size-3.5 animate-spin" />}
-            {payMethod === "razorpay" ? `Pay ${formatINR(total)} with Razorpay` : "Reserve room"}
+            {payMethod === "razorpay" ? `Pay ${formatINR(total)} with Razorpay` : "Reserve rooms"}
           </button>
         </div>
       </div>
       <Summary
-        roomName={roomName}
+        cartLines={cartLines}
         checkIn={checkIn}
         checkOut={checkOut}
         nights={nights}
@@ -680,8 +784,8 @@ function PaymentStep({
 }
 
 function ConfirmedStep({
-  booking,
-  roomName,
+  bookings,
+  cartLines,
   checkIn,
   checkOut,
   guests,
@@ -689,8 +793,8 @@ function ConfirmedStep({
   total,
   onRestart,
 }: {
-  booking: Booking;
-  roomName: string;
+  bookings: Booking[];
+  cartLines: CartLine[];
   checkIn: string;
   checkOut: string;
   guests: number;
@@ -698,6 +802,8 @@ function ConfirmedStep({
   total: number;
   onRestart: () => void;
 }) {
+  const roomSummary = cartLines.map((l) => `${l.qty}× ${l.name}`).join(", ");
+
   return (
     <div className="mx-auto max-w-lg px-6 py-16 text-center">
       <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-gold/15 text-gold">
@@ -706,10 +812,12 @@ function ConfirmedStep({
       <h2 className="mt-5 font-display text-2xl text-obsidian">Booking confirmed</h2>
       <div className="mt-6 rounded-[6px] border border-gold/15 bg-white text-left">
         <div className="border-b border-gold/10 px-5 py-3">
-          <p className="text-xs uppercase tracking-[0.16em] text-gold">{booking.id}</p>
+          <p className="text-xs uppercase tracking-[0.16em] text-gold">
+            {bookings.map((b) => b.id).join(" · ")}
+          </p>
         </div>
         <dl className="flex flex-col gap-2.5 px-5 py-4 text-[13px]">
-          <Row label="Room" value={roomName} />
+          <Row label="Rooms" value={roomSummary} />
           <Row label="Dates" value={`${checkIn} → ${checkOut}`} />
           <Row label="Guests" value={`${guests} ${guests === 1 ? "Adult" : "Adults"}`} />
           <Row
