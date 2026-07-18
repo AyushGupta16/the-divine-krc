@@ -387,7 +387,7 @@ function SearchOverlay({ open, onClose }: { open: boolean; onClose: () => void }
           <X className="size-5" />
         </button>
       </div>
-      <div className="relative mx-4 mt-4 max-w-xl rounded-lg border border-[#eae4d6] bg-white p-5 shadow-2xl sm:mx-6">
+      <div className="relative mx-4 mt-4 rounded-lg border border-[#eae4d6] bg-white p-5 shadow-2xl sm:mx-6">
         <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[#a49d8d]">
           Quick access
         </p>
