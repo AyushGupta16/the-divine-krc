@@ -21,6 +21,7 @@
 import { createServerFn } from "@tanstack/react-start";
 
 import {
+  createBooking,
   getAvailableRoomCount,
   getBookingsPageData,
   getCalendarPageData,
@@ -35,11 +36,14 @@ import {
   withTier,
   withTotal,
   type BookingData,
+  type NewBookingInput,
 } from "@/lib/bookings";
 import { fixtures } from "@/lib/__fixtures__/bookings";
+import { getSessionMember } from "@/lib/auth";
 import { db, missingDbInProduction } from "@/lib/db";
 import { loadRoster } from "@/lib/roster";
 import * as schema from "@/lib/schema";
+import { can, type Result } from "@/lib/team";
 import type {
   Booking,
   BookingCollection,
@@ -173,6 +177,102 @@ async function load(): Promise<BookingData> {
     partyHall: partyHallRows.map(toPartyHall),
   };
 }
+
+/**
+ * Write a guest + booking together — spec 19's first real `INSERT`.
+ *
+ * Two statements, not a transaction: HTTP-mode Neon has no multi-statement
+ * transaction here, and the failure mode of "guest written, booking failed"
+ * is self-healing — `createBooking`'s phone lookup on the *next* attempt finds
+ * the guest it already wrote and reuses it rather than duplicating.
+ *
+ * With no `DATABASE_URL` this mutates the shared `fixtures` object in place,
+ * same dev-only convenience `roster.ts`'s `mem()` store gives invites: it
+ * lives only as long as the dev server does, which is enough to see a new row
+ * appear on the Bookings page without a database.
+ */
+async function insertBooking(guest: Guest, booking: Booking): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    if (!fixtures.guests.some((g) => g.id === guest.id)) fixtures.guests.push(guest);
+    fixtures.bookings.push(booking);
+    return;
+  }
+  await conn
+    .insert(schema.guests)
+    .values({
+      id: guest.id,
+      name: guest.name,
+      phone: guest.phone,
+      email: guest.email,
+      city: guest.city,
+      stays: guest.stays,
+      lifetimeValue: guest.lifetimeValue,
+    })
+    .onConflictDoNothing({ target: schema.guests.id });
+  await conn.insert(schema.bookings).values({
+    id: booking.id,
+    guestId: booking.guestId,
+    roomNo: booking.roomNo,
+    roomType: booking.roomType,
+    checkIn: booking.checkIn,
+    checkOut: booking.checkOut,
+    urn: booking.urn,
+    source: booking.source,
+    mealPlan: booking.mealPlan,
+    revenueRoom: booking.revenue.room,
+    revenueEarlyCheckIn: booking.revenue.earlyCheckIn,
+    revenueLateCheckOut: booking.revenue.lateCheckOut,
+    revenueOther: booking.revenue.other,
+    revenueDiscount: booking.revenue.discount,
+    revenueTaxPct: booking.revenue.taxPct,
+    collectionPaidToHotel: booking.collection.paidToHotel,
+    collectionOtaCollection: booking.collection.otaCollection,
+    collectionOtaCommission: booking.collection.otaCommission,
+    collectionComplimentary: booking.collection.complimentary,
+    collectionPending: booking.collection.pending,
+    status: booking.status,
+    createdAt: new Date(booking.createdAt),
+  });
+}
+
+function noDbInsert(): void {
+  if (missingDbInProduction()) {
+    throw new Error(
+      "DATABASE_URL is not set. The admin console is unavailable until it is. " +
+        "(The marketing site does not read the database and is unaffected.)",
+    );
+  }
+}
+
+async function requireBookingWriter(): Promise<Result> {
+  const member = await getSessionMember();
+  if (!member) return { ok: false, error: "Sign in to create a booking." };
+  if (!can(member.role, "bookings:write")) {
+    return { ok: false, error: `A ${member.role} account cannot create bookings.` };
+  }
+  return { ok: true };
+}
+
+/**
+ * Wires the Bookings toolbar's `+ New booking` button and the header FAB
+ * (spec 19) to the write path above. Mirrors `sendInviteFn`'s three beats:
+ * load state, ask the rule, persist what it decided.
+ */
+export const createBookingFn = createServerFn({ method: "POST" })
+  .inputValidator((data: NewBookingInput) => data)
+  .handler(async ({ data }): Promise<Result<{ booking: Booking }>> => {
+    const auth = await requireBookingWriter();
+    if (!auth.ok) return auth;
+
+    const current = await load();
+    const res = createBooking(current, data);
+    if (!res.ok) return res;
+
+    await insertBooking(res.guest, res.booking);
+    return { ok: true, booking: res.booking };
+  });
 
 export const dashboardPage = createServerFn({ method: "GET" }).handler(
   async (): Promise<DashboardData> => getDashboardData(await load()),

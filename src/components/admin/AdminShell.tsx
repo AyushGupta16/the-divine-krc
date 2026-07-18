@@ -331,6 +331,7 @@ function HeaderActions() {
       </button>
       <Link
         to="/admin/bookings"
+        search={{ new: "1" }}
         aria-label="New booking"
         className="flex size-10 items-center justify-center rounded-[5px] bg-gold text-obsidian transition-opacity hover:opacity-90"
       >

@@ -18,6 +18,8 @@
 import type {
   ArrivalItem,
   Booking,
+  BookingCollection,
+  BookingRevenue,
   BookingSource,
   BookingsPageData,
   BookingStatus,
@@ -82,7 +84,7 @@ import {
   formatINR,
   formatINRCompact,
 } from "@/lib/booking-math";
-import { isActive, type TeamAccount } from "@/lib/team";
+import { isActive, type Result, type TeamAccount } from "@/lib/team";
 import { initialsOf } from "@/lib/utils";
 
 /**
@@ -279,6 +281,127 @@ export function findGuest(data: BookingData, id: string): Guest | undefined {
   return data.guests.find((g) => g.id === id);
 }
 
+/** What the manual-entry drawer (spec 19) collects. Derived fields are never entered. */
+export interface NewBookingInput {
+  guestName: string;
+  guestPhone: string;
+  guestEmail: string;
+  guestCity: string;
+  roomType: RoomType;
+  /** null leaves the room unassigned, same as an OTA reservation today. */
+  roomNo: string | null;
+  checkIn: string;
+  checkOut: string;
+  source: BookingSource;
+  mealPlan: MealPlan;
+}
+
+function nightsBetween(checkIn: string, checkOut: string): number {
+  const ms =
+    new Date(`${checkOut}T00:00:00Z`).getTime() - new Date(`${checkIn}T00:00:00Z`).getTime();
+  return Math.round(ms / 86_400_000);
+}
+
+/** `G-001`, `G-002`, … — the next free number, one past whatever exists. */
+function nextGuestId(guests: Guest[]): string {
+  const max = guests.reduce((m, g) => {
+    const n = Number(g.id.slice(g.id.lastIndexOf("-") + 1));
+    return Number.isFinite(n) && n > m ? n : m;
+  }, 0);
+  return `G-${String(max + 1).padStart(3, "0")}`;
+}
+
+/** `KRC-YYYYMMDD-nnn` — the next free sequence number for that calendar date. */
+function nextBookingId(existingIds: string[], today: string): string {
+  const prefix = `KRC-${today.replaceAll("-", "")}-`;
+  const max = existingIds
+    .filter((id) => id.startsWith(prefix))
+    .reduce((m, id) => Math.max(m, bookingNumber(id)), 0);
+  return `${prefix}${String(max + 1).padStart(3, "0")}`;
+}
+
+/**
+ * The first real write to `bookings` (spec 19). A pure rule, same shape as
+ * `team.ts`'s `createInvite`: it decides and returns, it never persists — that
+ * is `bookings-data.ts`'s job, same split as invites.
+ *
+ * An existing guest is reused by phone rather than duplicated — the same
+ * person booking twice is one `Guest` row with two `Booking` rows, not two
+ * guests. Room revenue is computed from the room type and night count (the
+ * only figures known at entry); nothing is collected yet, so the whole bill
+ * sits in `collection.pending` until a payment PR (#16) settles it.
+ */
+export function createBooking(
+  state: { guests: Guest[]; bookings: Booking[] },
+  input: NewBookingInput,
+  today: string = new Date().toISOString().slice(0, 10),
+): Result<{ guest: Guest; booking: Booking }> {
+  const name = input.guestName.trim();
+  const phone = input.guestPhone.trim();
+  if (!name) return { ok: false, error: "Guest name is required." };
+  if (!phone) return { ok: false, error: "Guest phone is required." };
+  if (!input.checkIn || !input.checkOut) {
+    return { ok: false, error: "Check-in and check-out dates are required." };
+  }
+  if (input.checkOut <= input.checkIn) {
+    return { ok: false, error: "Check-out must be after check-in." };
+  }
+  if (input.roomNo && !ROOM_NUMBERS.includes(input.roomNo)) {
+    return { ok: false, error: `Room ${input.roomNo} does not exist.` };
+  }
+
+  const guest: Guest =
+    state.guests.find((g) => g.phone === phone) ??
+    withTier({
+      id: nextGuestId(state.guests),
+      name,
+      phone,
+      email: input.guestEmail.trim(),
+      city: input.guestCity.trim(),
+      stays: 0,
+      lifetimeValue: 0,
+    });
+
+  const nights = nightsBetween(input.checkIn, input.checkOut);
+  const pricePerNight = ROOM_TYPES.find((rt) => rt.type === input.roomType)!.pricePerNight;
+  const revenue: BookingRevenue = {
+    room: pricePerNight * nights,
+    earlyCheckIn: 0,
+    lateCheckOut: 0,
+    other: 0,
+    discount: 0,
+    taxPct: GST_PCT,
+  };
+  const collection: BookingCollection = {
+    paidToHotel: 0,
+    otaCollection: 0,
+    otaCommission: 0,
+    complimentary: 0,
+    pending: computeTotalBill(revenue),
+  };
+
+  const booking = withTotal({
+    id: nextBookingId(
+      state.bookings.map((b) => b.id),
+      today,
+    ),
+    guestId: guest.id,
+    roomNo: input.roomNo,
+    roomType: input.roomType,
+    checkIn: input.checkIn,
+    checkOut: input.checkOut,
+    urn: nights,
+    source: input.source,
+    mealPlan: input.mealPlan,
+    revenue,
+    collection,
+    status: "pending_payment",
+    createdAt: new Date().toISOString(),
+  });
+
+  return { ok: true, guest, booking };
+}
+
 /** Statuses that hold a physical room off the market. */
 const OCCUPYING_STATUSES = new Set(["confirmed", "checked_in", "pending_payment"]);
 
@@ -355,7 +478,7 @@ function occupancyNow(): Occupancy {
  */
 export async function getDashboardData(
   data: BookingData,
-  today = "2026-07-14",
+  today: string = new Date().toISOString().slice(0, 10),
 ): Promise<DashboardData> {
   const unassignedRooms = data.bookings.filter(
     (b) => b.roomNo === null && OCCUPYING_STATUSES.has(b.status),
@@ -1353,11 +1476,12 @@ function monthlyRollup(bookings: Booking[], today: string): PaymentsMonthlyRollu
  * OTA owes, or what a guest still has to pay.
  *
  * `today` anchors the "collected today" KPI and the rollup's month; it defaults
- * to the design's display date so the screen reads as designed.
+ * to the live clock (spec 19 — the seed's one dead week is no longer the only
+ * data that can exist once manual entry can add a booking on any date).
  */
 export async function getPaymentsPageData(
   data: BookingData,
-  today = "2026-07-14",
+  today: string = new Date().toISOString().slice(0, 10),
 ): Promise<PaymentsPageData> {
   const guestName = new Map(data.guests.map((g) => [g.id, g.name]));
   const txns = transactionsFrom(data.bookings, guestName);
@@ -1828,7 +1952,7 @@ function kpisFor(
  */
 export async function getReportsPageData(
   data: BookingData,
-  today = "2026-07-14",
+  today: string = new Date().toISOString().slice(0, 10),
 ): Promise<ReportsPageData> {
   const nights = nightsFrom(data.bookings);
 
