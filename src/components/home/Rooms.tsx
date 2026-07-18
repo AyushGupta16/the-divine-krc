@@ -2,7 +2,6 @@ import roomBalcony from "@/assets/room-balcony.jpg";
 import roomDeluxe from "@/assets/room-deluxe.jpg";
 import { Reveal } from "./Reveal";
 
-const PHONE = "+918707368307";
 const WHATSAPP = `https://wa.me/918707368307?text=${encodeURIComponent(
   "Hi Divine KRC, I'd like to book a room. Please share availability.",
 )}`;
@@ -53,7 +52,7 @@ export function Rooms() {
                 WhatsApp Us <span>→</span>
               </a>
               <a
-                href={`tel:${PHONE}`}
+                href="/book"
                 className="inline-flex items-center gap-2 border border-gold/50 text-gold text-[11px] uppercase tracking-[0.25em] font-semibold px-6 py-3.5 hover:bg-gold/10 hover:border-gold transition-colors"
               >
                 Book Direct

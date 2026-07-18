@@ -23,6 +23,7 @@ import { eq } from "drizzle-orm";
 
 import {
   cancelGuestBooking,
+  checkAvailability,
   createBooking,
   findGuestBooking,
   getAvailableRoomCount,
@@ -39,6 +40,7 @@ import {
   withAdvance,
   withTier,
   withTotal,
+  type AvailabilityQuery,
   type BookingData,
   type GuestBookingLookup,
   type NewBookingInput,
@@ -339,6 +341,18 @@ export const createGuestBookingFn = createServerFn({ method: "POST" })
 
     await insertBooking(res.guest, res.booking);
     return { ok: true, booking: res.booking };
+  });
+
+/**
+ * The landing page's "Check Availability" bar: a public, read-only query
+ * against the live booking set, so a query that can't be sold doesn't waste
+ * the guest's time in the `/book` flow before falling back to WhatsApp.
+ */
+export const checkAvailabilityFn = createServerFn({ method: "POST" })
+  .inputValidator((data: AvailabilityQuery) => data)
+  .handler(async ({ data }): Promise<{ available: boolean }> => {
+    const current = await load();
+    return { available: checkAvailability(current, data) };
   });
 
 /**
