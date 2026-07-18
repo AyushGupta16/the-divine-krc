@@ -20,6 +20,7 @@ import { Route as AdminResetPasswordRouteImport } from './routes/admin/reset-pas
 import { Route as AdminReportsRouteImport } from './routes/admin/reports'
 import { Route as AdminPaymentsRouteImport } from './routes/admin/payments'
 import { Route as AdminPartyHallRouteImport } from './routes/admin/party-hall'
+import { Route as AdminNotificationsRouteImport } from './routes/admin/notifications'
 import { Route as AdminLoginRouteImport } from './routes/admin/login'
 import { Route as AdminGuestsRouteImport } from './routes/admin/guests'
 import { Route as AdminForgotPasswordRouteImport } from './routes/admin/forgot-password'
@@ -83,6 +84,11 @@ const AdminPartyHallRoute = AdminPartyHallRouteImport.update({
   path: '/party-hall',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminNotificationsRoute = AdminNotificationsRouteImport.update({
+  id: '/notifications',
+  path: '/notifications',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminLoginRoute = AdminLoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -130,6 +136,7 @@ export interface FileRoutesByFullPath {
   '/admin/forgot-password': typeof AdminForgotPasswordRoute
   '/admin/guests': typeof AdminGuestsRoute
   '/admin/login': typeof AdminLoginRoute
+  '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/party-hall': typeof AdminPartyHallRoute
   '/admin/payments': typeof AdminPaymentsRoute
   '/admin/reports': typeof AdminReportsRoute
@@ -149,6 +156,7 @@ export interface FileRoutesByTo {
   '/admin/forgot-password': typeof AdminForgotPasswordRoute
   '/admin/guests': typeof AdminGuestsRoute
   '/admin/login': typeof AdminLoginRoute
+  '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/party-hall': typeof AdminPartyHallRoute
   '/admin/payments': typeof AdminPaymentsRoute
   '/admin/reports': typeof AdminReportsRoute
@@ -170,6 +178,7 @@ export interface FileRoutesById {
   '/admin/forgot-password': typeof AdminForgotPasswordRoute
   '/admin/guests': typeof AdminGuestsRoute
   '/admin/login': typeof AdminLoginRoute
+  '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/party-hall': typeof AdminPartyHallRoute
   '/admin/payments': typeof AdminPaymentsRoute
   '/admin/reports': typeof AdminReportsRoute
@@ -192,6 +201,7 @@ export interface FileRouteTypes {
     | '/admin/forgot-password'
     | '/admin/guests'
     | '/admin/login'
+    | '/admin/notifications'
     | '/admin/party-hall'
     | '/admin/payments'
     | '/admin/reports'
@@ -211,6 +221,7 @@ export interface FileRouteTypes {
     | '/admin/forgot-password'
     | '/admin/guests'
     | '/admin/login'
+    | '/admin/notifications'
     | '/admin/party-hall'
     | '/admin/payments'
     | '/admin/reports'
@@ -231,6 +242,7 @@ export interface FileRouteTypes {
     | '/admin/forgot-password'
     | '/admin/guests'
     | '/admin/login'
+    | '/admin/notifications'
     | '/admin/party-hall'
     | '/admin/payments'
     | '/admin/reports'
@@ -327,6 +339,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminPartyHallRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/notifications': {
+      id: '/admin/notifications'
+      path: '/notifications'
+      fullPath: '/admin/notifications'
+      preLoaderRoute: typeof AdminNotificationsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/login': {
       id: '/admin/login'
       path: '/login'
@@ -386,6 +405,7 @@ interface AdminRouteRouteChildren {
   AdminForgotPasswordRoute: typeof AdminForgotPasswordRoute
   AdminGuestsRoute: typeof AdminGuestsRoute
   AdminLoginRoute: typeof AdminLoginRoute
+  AdminNotificationsRoute: typeof AdminNotificationsRoute
   AdminPartyHallRoute: typeof AdminPartyHallRoute
   AdminPaymentsRoute: typeof AdminPaymentsRoute
   AdminReportsRoute: typeof AdminReportsRoute
@@ -403,6 +423,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminForgotPasswordRoute: AdminForgotPasswordRoute,
   AdminGuestsRoute: AdminGuestsRoute,
   AdminLoginRoute: AdminLoginRoute,
+  AdminNotificationsRoute: AdminNotificationsRoute,
   AdminPartyHallRoute: AdminPartyHallRoute,
   AdminPaymentsRoute: AdminPaymentsRoute,
   AdminReportsRoute: AdminReportsRoute,

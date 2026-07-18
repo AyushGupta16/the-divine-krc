@@ -128,3 +128,17 @@ export const invites = pgTable("invites", {
   /** A week. `inviteStatus` derives Pending/Expired from this, never a column. */
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 });
+
+/**
+ * One row per admin: the cutoff their "mark all read" last set. Notifications
+ * themselves are never stored — see rule 1 — they're derived from `bookings`
+ * each time. Read state is the one thing that genuinely can't be derived, so
+ * it's the only column here: no row, or a null `lastReadAt`, means "never
+ * read", which is correct for a brand-new admin account.
+ */
+export const notificationReads = pgTable("notification_reads", {
+  memberEmail: text("member_email")
+    .primaryKey()
+    .references(() => team.email),
+  lastReadAt: timestamp("last_read_at", { withTimezone: true }),
+});

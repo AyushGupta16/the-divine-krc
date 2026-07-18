@@ -8,7 +8,6 @@ import {
   UserPlus,
   Check,
   X,
-  Bell,
   Search,
   Plus,
 } from "lucide-react";
@@ -23,6 +22,8 @@ import {
   type NavItem,
 } from "@/components/admin/admin-nav";
 import { logoutFn, type SessionUser } from "@/lib/auth";
+import type { NotificationsData } from "@/lib/notifications-data";
+import { NotificationsBell } from "@/components/admin/NotificationsBell";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -309,19 +310,10 @@ function HeaderTitle({ isDashboard, user }: { isDashboard: boolean; user: Sessio
 }
 
 /** Global header actions — notifications, search, new booking. */
-function HeaderActions() {
+function HeaderActions({ notifications }: { notifications: NotificationsData }) {
   return (
     <div className="ml-auto flex items-center gap-2">
-      <button
-        type="button"
-        aria-label="Notifications"
-        className="relative flex size-10 items-center justify-center rounded-[5px] border border-[#eae4d6] bg-white text-warm-gray transition-colors hover:bg-black/[0.03]"
-      >
-        <Bell className="size-4.25" />
-        <span className="absolute -right-1.5 -top-1.5 flex size-4.5 items-center justify-center rounded-full bg-[#b4553f] text-[10px] font-bold text-white">
-          3
-        </span>
-      </button>
+      <NotificationsBell notifications={notifications} />
       <button
         type="button"
         aria-label="Search bookings, guests"
@@ -383,7 +375,15 @@ function BottomNav({ onMore }: { onMore: () => void }) {
  * drawer + bottom-nav/FAB on mobile) and a sticky header carrying the collapse
  * toggle and page title. Renders the active route through `<Outlet />`.
  */
-export function AdminShell({ user, counts = {} }: { user: SessionUser | null; counts?: Counts }) {
+export function AdminShell({
+  user,
+  counts = {},
+  notifications = { groups: [], unread: 0 },
+}: {
+  user: SessionUser | null;
+  counts?: Counts;
+  notifications?: NotificationsData;
+}) {
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const isDashboard = useRouterState({
@@ -456,7 +456,7 @@ export function AdminShell({ user, counts = {} }: { user: SessionUser | null; co
           </button>
 
           <HeaderTitle isDashboard={isDashboard} user={user} />
-          <HeaderActions />
+          <HeaderActions notifications={notifications} />
         </header>
 
         {/* Page content */}

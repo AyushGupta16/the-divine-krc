@@ -8,6 +8,7 @@ import {
   CreditCard,
   BarChart3,
   Settings,
+  Bell,
   type LucideIcon,
 } from "lucide-react";
 
@@ -81,6 +82,7 @@ export const BOTTOM_NAV: NavItem[] = [
  */
 const AUX_ITEMS: NavItem[] = [
   { label: "Team & access", to: "/admin/settings/invite", icon: Users },
+  { label: "Notifications", to: "/admin/notifications", icon: Bell },
 ];
 
 /** Flat list of every nav item, longest path first for title matching. */
