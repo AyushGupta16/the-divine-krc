@@ -345,10 +345,16 @@ function HeaderActions({
 /** Keyword shortcuts, not raw nav labels — what a front-desk staffer would actually type. */
 const SEARCH_SHORTCUTS: { label: string; to: string }[] = [
   { label: "Today's check-ins", to: "/admin/bookings" },
+  { label: "Today's check-outs", to: "/admin/bookings" },
   { label: "Pending payments", to: "/admin/payments" },
   { label: "Guest directory", to: "/admin/guests" },
   { label: "Vacant rooms", to: "/admin/rooms" },
+  { label: "Occupied rooms", to: "/admin/rooms" },
   { label: "Party hall", to: "/admin/party-hall" },
+  { label: "This month's revenue", to: "/admin/reports" },
+  { label: "New booking", to: "/admin/bookings" },
+  { label: "Upcoming reservations", to: "/admin/calendar" },
+  { label: "Team & access", to: "/admin/settings/invite" },
 ];
 
 /** Search popover opened from the header's search icon — covers the content area only, not the sidebar. */
@@ -391,10 +397,10 @@ function SearchOverlay({ open, onClose }: { open: boolean; onClose: () => void }
         <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[#a49d8d]">
           Quick access
         </p>
-        <div className="flex flex-wrap gap-2 md:justify-center">
+        <div className="flex flex-wrap gap-2">
           {SEARCH_SHORTCUTS.map((item) => (
             <Link
-              key={item.to}
+              key={item.label}
               to={item.to}
               onClick={onClose}
               className="inline-flex items-center rounded-full border border-[#eae4d6] bg-white px-3.5 py-2 text-[12px] font-semibold text-warm-gray transition-colors hover:border-gold/50 hover:text-obsidian"
