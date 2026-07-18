@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 
 import type {
@@ -173,13 +174,14 @@ export function Calendar({ data }: { data: CalendarPageData }) {
     <div className="flex flex-col gap-4 p-4 sm:p-6.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <MonthNav label={data.monthLabel} />
-        <button
-          type="button"
+        <Link
+          to="/admin/bookings"
+          search={{ new: "1" }}
           className="inline-flex items-center gap-2 rounded-md bg-gold px-3 py-2 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
         >
           <Plus className="size-4" />
           New booking
-        </button>
+        </Link>
       </div>
 
       <Legend items={data.legend} />

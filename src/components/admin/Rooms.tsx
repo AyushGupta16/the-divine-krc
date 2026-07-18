@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 
 import type {
@@ -75,12 +76,13 @@ function TypeCard({ card }: { card: RoomTypeCard }) {
         <div className="font-display text-[21px] text-[#a8863f]">
           {formatINR(card.pricePerNight)}
         </div>
-        <button
-          type="button"
+        <Link
+          to="/admin/settings"
+          hash="pricing"
           className="text-[11px] font-semibold text-gold transition-colors hover:text-[#a8863f]"
         >
           Edit
-        </button>
+        </Link>
       </div>
     </div>
   );
