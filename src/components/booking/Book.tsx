@@ -52,6 +52,7 @@ export function Book() {
   const [step, setStep] = useState(0);
   const [roomType, setRoomType] = useState<RoomType | null>(null);
   const [guests, setGuests] = useState("2");
+  const [rooms, setRooms] = useState("1");
   const [checkIn, setCheckIn] = useState(todayIso());
   const [checkOut, setCheckOut] = useState(tomorrowIso());
   const [guest, setGuest] = useState(EMPTY_GUEST);
@@ -82,6 +83,8 @@ export function Book() {
   function restart() {
     setStep(0);
     setRoomType(null);
+    setGuests("2");
+    setRooms("1");
     setGuest(EMPTY_GUEST);
     setPayMethod("razorpay");
     setBooking(null);
@@ -125,6 +128,8 @@ export function Book() {
           <RoomsStep
             guests={guests}
             setGuests={setGuests}
+            rooms={rooms}
+            setRooms={setRooms}
             checkIn={checkIn}
             setCheckIn={setCheckIn}
             checkOut={checkOut}
@@ -220,6 +225,8 @@ function StepRail({ step }: { step: number }) {
 function RoomsStep({
   guests,
   setGuests,
+  rooms,
+  setRooms,
   checkIn,
   setCheckIn,
   checkOut,
@@ -229,6 +236,8 @@ function RoomsStep({
 }: {
   guests: string;
   setGuests: (v: string) => void;
+  rooms: string;
+  setRooms: (v: string) => void;
   checkIn: string;
   setCheckIn: (v: string) => void;
   checkOut: string;
@@ -265,16 +274,34 @@ function RoomsStep({
         </div>
         <div>
           <span className={LABEL}>Guests</span>
-          <GuestCounter value={guests} onChange={setGuests} />
+          <Counter
+            value={guests}
+            onChange={setGuests}
+            min={1}
+            max={4}
+            label="guests"
+            unitLabel={(n) => `${n} guest${n === 1 ? "" : "s"}`}
+          />
         </div>
-        <div className="flex items-end">
-          <p className="text-[12.5px] text-warm-gray">
-            {nights > 0 ? `${nights} night${nights === 1 ? "" : "s"}` : "Choose your dates"}
-          </p>
+        <div>
+          <span className={LABEL}>Rooms</span>
+          <Counter
+            value={rooms}
+            onChange={setRooms}
+            min={1}
+            max={3}
+            label="rooms"
+            unitLabel={(n) => `${n} room${n === 1 ? "" : "s"}`}
+          />
         </div>
       </div>
 
-      <p className="mb-4 text-xs uppercase tracking-[0.18em] text-gold">Available for your dates</p>
+      <div className="mb-4 flex items-center justify-between">
+        <p className="text-xs uppercase tracking-[0.18em] text-gold">Available for your dates</p>
+        <p className="text-[12.5px] text-warm-gray">
+          {nights > 0 ? `${nights} night${nights === 1 ? "" : "s"}` : "Choose your dates"}
+        </p>
+      </div>
 
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
         {ROOM_TYPES.map((rt) => (
@@ -284,6 +311,9 @@ function RoomsStep({
           >
             <div className="relative h-[230px]">
               <img src={ROOM_IMAGES[rt.type]} alt={rt.name} className="size-full object-cover" />
+              <span className="absolute left-3 top-3 rounded-full bg-obsidian/70 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-ivory">
+                {rt.count} left
+              </span>
               <span className="absolute right-3 top-3 rounded-full bg-obsidian/70 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-ivory">
                 {rt.areaSqm} m²
               </span>
@@ -312,11 +342,25 @@ function RoomsStep({
   );
 }
 
-function GuestCounter({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function Counter({
+  value,
+  onChange,
+  min,
+  max,
+  label,
+  unitLabel,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  min: number;
+  max: number;
+  label: string;
+  unitLabel: (n: number) => string;
+}) {
   const n = Number(value);
 
   function step(delta: number) {
-    const next = Math.min(4, Math.max(1, n + delta));
+    const next = Math.min(max, Math.max(min, n + delta));
     onChange(String(next));
   }
 
@@ -325,20 +369,18 @@ function GuestCounter({ value, onChange }: { value: string; onChange: (v: string
       <button
         type="button"
         onClick={() => step(-1)}
-        disabled={n <= 1}
-        aria-label="Fewer guests"
+        disabled={n <= min}
+        aria-label={`Fewer ${label}`}
         className="flex size-6 items-center justify-center rounded-full border border-[#e5ddcb] text-obsidian disabled:opacity-30"
       >
         <Minus className="size-3" />
       </button>
-      <span className="text-[13.5px] text-obsidian">
-        {n} guest{n === 1 ? "" : "s"}
-      </span>
+      <span className="text-[13.5px] text-obsidian">{unitLabel(n)}</span>
       <button
         type="button"
         onClick={() => step(1)}
-        disabled={n >= 4}
-        aria-label="More guests"
+        disabled={n >= max}
+        aria-label={`More ${label}`}
         className="flex size-6 items-center justify-center rounded-full border border-[#e5ddcb] text-obsidian disabled:opacity-30"
       >
         <Plus className="size-3" />
