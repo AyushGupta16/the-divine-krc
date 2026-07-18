@@ -96,6 +96,13 @@ export interface BookingData {
   bookings: Booking[];
   guests: Guest[];
   partyHall: PartyHallEnquiry[];
+  /** The physical floor board. Falls back to the default 14-room inventory
+   *  (`ROOM_UNITS`) when omitted, which is what every existing test that
+   *  builds a partial `BookingData` still gets. */
+  rooms?: RoomTile[];
+  /** Per-type area/rate overrides. `count` is never one of these — it is
+   *  always derived from `rooms`. */
+  roomTypeOverrides?: Partial<Record<RoomType, { areaSqm: number; pricePerNight: number }>>;
 }
 
 export interface RoomTypeInfo {
@@ -332,7 +339,12 @@ function nextBookingId(existingIds: string[], today: string): string {
  * sits in `collection.pending` until a payment PR (#16) settles it.
  */
 export function createBooking(
-  state: { guests: Guest[]; bookings: Booking[] },
+  state: {
+    guests: Guest[];
+    bookings: Booking[];
+    rooms?: RoomTile[];
+    roomTypeOverrides?: BookingData["roomTypeOverrides"];
+  },
   input: NewBookingInput,
   today: string = new Date().toISOString().slice(0, 10),
 ): Result<{ guest: Guest; booking: Booking }> {
@@ -346,7 +358,8 @@ export function createBooking(
   if (input.checkOut <= input.checkIn) {
     return { ok: false, error: "Check-out must be after check-in." };
   }
-  if (input.roomNo && !ROOM_NUMBERS.includes(input.roomNo)) {
+  const roomNumbers = state.rooms ? state.rooms.map((r) => r.no) : ROOM_NUMBERS;
+  if (input.roomNo && !roomNumbers.includes(input.roomNo)) {
     return { ok: false, error: `Room ${input.roomNo} does not exist.` };
   }
 
@@ -363,7 +376,8 @@ export function createBooking(
     });
 
   const nights = nightsBetween(input.checkIn, input.checkOut);
-  const pricePerNight = ROOM_TYPES.find((rt) => rt.type === input.roomType)!.pricePerNight;
+  const roomTypes = resolveRoomTypes(state.rooms ?? defaultRoomTiles(), state.roomTypeOverrides);
+  const pricePerNight = roomTypes.find((rt) => rt.type === input.roomType)!.pricePerNight;
   const revenue: BookingRevenue = {
     room: pricePerNight * nights,
     earlyCheckIn: 0,
@@ -416,7 +430,7 @@ export interface AvailabilityQuery {
  * rooms would undercount and let the bar oversell.
  */
 export function checkAvailability(
-  data: { bookings: Booking[] },
+  data: { bookings: Booking[]; rooms?: RoomTile[] },
   query: AvailabilityQuery,
 ): boolean {
   if (!query.checkIn || !query.checkOut || query.checkOut <= query.checkIn) return false;
@@ -432,7 +446,7 @@ export function checkAvailability(
       (b) => OCCUPYING_STATUSES.has(b.status) && b.checkIn <= dateStr && dateStr < b.checkOut,
     ).length;
 
-    if (ROOM_UNITS.length - occupied < query.rooms) return false;
+    if ((data.rooms ?? ROOM_UNITS).length - occupied < query.rooms) return false;
   }
   return true;
 }
@@ -552,8 +566,10 @@ const ROOM_TYPE_SHORT: Record<RoomType, string> = {
  * under maintenance is unoccupied but cannot be sold, so it counts toward vacant
  * and not toward this.
  */
-export async function getAvailableRoomCount(): Promise<number> {
-  return countTiles(roomTilesNow(), "available");
+export async function getAvailableRoomCount(
+  tiles: RoomTile[] = defaultRoomTiles(),
+): Promise<number> {
+  return countTiles(tiles, "available");
 }
 
 /**
@@ -562,8 +578,7 @@ export async function getAvailableRoomCount(): Promise<number> {
  * cannot contradict the Rooms screen or itself. Only the party-hall line is
  * still seeded (see below).
  */
-function occupancyNow(): Occupancy {
-  const tiles = roomTilesNow();
+function occupancyNow(tiles: RoomTile[] = defaultRoomTiles()): Occupancy {
   const occupied = countTiles(tiles, "occupied");
   const total = tiles.length;
 
@@ -664,7 +679,7 @@ export async function getDashboardData(
       nextLabel: awaitingArrival[0] ? (guestById.get(awaitingArrival[0].guestId)?.name ?? "") : "",
     },
     unassignedRooms,
-    occupancy: occupancyNow(),
+    occupancy: occupancyNow(data.rooms),
     revenue: revenuePeriods(data, today),
     // FIXME(spec-13): no event log exists to derive this from — nothing writes
     // check-in/payment/enquiry/cancellation events yet. Empty until spec 13.
@@ -739,7 +754,7 @@ export async function getBookingsPageData(
 
   // Room state comes off the floor board, not this booking set — its room
   // numbers are illustrative and fall outside the real inventory.
-  const tonight = occupancyNow();
+  const tonight = occupancyNow(data.rooms);
   const totalUrn = data.bookings.reduce((sum, b) => sum + b.urn, 0);
   const totalCollected = data.bookings.reduce(
     (sum, b) => sum + computeTotalCollected(b.collection),
@@ -838,10 +853,6 @@ const ROOM_STATE_SEED: Record<string, { status: RoomStatus; detail: string }> = 
  * rooms from it answers 2 of 14 and every screen quoting it disagreed with the
  * floor board. Everything asking about room state today goes through here.
  */
-function roomTilesNow(): RoomTile[] {
-  return ROOM_UNITS.map(buildRoomTile);
-}
-
 /** Rooms of a type in a given state — the one counting rule behind the tiles. */
 function countTiles(tiles: RoomTile[], status: RoomStatus, type?: RoomType): number {
   return tiles.filter((t) => t.status === status && (!type || t.type === type)).length;
@@ -858,16 +869,43 @@ function buildRoomTile(unit: RoomUnit): RoomTile {
   };
 }
 
+/** The default 14-room inventory, seeded to mirror the design — the fallback
+ *  every function here uses when `data.rooms` is not supplied. */
+export function defaultRoomTiles(): RoomTile[] {
+  return ROOM_UNITS.map(buildRoomTile);
+}
+
 /**
- * Everything the admin Rooms screen renders. Tile statuses are seeded to mirror
- * the design; the legend counts and each type card's availability are derived
- * from the tiles so they can never drift out of sync.
+ * Each room type's rate/area/count for display, blending the persisted
+ * overrides (rate, area) with a `count` that is never stored — it is always
+ * however many tiles of that type actually exist on the floor board, so
+ * adding or removing a room can never leave a stale count behind.
+ */
+export function resolveRoomTypes(
+  tiles: RoomTile[],
+  overrides?: BookingData["roomTypeOverrides"],
+): RoomTypeInfo[] {
+  return ROOM_TYPES.map((rt) => ({
+    ...rt,
+    count: tiles.filter((t) => t.type === rt.type).length,
+    areaSqm: overrides?.[rt.type]?.areaSqm ?? rt.areaSqm,
+    pricePerNight: overrides?.[rt.type]?.pricePerNight ?? rt.pricePerNight,
+  }));
+}
+
+/**
+ * Everything the admin Rooms screen renders. Tile statuses come off the floor
+ * board (`data.rooms`, falling back to the seeded default); the legend counts
+ * and each type card's availability are derived from the tiles so they can
+ * never drift out of sync.
  *
- * Only the party-hall line reads `data` — the floor board is the source of truth
- * for room state and is deliberately not derived from the booking set.
+ * Only the party-hall line otherwise reads `data` — the floor board is the
+ * source of truth for room state and is deliberately not derived from the
+ * booking set.
  */
 export async function getRoomsPageData(data: BookingData): Promise<RoomsPageData> {
-  const tiles = ROOM_UNITS.map(buildRoomTile);
+  const tiles = data.rooms ?? defaultRoomTiles();
+  const roomTypes = resolveRoomTypes(tiles, data.roomTypeOverrides);
 
   const countByStatus = tiles.reduce(
     (acc, t) => {
@@ -877,7 +915,7 @@ export async function getRoomsPageData(data: BookingData): Promise<RoomsPageData
     { occupied: 0, available: 0, cleaning: 0, maintenance: 0 } as Record<RoomStatus, number>,
   );
 
-  const typeCards: RoomTypeCard[] = ROOM_TYPES.map((rt) => ({
+  const typeCards: RoomTypeCard[] = roomTypes.map((rt) => ({
     type: rt.type,
     name: rt.name,
     count: rt.count,
@@ -892,11 +930,23 @@ export async function getRoomsPageData(data: BookingData): Promise<RoomsPageData
     count: countByStatus[status],
   }));
 
-  const floors: RoomFloor[] = ([2, 1] as const).map((floor) => ({
-    floor,
-    label: `${floor === 2 ? "Second" : "First"} floor · 5 Deluxe + 2 Balcony`,
-    rooms: tiles.filter((t) => t.floor === floor),
-  }));
+  const floorNumbers = [...new Set(tiles.map((t) => t.floor))].sort((a, b) => b - a) as (1 | 2)[];
+  const floors: RoomFloor[] = floorNumbers.map((floor) => {
+    const floorTiles = tiles.filter((t) => t.floor === floor);
+    const mix = roomTypes
+      .map((rt) => ({
+        label: rt.name.split(" ")[0],
+        n: floorTiles.filter((t) => t.type === rt.type).length,
+      }))
+      .filter((m) => m.n > 0)
+      .map((m) => `${m.n} ${m.label}`)
+      .join(" + ");
+    return {
+      floor,
+      label: `${floor === 2 ? "Second" : "First"} floor${mix ? ` · ${mix}` : ""}`,
+      rooms: floorTiles,
+    };
+  });
 
   const partyHall = {
     nextLabel: nextEventLabel(nextPartyHallEvent(data.partyHall)),
@@ -1672,9 +1722,6 @@ export async function getPaymentsPageData(
 
 // ── Reports ─────────────────────────────────────────────────────────────────
 
-/** Rooms available to sell on any given night — the denominator under RevPAR. */
-const SELLABLE_ROOMS = ROOM_UNITS.length;
-
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /** ISO date `n` days before/after `date`, without tripping over local timezones. */
@@ -1952,10 +1999,11 @@ function roomTypesFor(
   nights: NightFact[],
   partyHall: PartyHallEnquiry[],
   w: Window,
+  roomTypes: RoomTypeInfo[],
 ): RoomTypePerf[] {
   const inWin = nights.filter((n) => inWindow(n.date, w));
 
-  const rows: RoomTypePerf[] = ROOM_TYPES.map((rt) => {
+  const rows: RoomTypePerf[] = roomTypes.map((rt) => {
     const mine = inWin.filter((n) => n.roomType === rt.type);
     return {
       key: rt.type,
@@ -2016,11 +2064,12 @@ function kpisFor(
   partyHall: PartyHallEnquiry[],
   w: Window,
   key: RevenuePeriodKey,
+  sellableRooms: number,
 ): ReportsKpi[] {
   const inWin = nights.filter((n) => inWindow(n.date, w));
   const roomRev = inWin.reduce((sum, n) => sum + n.roomRev, 0);
   const sold = inWin.length;
-  const available = SELLABLE_ROOMS * w.days;
+  const available = sellableRooms * w.days;
 
   const revenue = revenueIn(nights, partyHall, w);
   const prev = previousWindow(w);
@@ -2062,7 +2111,7 @@ function kpisFor(
       formatINR(roomRev / available),
       deltaAgainst(
         roomRev / available,
-        prevIn.reduce((sum, n) => sum + n.roomRev, 0) / (SELLABLE_ROOMS * prev.days),
+        prevIn.reduce((sum, n) => sum + n.roomRev, 0) / (sellableRooms * prev.days),
       ),
     ),
   ];
@@ -2083,6 +2132,9 @@ export async function getReportsPageData(
   today: string = new Date().toISOString().slice(0, 10),
 ): Promise<ReportsPageData> {
   const nights = nightsFrom(data.bookings);
+  const tiles = data.rooms ?? defaultRoomTiles();
+  const roomTypes = resolveRoomTypes(tiles, data.roomTypeOverrides);
+  const sellableRooms = tiles.length;
 
   const ranges: ReportsRange[] = RANGE_KEYS.map((key) => {
     const w = windowFor(key, today);
@@ -2090,10 +2142,10 @@ export async function getReportsPageData(
       key,
       switchLabel: RANGE_SWITCH[key],
       rangeLabel: RANGE_LABEL[key],
-      kpis: kpisFor(nights, data.partyHall, w, key),
+      kpis: kpisFor(nights, data.partyHall, w, key, sellableRooms),
       bars: barsFor(nights, data.partyHall, key, today),
       sources: sourcesFor(nights, w),
-      roomTypes: roomTypesFor(nights, data.partyHall, w),
+      roomTypes: roomTypesFor(nights, data.partyHall, w, roomTypes),
       mealPlans: mealPlansFor(nights, w),
     };
   });
@@ -2235,12 +2287,15 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
 ];
 
 /** Tariffs read straight off the inventory, so a rate shown here is the rate charged. */
-function tariffSettings(): RoomTariff[] {
-  return ROOM_TYPES.map((rt) => ({
+function tariffSettings(roomTypes: RoomTypeInfo[]): RoomTariff[] {
+  return roomTypes.map((rt) => ({
     type: rt.type,
     name: rt.name,
     inventoryLabel: `${rt.count} rooms · ${rt.areaSqm} m²`,
     rate: rt.pricePerNight.toLocaleString("en-IN"),
+    count: rt.count,
+    areaSqm: rt.areaSqm,
+    pricePerNight: rt.pricePerNight,
   }));
 }
 
@@ -2295,11 +2350,13 @@ export async function getSettingsPageData(
   roster: TeamAccount[],
 ): Promise<SettingsPageData> {
   const bookings = data.bookings;
+  const tiles = data.rooms ?? defaultRoomTiles();
+  const roomTypes = resolveRoomTypes(tiles, data.roomTypeOverrides);
 
   return {
     sections: SETTINGS_SECTIONS,
     property: PROPERTY,
-    pricing: { tariffs: tariffSettings(), charges: chargeSettings() },
+    pricing: { tariffs: tariffSettings(roomTypes), charges: chargeSettings(), rooms: tiles },
     payments: paymentSettings(),
     channels: channelSettings(bookings),
     team: activeTeam(roster),

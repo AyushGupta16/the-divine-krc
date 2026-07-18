@@ -71,6 +71,8 @@ import type {
   PaymentsPageData,
   ReportsPageData,
   RoomsPageData,
+  RoomStatus,
+  RoomTile,
   RoomType,
   SettingsPageData,
 } from "@/types/booking";
@@ -78,6 +80,7 @@ import type {
 type GuestRow = typeof schema.guests.$inferSelect;
 type BookingRow = typeof schema.bookings.$inferSelect;
 type PartyHallRow = typeof schema.partyHallEnquiries.$inferSelect;
+type RoomRow = typeof schema.rooms.$inferSelect;
 
 // Rows in, domain objects out. The derived fields (`tier`, `totalBill`,
 // `advancePaid`) are computed here by the same functions the fixtures use, which
@@ -130,6 +133,16 @@ function toBooking(r: BookingRow): Booking {
   });
 }
 
+function toRoomTile(r: RoomRow): RoomTile {
+  return {
+    no: r.no,
+    floor: r.floor as 1 | 2,
+    type: r.type as RoomType,
+    status: r.status as RoomStatus,
+    detail: r.detail,
+  };
+}
+
 function toPartyHall(r: PartyHallRow): PartyHallEnquiry {
   return withAdvance({
     id: r.id,
@@ -175,16 +188,22 @@ async function load(): Promise<BookingData> {
   // order (see `bookingNumber` and the sorts in `bookings.ts`), so this is not
   // what makes the screens deterministic; it is what stops the *query* from
   // being a coin flip, which matters the moment anyone debugs one or pages it.
-  const [guestRows, bookingRows, partyHallRows] = await Promise.all([
+  const [guestRows, bookingRows, partyHallRows, roomRows, roomTypeRows] = await Promise.all([
     conn.select().from(schema.guests).orderBy(schema.guests.id),
     conn.select().from(schema.bookings).orderBy(schema.bookings.id),
     conn.select().from(schema.partyHallEnquiries).orderBy(schema.partyHallEnquiries.id),
+    conn.select().from(schema.rooms).orderBy(schema.rooms.no),
+    conn.select().from(schema.roomTypeSettings).orderBy(schema.roomTypeSettings.type),
   ]);
 
   return {
     guests: guestRows.map(toGuest),
     bookings: bookingRows.map(toBooking),
     partyHall: partyHallRows.map(toPartyHall),
+    rooms: roomRows.map(toRoomTile),
+    roomTypeOverrides: Object.fromEntries(
+      roomTypeRows.map((r) => [r.type, { areaSqm: r.areaSqm, pricePerNight: r.pricePerNight }]),
+    ) as BookingData["roomTypeOverrides"],
   };
 }
 
@@ -304,6 +323,93 @@ async function requireBookingWriter(): Promise<Result> {
     return { ok: false, error: `A ${member.role} account cannot create bookings.` };
   }
   return { ok: true };
+}
+
+async function requireRoomWriter(): Promise<Result> {
+  const member = await getSessionMember();
+  if (!member) return { ok: false, error: "Sign in to manage rooms." };
+  if (!can(member.role, "rooms:write")) {
+    return { ok: false, error: `A ${member.role} account cannot manage rooms.` };
+  }
+  return { ok: true };
+}
+
+async function requireSettingsWriter(): Promise<Result> {
+  const member = await getSessionMember();
+  if (!member) return { ok: false, error: "Sign in to change settings." };
+  if (!can(member.role, "settings:write")) {
+    return { ok: false, error: `A ${member.role} account cannot change settings.` };
+  }
+  return { ok: true };
+}
+
+/**
+ * The Rooms screen's "Add room" and per-tile status popup, and Settings'
+ * rate/area fields. Same fixtures-mutation convenience as the other row-store
+ * helpers when there is no database — `fixtures.rooms` is mutated in place.
+ */
+async function insertRoom(room: RoomTile): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    if (fixtures.rooms.some((r) => r.no === room.no)) return;
+    fixtures.rooms.push(room);
+    return;
+  }
+  await conn
+    .insert(schema.rooms)
+    .values({
+      no: room.no,
+      floor: room.floor,
+      type: room.type,
+      status: room.status,
+      detail: room.detail,
+    })
+    .onConflictDoNothing({ target: schema.rooms.no });
+}
+
+async function deleteRoom(no: string): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    fixtures.rooms = fixtures.rooms.filter((r) => r.no !== no);
+    return;
+  }
+  await conn.delete(schema.rooms).where(eq(schema.rooms.no, no));
+}
+
+async function updateRoom(no: string, status: RoomStatus, detail: string): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    const room = fixtures.rooms.find((r) => r.no === no);
+    if (room) {
+      room.status = status;
+      room.detail = detail;
+    }
+    return;
+  }
+  await conn.update(schema.rooms).set({ status, detail }).where(eq(schema.rooms.no, no));
+}
+
+async function upsertRoomTypeSettings(
+  type: RoomType,
+  areaSqm: number,
+  pricePerNight: number,
+): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    fixtures.roomTypeOverrides = {
+      ...fixtures.roomTypeOverrides,
+      [type]: { areaSqm, pricePerNight },
+    };
+    return;
+  }
+  await conn
+    .insert(schema.roomTypeSettings)
+    .values({ type, areaSqm, pricePerNight })
+    .onConflictDoUpdate({ target: schema.roomTypeSettings.type, set: { areaSqm, pricePerNight } });
 }
 
 /**
@@ -489,6 +595,65 @@ export const settingsPage = createServerFn({ method: "GET" }).handler(
   },
 );
 
+/** The Rooms screen's per-tile status popup. */
+export const updateRoomStatusFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { no: string; status: RoomStatus; detail: string }) => data)
+  .handler(async ({ data }): Promise<Result> => {
+    const auth = await requireRoomWriter();
+    if (!auth.ok) return auth;
+    const current = await load();
+    if (!(current.rooms ?? []).some((r) => r.no === data.no)) {
+      return { ok: false, error: `Room ${data.no} does not exist.` };
+    }
+    await updateRoom(data.no, data.status, data.detail.trim() || "Ready");
+    return { ok: true };
+  });
+
+/** Settings' "Add room" form. */
+export const addRoomFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { no: string; floor: 1 | 2; type: RoomType }) => data)
+  .handler(async ({ data }): Promise<Result> => {
+    const auth = await requireRoomWriter();
+    if (!auth.ok) return auth;
+    const no = data.no.trim();
+    if (!no) return { ok: false, error: "Room number is required." };
+    const current = await load();
+    if ((current.rooms ?? []).some((r) => r.no === no)) {
+      return { ok: false, error: `Room ${no} already exists.` };
+    }
+    await insertRoom({
+      no,
+      floor: data.floor,
+      type: data.type,
+      status: "available",
+      detail: "Ready",
+    });
+    return { ok: true };
+  });
+
+/** Settings' per-room "Remove" action. */
+export const removeRoomFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { no: string }) => data)
+  .handler(async ({ data }): Promise<Result> => {
+    const auth = await requireRoomWriter();
+    if (!auth.ok) return auth;
+    await deleteRoom(data.no);
+    return { ok: true };
+  });
+
+/** Settings' per-type area/rate fields. */
+export const updateRoomTypeSettingsFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { type: RoomType; areaSqm: number; pricePerNight: number }) => data)
+  .handler(async ({ data }): Promise<Result> => {
+    const auth = await requireSettingsWriter();
+    if (!auth.ok) return auth;
+    if (data.areaSqm <= 0 || data.pricePerNight <= 0) {
+      return { ok: false, error: "Area and rate must be greater than zero." };
+    }
+    await upsertRoomTypeSettings(data.type, data.areaSqm, data.pricePerNight);
+    return { ok: true };
+  });
+
 /** Sidebar badges. Counts only — the shell has no use for the rows themselves. */
 export const sidebarCounts = createServerFn({ method: "GET" }).handler(
   async (): Promise<{ bookings: number; guests: number; rooms: number }> => {
@@ -497,7 +662,7 @@ export const sidebarCounts = createServerFn({ method: "GET" }).handler(
       bookings: data.bookings.length,
       guests: data.guests.length,
       // Off the floor board, not the booking set — see `getAvailableRoomCount`.
-      rooms: await getAvailableRoomCount(),
+      rooms: await getAvailableRoomCount(data.rooms),
     };
   },
 );
