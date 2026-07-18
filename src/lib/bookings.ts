@@ -402,6 +402,59 @@ export function createBooking(
   return { ok: true, guest, booking };
 }
 
+export interface GuestBookingLookup {
+  booking: Booking;
+  guest: Guest;
+  roomTypeName: string;
+}
+
+/**
+ * Spec 15's search: a guest proves ownership with the phone or email they
+ * booked under, not a login — same self-service model as the confirmation
+ * email/WhatsApp they already got at booking time.
+ */
+export function findGuestBooking(
+  data: BookingData,
+  bookingId: string,
+  contact: string,
+): Result<GuestBookingLookup> {
+  const booking = data.bookings.find((b) => b.id === bookingId.trim());
+  if (!booking) return { ok: false, error: "No booking found with that ID." };
+
+  const guest = data.guests.find((g) => g.id === booking.guestId);
+  const needle = contact.trim().toLowerCase();
+  const matches =
+    !!guest && (guest.phone === contact.trim() || guest.email.toLowerCase() === needle);
+  if (!matches) return { ok: false, error: "That phone or email doesn't match this booking." };
+
+  const roomTypeName = ROOM_TYPES.find((rt) => rt.type === booking.roomType)!.name;
+  return { ok: true, booking, guest: guest!, roomTypeName };
+}
+
+/** Statuses a guest can still back out of — a stay that has begun or already ended cannot be. */
+const CANCELLABLE_STATUSES = new Set<BookingStatus>(["confirmed", "pending_payment"]);
+
+/**
+ * Same ownership check as `findGuestBooking`, then flips the one field a
+ * guest is allowed to change themselves. Everything else about the booking
+ * (room, dates, revenue) is unauthorized-guest-facing read-only.
+ */
+export function cancelGuestBooking(
+  data: BookingData,
+  bookingId: string,
+  contact: string,
+): Result<{ booking: Booking }> {
+  const found = findGuestBooking(data, bookingId, contact);
+  if (!found.ok) return found;
+  if (!CANCELLABLE_STATUSES.has(found.booking.status)) {
+    return {
+      ok: false,
+      error: `This booking is already ${found.booking.status.replace("_", " ")}.`,
+    };
+  }
+  return { ok: true, booking: { ...found.booking, status: "cancelled" } };
+}
+
 /** Statuses that hold a physical room off the market. */
 const OCCUPYING_STATUSES = new Set(["confirmed", "checked_in", "pending_payment"]);
 

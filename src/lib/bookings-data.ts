@@ -19,9 +19,12 @@
 // it knows where the rows come from — which was the point of the split.
 
 import { createServerFn } from "@tanstack/react-start";
+import { eq } from "drizzle-orm";
 
 import {
+  cancelGuestBooking,
   createBooking,
+  findGuestBooking,
   getAvailableRoomCount,
   getBookingsPageData,
   getCalendarPageData,
@@ -36,6 +39,7 @@ import {
   withTier,
   withTotal,
   type BookingData,
+  type GuestBookingLookup,
   type NewBookingInput,
 } from "@/lib/bookings";
 import { fixtures } from "@/lib/__fixtures__/bookings";
@@ -237,6 +241,21 @@ async function insertBooking(guest: Guest, booking: Booking): Promise<void> {
   });
 }
 
+/**
+ * Spec 15's cancel action — the first `UPDATE` against `bookings`. Same
+ * fixtures-mutation convenience as `insertBooking` when there is no database.
+ */
+async function updateBookingStatus(bookingId: string, status: BookingStatus): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    const booking = fixtures.bookings.find((b) => b.id === bookingId);
+    if (booking) booking.status = status;
+    return;
+  }
+  await conn.update(schema.bookings).set({ status }).where(eq(schema.bookings.id, bookingId));
+}
+
 function noDbInsert(): void {
   if (missingDbInProduction()) {
     throw new Error(
@@ -290,6 +309,30 @@ export const createGuestBookingFn = createServerFn({ method: "POST" })
 
     await insertBooking(res.guest, res.booking);
     return { ok: true, booking: res.booking };
+  });
+
+/**
+ * The public `/booking-lookup` search (spec 15): a booking ID plus the phone
+ * or email it was booked under, no login. Shares `findGuestBooking`'s
+ * ownership check with the cancel path below.
+ */
+export const lookupGuestBookingFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { bookingId: string; contact: string }) => data)
+  .handler(async ({ data }): Promise<Result<GuestBookingLookup>> => {
+    const current = await load();
+    return findGuestBooking(current, data.bookingId, data.contact);
+  });
+
+/** The lookup result's "Cancel booking" action. Same ownership check, then one write. */
+export const cancelGuestBookingFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { bookingId: string; contact: string }) => data)
+  .handler(async ({ data }): Promise<Result<{ booking: Booking }>> => {
+    const current = await load();
+    const res = cancelGuestBooking(current, data.bookingId, data.contact);
+    if (!res.ok) return res;
+
+    await updateBookingStatus(res.booking.id, "cancelled");
+    return res;
   });
 
 export const dashboardPage = createServerFn({ method: "GET" }).handler(

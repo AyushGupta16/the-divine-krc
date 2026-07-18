@@ -57,7 +57,13 @@ export function Nav({ alwaysSolid = false }: { alwaysSolid?: boolean } = {}) {
           ))}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-5">
+          <a
+            href="/booking-lookup"
+            className="hidden md:inline-flex items-center text-[11px] uppercase tracking-[0.2em] text-ivory/70 hover:text-gold transition-colors"
+          >
+            Manage Booking
+          </a>
           <a
             href="/book"
             className="hidden md:inline-flex items-center text-[11px] uppercase tracking-[0.22em] text-obsidian bg-gold hover:bg-gold-soft transition-colors px-5 py-2.5 font-semibold"
@@ -77,7 +83,7 @@ export function Nav({ alwaysSolid = false }: { alwaysSolid?: boolean } = {}) {
       {/* Mobile menu */}
       <div
         className={`md:hidden overflow-hidden transition-all duration-500 bg-obsidian border-t border-gold/10 ${
-          open ? "max-h-96" : "max-h-0"
+          open ? "max-h-[28rem]" : "max-h-0"
         }`}
       >
         <div className="px-6 py-6 flex flex-col gap-4">
@@ -97,6 +103,13 @@ export function Nav({ alwaysSolid = false }: { alwaysSolid?: boolean } = {}) {
             className="mt-2 inline-flex justify-center bg-gold text-obsidian text-[11px] uppercase tracking-[0.22em] py-3 font-semibold"
           >
             Book Direct
+          </a>
+          <a
+            href="/booking-lookup"
+            onClick={() => setOpen(false)}
+            className="inline-flex justify-center border border-gold/30 text-gold text-[11px] uppercase tracking-[0.22em] py-3 font-semibold"
+          >
+            Manage Booking
           </a>
         </div>
       </div>

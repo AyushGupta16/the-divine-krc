@@ -108,6 +108,9 @@ export function Footer() {
             <a href="#" className="hover:text-gold transition-colors">
               Best Rate Guarantee
             </a>
+            <Link to="/booking-lookup" className="hover:text-gold transition-colors">
+              Manage Booking
+            </Link>
             <Link to="/admin/login" className="hover:text-gold transition-colors">
               Staff Login
             </Link>
