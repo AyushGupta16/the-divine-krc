@@ -1,6 +1,7 @@
 import { createFileRoute, Outlet, useRouterState } from "@tanstack/react-router";
 import { requireAuth } from "@/lib/auth";
 import { sidebarCounts } from "@/lib/bookings-data";
+import { notificationsFn } from "@/lib/notifications-data";
 import { AdminShell } from "@/components/admin/AdminShell";
 
 // Public auth pages live under /admin but must NOT be gated (guarding them
@@ -27,11 +28,15 @@ export const Route = createFileRoute("/admin")({
     return { adminUser };
   },
   loader: async ({ context }) => {
-    // Only the gated console needs the sidebar badge counts.
+    // Only the gated console needs the sidebar badge counts or notifications.
     if (!context.adminUser) {
-      return { counts: { bookings: 0, guests: 0, rooms: 0 } };
+      return {
+        counts: { bookings: 0, guests: 0, rooms: 0 },
+        notifications: { groups: [], unread: 0 },
+      };
     }
-    return { counts: await sidebarCounts() };
+    const [counts, notifications] = await Promise.all([sidebarCounts(), notificationsFn()]);
+    return { counts, notifications };
   },
   component: AdminLayout,
 });
@@ -39,12 +44,12 @@ export const Route = createFileRoute("/admin")({
 function AdminLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { adminUser } = Route.useRouteContext();
-  const { counts } = Route.useLoaderData();
+  const { counts, notifications } = Route.useLoaderData();
 
   // Auth pages bring their own full-screen chrome (AuthLayout).
   if (PUBLIC_ADMIN_PATHS.has(normalize(pathname))) {
     return <Outlet />;
   }
 
-  return <AdminShell user={adminUser} counts={counts} />;
+  return <AdminShell user={adminUser} counts={counts} notifications={notifications} />;
 }

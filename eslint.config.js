@@ -77,6 +77,7 @@ export default tseslint.config(
     files: [
       "src/lib/**/*.test.ts",
       "src/lib/bookings-data.ts",
+      "src/lib/notifications-data.ts",
       "src/lib/invites.ts",
       "src/lib/auth.ts",
       "src/lib/db.ts",
