@@ -342,9 +342,16 @@ function HeaderActions({
   );
 }
 
-const SEARCH_SHORTCUTS: NavItem[] = ADMIN_NAV.flatMap((g) => g.items);
+/** Keyword shortcuts, not raw nav labels — what a front-desk staffer would actually type. */
+const SEARCH_SHORTCUTS: { label: string; to: string }[] = [
+  { label: "Today's check-ins", to: "/admin/bookings" },
+  { label: "Pending payments", to: "/admin/payments" },
+  { label: "Guest directory", to: "/admin/guests" },
+  { label: "Vacant rooms", to: "/admin/rooms" },
+  { label: "Party hall", to: "/admin/party-hall" },
+];
 
-/** Full-screen overlay opened from the header's search icon on mobile. */
+/** Search popover opened from the header's search icon — covers the content area only, not the sidebar. */
 function SearchOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [query, setQuery] = useState("");
 
@@ -355,7 +362,7 @@ function SearchOverlay({ open, onClose }: { open: boolean; onClose: () => void }
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[60]">
+    <div className="fixed inset-y-0 right-0 left-0 z-60 md:left-(--rail-w)">
       <div
         className="absolute inset-0 bg-obsidian/40 backdrop-blur-md"
         onClick={onClose}
@@ -368,7 +375,7 @@ function SearchOverlay({ open, onClose }: { open: boolean; onClose: () => void }
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search bookings, guests…"
+          placeholder="Search bookings, guests, rooms…"
           className="min-w-0 flex-1 bg-transparent text-[15px] text-obsidian outline-none placeholder:text-warm-gray/60"
         />
         <button
@@ -384,21 +391,17 @@ function SearchOverlay({ open, onClose }: { open: boolean; onClose: () => void }
         <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[#a49d8d]">
           Quick access
         </p>
-        <div className="flex flex-wrap gap-2">
-          {SEARCH_SHORTCUTS.map((item) => {
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.to}
-                to={item.to}
-                onClick={onClose}
-                className="inline-flex items-center gap-1.75 rounded-full border border-[#eae4d6] bg-white px-3.5 py-2 text-[12px] font-semibold text-warm-gray transition-colors hover:border-gold/50 hover:text-obsidian"
-              >
-                <Icon className="size-3.75" />
-                {item.label}
-              </Link>
-            );
-          })}
+        <div className="flex flex-wrap gap-2 md:justify-center">
+          {SEARCH_SHORTCUTS.map((item) => (
+            <Link
+              key={item.to}
+              to={item.to}
+              onClick={onClose}
+              className="inline-flex items-center rounded-full border border-[#eae4d6] bg-white px-3.5 py-2 text-[12px] font-semibold text-warm-gray transition-colors hover:border-gold/50 hover:text-obsidian"
+            >
+              {item.label}
+            </Link>
+          ))}
         </div>
       </div>
     </div>
