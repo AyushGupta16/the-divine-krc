@@ -18,7 +18,7 @@ export function FinalCTA() {
           </p>
           <div className="flex flex-wrap items-center justify-center gap-4 pt-4">
             <a
-              href="#book"
+              href="/book"
               className="inline-flex items-center bg-obsidian text-gold text-[11px] uppercase tracking-[0.25em] px-9 py-5 font-semibold hover:bg-obsidian/90 transition-colors"
             >
               Reserve Your Stay

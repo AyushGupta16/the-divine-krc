@@ -35,7 +35,7 @@ export function Hero() {
           </p>
           <div className="flex flex-wrap items-center gap-5 pt-2">
             <a
-              href="#book"
+              href="/book"
               className="inline-flex items-center bg-gold text-obsidian text-[11px] uppercase tracking-[0.25em] px-7 py-4 font-semibold hover:bg-gold-soft transition-colors"
             >
               Reserve Your Stay
