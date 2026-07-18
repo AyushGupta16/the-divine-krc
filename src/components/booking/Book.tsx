@@ -6,7 +6,8 @@
 // confirmation screen, as `schema.ts` already documents that split.
 
 import { useState } from "react";
-import { Check, Loader2, Minus, Plus } from "lucide-react";
+import { format, parseISO, addDays } from "date-fns";
+import { Check, Loader2 } from "lucide-react";
 
 import type { PayMethod, RoomType } from "@/types/booking";
 import { GST_PCT, ROOM_TYPES } from "@/lib/bookings";
@@ -14,7 +15,18 @@ import { computeTotalBill, formatINR, urn } from "@/lib/booking-math";
 import { createGuestBookingFn } from "@/lib/bookings-data";
 import type { Booking } from "@/types/booking";
 import { Nav } from "@/components/home/Nav";
+import { CounterField } from "@/components/home/CounterField";
+import { TIME_SLOTS, formatTimeLabel } from "@/lib/time-slots";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 import roomDeluxe from "@/assets/room-deluxe.jpg";
 import roomBalcony from "@/assets/room-balcony.jpg";
 
@@ -51,8 +63,7 @@ const EMPTY_GUEST = {
 export function Book() {
   const [step, setStep] = useState(0);
   const [roomType, setRoomType] = useState<RoomType | null>(null);
-  const [guests, setGuests] = useState("2");
-  const [rooms, setRooms] = useState("1");
+  const [guests, setGuests] = useState(2);
   const [checkIn, setCheckIn] = useState(todayIso());
   const [checkOut, setCheckOut] = useState(tomorrowIso());
   const [guest, setGuest] = useState(EMPTY_GUEST);
@@ -83,8 +94,7 @@ export function Book() {
   function restart() {
     setStep(0);
     setRoomType(null);
-    setGuests("2");
-    setRooms("1");
+    setGuests(2);
     setGuest(EMPTY_GUEST);
     setPayMethod("razorpay");
     setBooking(null);
@@ -128,8 +138,6 @@ export function Book() {
           <RoomsStep
             guests={guests}
             setGuests={setGuests}
-            rooms={rooms}
-            setRooms={setRooms}
             checkIn={checkIn}
             setCheckIn={setCheckIn}
             checkOut={checkOut}
@@ -225,8 +233,6 @@ function StepRail({ step }: { step: number }) {
 function RoomsStep({
   guests,
   setGuests,
-  rooms,
-  setRooms,
   checkIn,
   setCheckIn,
   checkOut,
@@ -234,10 +240,8 @@ function RoomsStep({
   nights,
   onSelect,
 }: {
-  guests: string;
-  setGuests: (v: string) => void;
-  rooms: string;
-  setRooms: (v: string) => void;
+  guests: number;
+  setGuests: (n: number) => void;
   checkIn: string;
   setCheckIn: (v: string) => void;
   checkOut: string;
@@ -245,63 +249,125 @@ function RoomsStep({
   nights: number;
   onSelect: (type: RoomType) => void;
 }) {
+  const [arrivalTime, setArrivalTime] = useState("14:00");
+  const [departureTime, setDepartureTime] = useState("11:00");
+  const [arrivalOpen, setArrivalOpen] = useState(false);
+  const [departureOpen, setDepartureOpen] = useState(false);
+
+  const arrivalDate = parseISO(checkIn);
+  const departureDate = parseISO(checkOut);
+
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10">
-      <div className="mb-8 grid grid-cols-1 gap-4 rounded-[6px] border border-gold/15 bg-white p-5 sm:grid-cols-4">
-        <div>
-          <label className={LABEL} htmlFor="gb-checkin">
-            Arrival
-          </label>
-          <Input
-            id="gb-checkin"
-            type="date"
-            className={FIELD}
-            value={checkIn}
-            onChange={(e) => setCheckIn(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className={LABEL} htmlFor="gb-checkout">
-            Departure
-          </label>
-          <Input
-            id="gb-checkout"
-            type="date"
-            className={FIELD}
-            value={checkOut}
-            onChange={(e) => setCheckOut(e.target.value)}
-          />
-        </div>
-        <div>
-          <span className={LABEL}>Guests</span>
-          <Counter
-            value={guests}
-            onChange={setGuests}
-            min={1}
-            max={4}
-            label="guests"
-            unitLabel={(n) => `${n} guest${n === 1 ? "" : "s"}`}
-          />
-        </div>
-        <div>
-          <span className={LABEL}>Rooms</span>
-          <Counter
-            value={rooms}
-            onChange={setRooms}
-            min={1}
-            max={3}
-            label="rooms"
-            unitLabel={(n) => `${n} room${n === 1 ? "" : "s"}`}
-          />
+    <div className="mx-auto max-w-6xl px-6 py-10">
+      <div className="mb-8 rounded-sm border border-gold/20 bg-ivory shadow-[0_30px_60px_-25px_rgba(10,10,10,0.25)]">
+        <div className="grid grid-cols-2 divide-y divide-stone-200 md:grid-cols-4 md:divide-x md:divide-y-0">
+          <div className="px-5 py-5 md:px-7 md:py-6">
+            <div className="mb-2 text-[9px] font-semibold uppercase tracking-[0.28em] text-warm-gray/70">
+              Arrival
+            </div>
+            <Popover open={arrivalOpen} onOpenChange={setArrivalOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="text-left font-display text-lg text-obsidian transition-colors hover:text-gold md:text-xl"
+                >
+                  {format(arrivalDate, "EEE, dd MMM")}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={arrivalDate}
+                  onSelect={(d) => {
+                    if (!d) return;
+                    setCheckIn(format(d, "yyyy-MM-dd"));
+                    setArrivalOpen(false);
+                    if (d >= departureDate) setCheckOut(format(addDays(d, 2), "yyyy-MM-dd"));
+                  }}
+                  disabled={{ before: new Date() }}
+                />
+              </PopoverContent>
+            </Popover>
+            <Select value={arrivalTime} onValueChange={setArrivalTime}>
+              <SelectTrigger className="mt-1 h-auto w-fit gap-1 border-none bg-transparent p-0 text-[11px] text-warm-gray/70 shadow-none focus:ring-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TIME_SLOTS.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {formatTimeLabel(t)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="px-5 py-5 md:px-7 md:py-6">
+            <div className="mb-2 text-[9px] font-semibold uppercase tracking-[0.28em] text-warm-gray/70">
+              Departure
+            </div>
+            <Popover open={departureOpen} onOpenChange={setDepartureOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="text-left font-display text-lg text-obsidian transition-colors hover:text-gold md:text-xl"
+                >
+                  {format(departureDate, "EEE, dd MMM")}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={departureDate}
+                  onSelect={(d) => {
+                    if (!d) return;
+                    setCheckOut(format(d, "yyyy-MM-dd"));
+                    setDepartureOpen(false);
+                  }}
+                  disabled={{ before: arrivalDate }}
+                />
+              </PopoverContent>
+            </Popover>
+            <Select value={departureTime} onValueChange={setDepartureTime}>
+              <SelectTrigger className="mt-1 h-auto w-fit gap-1 border-none bg-transparent p-0 text-[11px] text-warm-gray/70 shadow-none focus:ring-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TIME_SLOTS.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {formatTimeLabel(t)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="px-5 py-5 md:px-7 md:py-6">
+            <div className="mb-2 text-[9px] font-semibold uppercase tracking-[0.28em] text-warm-gray/70">
+              Guests
+            </div>
+            <CounterField
+              value={guests}
+              onChange={setGuests}
+              min={1}
+              max={6}
+              label="Guests"
+              unitLabel={(n) => `${n} ${n === 1 ? "Adult" : "Adults"}`}
+            />
+          </div>
+
+          <div className="px-5 py-5 md:px-7 md:py-6">
+            <div className="mb-2 text-[9px] font-semibold uppercase tracking-[0.28em] text-warm-gray/70">
+              Nights
+            </div>
+            <p className="font-display text-lg text-obsidian md:text-xl">
+              {nights > 0 ? `${nights} night${nights === 1 ? "" : "s"}` : "—"}
+            </p>
+          </div>
         </div>
       </div>
 
-      <div className="mb-4 flex items-center justify-between">
-        <p className="text-xs uppercase tracking-[0.18em] text-gold">Available for your dates</p>
-        <p className="text-[12.5px] text-warm-gray">
-          {nights > 0 ? `${nights} night${nights === 1 ? "" : "s"}` : "Choose your dates"}
-        </p>
-      </div>
+      <p className="mb-4 text-xs uppercase tracking-[0.18em] text-gold">Available for your dates</p>
 
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
         {ROOM_TYPES.map((rt) => (
@@ -338,53 +404,6 @@ function RoomsStep({
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-function Counter({
-  value,
-  onChange,
-  min,
-  max,
-  label,
-  unitLabel,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  min: number;
-  max: number;
-  label: string;
-  unitLabel: (n: number) => string;
-}) {
-  const n = Number(value);
-
-  function step(delta: number) {
-    const next = Math.min(max, Math.max(min, n + delta));
-    onChange(String(next));
-  }
-
-  return (
-    <div className={`${FIELD} flex items-center justify-between`}>
-      <button
-        type="button"
-        onClick={() => step(-1)}
-        disabled={n <= min}
-        aria-label={`Fewer ${label}`}
-        className="flex size-6 items-center justify-center rounded-full border border-[#e5ddcb] text-obsidian disabled:opacity-30"
-      >
-        <Minus className="size-3" />
-      </button>
-      <span className="text-[13.5px] text-obsidian">{unitLabel(n)}</span>
-      <button
-        type="button"
-        onClick={() => step(1)}
-        disabled={n >= max}
-        aria-label={`More ${label}`}
-        className="flex size-6 items-center justify-center rounded-full border border-[#e5ddcb] text-obsidian disabled:opacity-30"
-      >
-        <Plus className="size-3" />
-      </button>
     </div>
   );
 }
@@ -674,7 +693,7 @@ function ConfirmedStep({
   roomName: string;
   checkIn: string;
   checkOut: string;
-  guests: string;
+  guests: number;
   payMethod: PayMethod;
   total: number;
   onRestart: () => void;
@@ -692,7 +711,7 @@ function ConfirmedStep({
         <dl className="flex flex-col gap-2.5 px-5 py-4 text-[13px]">
           <Row label="Room" value={roomName} />
           <Row label="Dates" value={`${checkIn} → ${checkOut}`} />
-          <Row label="Guests" value={guests} />
+          <Row label="Guests" value={`${guests} ${guests === 1 ? "Adult" : "Adults"}`} />
           <Row
             label="Payment"
             value={payMethod === "razorpay" ? "Pending — pay online" : "Pay at hotel"}

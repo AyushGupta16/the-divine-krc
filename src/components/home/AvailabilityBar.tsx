@@ -9,34 +9,8 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
-
-const TIME_SLOTS = [
-  "06:00",
-  "07:00",
-  "08:00",
-  "09:00",
-  "10:00",
-  "11:00",
-  "12:00",
-  "13:00",
-  "14:00",
-  "15:00",
-  "16:00",
-  "17:00",
-  "18:00",
-  "19:00",
-  "20:00",
-  "21:00",
-  "22:00",
-];
-
-function formatTimeLabel(t: string) {
-  const [h, m] = t.split(":").map(Number);
-  return format(new Date(2000, 0, 1, h, m), "h:mm a");
-}
-
-const GUEST_OPTIONS = [1, 2, 3, 4, 5, 6];
-const ROOM_OPTIONS = [1, 2, 3, 4];
+import { CounterField } from "@/components/home/CounterField";
+import { TIME_SLOTS, formatTimeLabel } from "@/lib/time-slots";
 
 function buildAvailabilityMessage({
   arrivalDate,
@@ -50,13 +24,13 @@ function buildAvailabilityMessage({
   arrivalTime: string;
   departureDate: Date;
   departureTime: string;
-  guests: string;
-  rooms: string;
+  guests: number;
+  rooms: number;
 }) {
   const arrival = `${format(arrivalDate, "EEE, dd MMM")} at ${formatTimeLabel(arrivalTime)}`;
   const departure = `${format(departureDate, "EEE, dd MMM")} at ${formatTimeLabel(departureTime)}`;
-  const guestLabel = `${guests} ${Number(guests) === 1 ? "Adult" : "Adults"}`;
-  const roomLabel = `${rooms} ${Number(rooms) === 1 ? "Room" : "Rooms"}`;
+  const guestLabel = `${guests} ${guests === 1 ? "Adult" : "Adults"}`;
+  const roomLabel = `${rooms} ${rooms === 1 ? "Room" : "Rooms"}`;
   return `Hi Divine KRC, I'd like to check availability: Arrival ${arrival}, Departure ${departure}, ${guestLabel}, ${roomLabel}.`;
 }
 
@@ -65,8 +39,8 @@ export function AvailabilityBar() {
   const [arrivalTime, setArrivalTime] = useState("14:00");
   const [departureDate, setDepartureDate] = useState(() => addDays(new Date(), 2));
   const [departureTime, setDepartureTime] = useState("11:00");
-  const [guests, setGuests] = useState("2");
-  const [rooms, setRooms] = useState("1");
+  const [guests, setGuests] = useState(2);
+  const [rooms, setRooms] = useState(1);
   const [arrivalOpen, setArrivalOpen] = useState(false);
   const [departureOpen, setDepartureOpen] = useState(false);
 
@@ -169,36 +143,28 @@ export function AvailabilityBar() {
             <div className="text-[9px] uppercase tracking-[0.28em] text-warm-gray/70 font-semibold mb-2">
               Guests
             </div>
-            <Select value={guests} onValueChange={setGuests}>
-              <SelectTrigger className="h-auto w-full gap-1 border-none bg-transparent p-0 font-display text-lg text-obsidian shadow-none hover:text-gold transition-colors focus:ring-0 md:text-xl">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {GUEST_OPTIONS.map((n) => (
-                  <SelectItem key={n} value={String(n)}>
-                    {n} {n === 1 ? "Adult" : "Adults"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <CounterField
+              value={guests}
+              onChange={setGuests}
+              min={1}
+              max={6}
+              label="Guests"
+              unitLabel={(n) => `${n} ${n === 1 ? "Adult" : "Adults"}`}
+            />
           </div>
 
           <div className="px-5 py-5 md:px-7 md:py-6">
             <div className="text-[9px] uppercase tracking-[0.28em] text-warm-gray/70 font-semibold mb-2">
               Rooms
             </div>
-            <Select value={rooms} onValueChange={setRooms}>
-              <SelectTrigger className="h-auto w-full gap-1 border-none bg-transparent p-0 font-display text-lg text-obsidian shadow-none hover:text-gold transition-colors focus:ring-0 md:text-xl">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {ROOM_OPTIONS.map((n) => (
-                  <SelectItem key={n} value={String(n)}>
-                    {n} {n === 1 ? "Room" : "Rooms"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <CounterField
+              value={rooms}
+              onChange={setRooms}
+              min={1}
+              max={4}
+              label="Rooms"
+              unitLabel={(n) => `${n} ${n === 1 ? "Room" : "Rooms"}`}
+            />
           </div>
 
           <a
