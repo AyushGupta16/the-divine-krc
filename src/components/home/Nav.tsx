@@ -3,16 +3,23 @@ import logo from "@/assets/krc-logo.jpg";
 
 const links = ["Rooms", "Events", "Dining", "Amenities", "Gallery", "Contact"];
 
-export function Nav() {
-  const [scrolled, setScrolled] = useState(false);
+/**
+ * `alwaysSolid` skips the transparent-over-hero gradient for pages with no
+ * hero image behind the nav (the booking flow's ivory background would
+ * otherwise show through the gradient as a near-white bar until the guest
+ * scrolls past 24px).
+ */
+export function Nav({ alwaysSolid = false }: { alwaysSolid?: boolean } = {}) {
+  const [scrolled, setScrolled] = useState(alwaysSolid);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
+    if (alwaysSolid) return;
     const onScroll = () => setScrolled(window.scrollY > 24);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+  }, [alwaysSolid]);
 
   return (
     <nav

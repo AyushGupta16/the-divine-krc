@@ -16,7 +16,7 @@
 
 import { useState } from "react";
 import { format, parseISO, addDays } from "date-fns";
-import { Check, Home, Loader2, Lock, Zap } from "lucide-react";
+import { Check, Home, Info, Loader2, Lock, Zap } from "lucide-react";
 
 import type { PayMethod, RoomType } from "@/types/booking";
 import { GST_PCT, ROOM_TYPES } from "@/lib/bookings";
@@ -86,6 +86,7 @@ export function Book() {
   const [guests, setGuests] = useState(2);
   const [checkIn, setCheckIn] = useState(todayIso());
   const [checkOut, setCheckOut] = useState(tomorrowIso());
+  const [arrivalTime, setArrivalTime] = useState("14:00");
   const [guest, setGuest] = useState(EMPTY_GUEST);
   const [payMethod, setPayMethod] = useState<PayMethod>("razorpay");
   const [bookings, setBookings] = useState<Booking[] | null>(null);
@@ -164,7 +165,7 @@ export function Book() {
 
   return (
     <div className="min-h-screen bg-ivory">
-      <Nav />
+      <Nav alwaysSolid />
       <div className="pt-[74px]">
         {step < 3 && <StepRail step={step} />}
 
@@ -176,6 +177,8 @@ export function Book() {
             setCheckIn={setCheckIn}
             checkOut={checkOut}
             setCheckOut={setCheckOut}
+            arrivalTime={arrivalTime}
+            setArrivalTime={setArrivalTime}
             nights={nights}
             cart={cart}
             setQty={setQty}
@@ -206,6 +209,7 @@ export function Book() {
             cartLines={cartLines}
             checkIn={checkIn}
             checkOut={checkOut}
+            arrivalTime={arrivalTime}
             nights={nights}
             subtotal={subtotal}
             total={total}
@@ -274,6 +278,8 @@ function RoomsStep({
   setCheckIn,
   checkOut,
   setCheckOut,
+  arrivalTime,
+  setArrivalTime,
   nights,
   cart,
   setQty,
@@ -286,13 +292,14 @@ function RoomsStep({
   setCheckIn: (v: string) => void;
   checkOut: string;
   setCheckOut: (v: string) => void;
+  arrivalTime: string;
+  setArrivalTime: (v: string) => void;
   nights: number;
   cart: Record<RoomType, number>;
   setQty: (type: RoomType, qty: number) => void;
   roomCount: number;
   onContinue: () => void;
 }) {
-  const [arrivalTime, setArrivalTime] = useState("14:00");
   const [departureTime, setDepartureTime] = useState("11:00");
   const [arrivalOpen, setArrivalOpen] = useState(false);
   const [departureOpen, setDepartureOpen] = useState(false);
@@ -694,6 +701,7 @@ function PaymentStep({
   cartLines,
   checkIn,
   checkOut,
+  arrivalTime,
   nights,
   subtotal,
   total,
@@ -707,6 +715,7 @@ function PaymentStep({
   cartLines: CartLine[];
   checkIn: string;
   checkOut: string;
+  arrivalTime: string;
   nights: number;
   subtotal: number;
   total: number;
@@ -775,8 +784,16 @@ function PaymentStep({
             </div>
           </div>
         ) : (
-          <div className="mt-5 rounded-[6px] border border-gold/15 bg-white p-4 text-[12.5px] text-warm-gray">
-            <p>Your rooms are held; settle the full amount at check-in.</p>
+          <div className="mt-5 flex items-start gap-3 rounded-[6px] border border-gold/25 bg-gold/10 p-4 text-[13px] text-obsidian">
+            <Info className="mt-0.5 size-4 shrink-0 text-gold" />
+            <p>
+              Reserve now and pay the full amount at the front desk on arrival. We hold your room
+              until{" "}
+              <span className="font-semibold">
+                {formatTimeLabel(arrivalTime)} on {format(parseISO(checkIn), "d MMM")}
+              </span>
+              . A valid ID is required at check-in.
+            </p>
           </div>
         )}
 
