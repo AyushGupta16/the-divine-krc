@@ -1,9 +1,8 @@
 // The public 4-step booking flow (spec 14): Rooms -> Details -> Payment -> Confirmed.
 // Mirrors `Guest Booking.dc.html`. Totals reuse the same pure helpers the admin
 // console's manual-entry drawer uses, so a guest sees the number that actually
-// gets persisted. Payment is UI-only — no Razorpay SDK — real gateway wiring is
-// spec #16; selecting it here just records the guest's preference for the
-// confirmation screen, as `schema.ts` already documents that split.
+// gets persisted. Payment step opens real Razorpay Checkout (spec #16) — see
+// `lib/razorpay.ts` and `createRazorpayOrderFn`/`verifyRazorpayPaymentFn`.
 //
 // A guest picks a *quantity per room type* rather than one room per pass, so a
 // family needing two Deluxe rooms and one Balcony room books and pays once.
@@ -60,7 +59,7 @@ interface RazorpayOptions {
   order_id: string;
   name: string;
   description?: string;
-  prefill?: { name?: string; email?: string; contact?: string };
+  prefill?: { name?: string; email?: string; contact?: string; method?: CheckoutMethod };
   theme?: { color?: string };
   handler: (response: RazorpayResponse) => void;
   modal?: { ondismiss?: () => void };
@@ -70,6 +69,15 @@ declare global {
     Razorpay?: new (options: RazorpayOptions) => { open: () => void };
   }
 }
+
+/** Razorpay's own `prefill.method` values — jumps Checkout straight to that tab. */
+type CheckoutMethod = "upi" | "card" | "netbanking" | "wallet";
+const CHECKOUT_METHODS: { key: CheckoutMethod; label: string }[] = [
+  { key: "upi", label: "UPI" },
+  { key: "card", label: "Cards" },
+  { key: "netbanking", label: "Net Banking" },
+  { key: "wallet", label: "Wallets" },
+];
 
 let checkoutScript: Promise<void> | null = null;
 function loadRazorpayCheckout(): Promise<void> {
@@ -132,6 +140,7 @@ export function Book() {
   const [arrivalTime, setArrivalTime] = useState("14:00");
   const [guest, setGuest] = useState(EMPTY_GUEST);
   const [payMethod, setPayMethod] = useState<PayMethod>("razorpay");
+  const [checkoutMethod, setCheckoutMethod] = useState<CheckoutMethod | null>(null);
   const [bookings, setBookings] = useState<Booking[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -167,6 +176,7 @@ export function Book() {
     setGuests(2);
     setGuest(EMPTY_GUEST);
     setPayMethod("razorpay");
+    setCheckoutMethod(null);
     setBookings(null);
     setError(null);
   }
@@ -233,7 +243,12 @@ export function Book() {
       order_id: orderRes.orderId,
       name: "The Divine KRC",
       description: `${created.length} room${created.length > 1 ? "s" : ""} · ${nights} night${nights > 1 ? "s" : ""}`,
-      prefill: { name: guestName, email: guest.email, contact: guest.phone },
+      prefill: {
+        name: guestName,
+        email: guest.email,
+        contact: guest.phone,
+        ...(checkoutMethod ? { method: checkoutMethod } : {}),
+      },
       theme: { color: "#c5a059" },
       handler: (response) => {
         void (async () => {
@@ -302,6 +317,8 @@ export function Book() {
           <PaymentStep
             payMethod={payMethod}
             setPayMethod={setPayMethod}
+            checkoutMethod={checkoutMethod}
+            setCheckoutMethod={setCheckoutMethod}
             cartLines={cartLines}
             checkIn={checkIn}
             checkOut={checkOut}
@@ -794,6 +811,8 @@ function DetailsStep({
 function PaymentStep({
   payMethod,
   setPayMethod,
+  checkoutMethod,
+  setCheckoutMethod,
   cartLines,
   checkIn,
   checkOut,
@@ -808,6 +827,8 @@ function PaymentStep({
 }: {
   payMethod: PayMethod;
   setPayMethod: (v: PayMethod) => void;
+  checkoutMethod: CheckoutMethod | null;
+  setCheckoutMethod: (v: CheckoutMethod | null) => void;
   cartLines: CartLine[];
   checkIn: string;
   checkOut: string;
@@ -866,15 +887,22 @@ function PaymentStep({
               </span>
             </div>
             <div className="bg-white p-4 text-[12.5px] text-warm-gray">
-              <p>Continue to Razorpay to complete payment. Choose from:</p>
+              <p>Jump straight to a payment method, or leave unselected to choose in Razorpay:</p>
               <div className="mt-3 flex flex-wrap gap-2">
-                {["UPI", "Cards", "Net Banking", "Wallets"].map((m) => (
-                  <span
-                    key={m}
-                    className="rounded-full border border-gold/25 px-3 py-1 text-[11px] text-obsidian"
+                {CHECKOUT_METHODS.map((m) => (
+                  <button
+                    key={m.key}
+                    type="button"
+                    onClick={() => setCheckoutMethod(checkoutMethod === m.key ? null : m.key)}
+                    aria-pressed={checkoutMethod === m.key}
+                    className={`rounded-full border px-3 py-1 text-[11px] transition-colors ${
+                      checkoutMethod === m.key
+                        ? "border-gold bg-gold text-obsidian font-semibold"
+                        : "border-gold/25 text-obsidian hover:border-gold/50"
+                    }`}
                   >
-                    {m}
-                  </span>
+                    {m.label}
+                  </button>
                 ))}
               </div>
             </div>
