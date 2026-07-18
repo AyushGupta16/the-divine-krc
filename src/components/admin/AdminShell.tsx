@@ -355,8 +355,13 @@ function SearchOverlay({ open, onClose }: { open: boolean; onClose: () => void }
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col bg-ivory">
-      <div className="flex h-16 items-center gap-3 border-b border-[#eae4d6] px-4 sm:px-6">
+    <div className="fixed inset-0 z-[60]">
+      <div
+        className="absolute inset-0 bg-obsidian/40 backdrop-blur-md"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div className="relative flex h-16 items-center gap-3 border-b border-[#eae4d6] bg-white px-4 sm:px-6">
         <Search className="size-4.5 shrink-0 text-warm-gray" />
         <input
           autoFocus
@@ -375,21 +380,26 @@ function SearchOverlay({ open, onClose }: { open: boolean; onClose: () => void }
           <X className="size-5" />
         </button>
       </div>
-      <div className="flex flex-wrap gap-2 px-4 py-5 sm:px-6">
-        {SEARCH_SHORTCUTS.map((item) => {
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.to}
-              to={item.to}
-              onClick={onClose}
-              className="inline-flex items-center gap-1.75 rounded-full border border-[#eae4d6] bg-white px-3.5 py-2 text-[12px] font-semibold text-warm-gray transition-colors hover:border-gold/50 hover:text-obsidian"
-            >
-              <Icon className="size-3.75" />
-              {item.label}
-            </Link>
-          );
-        })}
+      <div className="relative mx-4 mt-4 max-w-xl rounded-lg border border-[#eae4d6] bg-white p-5 shadow-2xl sm:mx-6">
+        <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[#a49d8d]">
+          Quick access
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {SEARCH_SHORTCUTS.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.to}
+                to={item.to}
+                onClick={onClose}
+                className="inline-flex items-center gap-1.75 rounded-full border border-[#eae4d6] bg-white px-3.5 py-2 text-[12px] font-semibold text-warm-gray transition-colors hover:border-gold/50 hover:text-obsidian"
+              >
+                <Icon className="size-3.75" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
