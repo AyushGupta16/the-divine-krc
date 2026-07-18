@@ -92,6 +92,13 @@ export const partyHallEnquiries = pgTable("party_hall_enquiries", {
   /** Quoted total in rupees; 0 until quoted, which the screen renders "₹—". */
   amount: integer("amount").notNull().default(0),
   // advancePaid: derived from amount + status. See rule 1.
+
+  /** Who to bill — enquiries don't carry a guest row, so this is the only
+   *  identity captured. Null until the invoice feature needs one and someone
+   *  fills it in from the Party Hall screen. */
+  contactName: text("contact_name"),
+  contactPhone: text("contact_phone"),
+  contactEmail: text("contact_email"),
 });
 
 /**
@@ -146,4 +153,26 @@ export const notificationReads = pgTable("notification_reads", {
     .primaryKey()
     .references(() => team.email),
   lastReadAt: timestamp("last_read_at", { withTimezone: true }),
+});
+
+/**
+ * Issued invoices/receipts (design_handoff_krc_invoices). One row per invoice
+ * number — numbers are sequential and immutable once issued, so this table
+ * exists purely to make "the same reservation always gets the same invoice
+ * number" true across repeat downloads, not to store anything derivable; the
+ * line items, totals and GST are always recomputed from `bookings` /
+ * `partyHallEnquiries` at render time (rule 1, above).
+ *
+ * `refId` is a booking id (room), a synthetic group id (`KRC-GRP-…`), or a
+ * party-hall enquiry id. There is no persisted "reservation group" entity —
+ * a group invoice is recognized by bookings sharing one guest and one stay
+ * (see `resolveInvoiceTarget` in `lib/invoices.ts`), so `bookingIds` is the
+ * only record of which rooms a given group invoice covers.
+ */
+export const invoices = pgTable("invoices", {
+  invoiceNo: text("invoice_no").primaryKey(),
+  type: text("type").notNull(),
+  refId: text("ref_id").notNull(),
+  bookingIds: jsonb("booking_ids").$type<string[]>().notNull().default([]),
+  issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
 });

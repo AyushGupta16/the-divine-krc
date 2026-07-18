@@ -141,6 +141,9 @@ function toPartyHall(r: PartyHallRow): PartyHallEnquiry {
     addOns: r.addOns,
     status: r.status as PartyHallStatus,
     amount: r.amount,
+    contactName: r.contactName ?? undefined,
+    contactPhone: r.contactPhone ?? undefined,
+    contactEmail: r.contactEmail ?? undefined,
   });
 }
 
@@ -287,6 +290,55 @@ async function updateBookingPayment(booking: Booking): Promise<void> {
     })
     .where(eq(schema.bookings.id, booking.id));
 }
+
+/**
+ * Party Hall's "Billing contact" fields — enquiries carry no guest row, so
+ * this is the only identity a party-hall invoice can bill to. Same
+ * fixtures-mutation convenience as the other row-store helpers with no
+ * database.
+ */
+async function updatePartyHallContact(
+  id: string,
+  contact: { contactName: string; contactPhone: string; contactEmail: string },
+): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    const enquiry = fixtures.partyHall.find((e) => e.id === id);
+    if (enquiry) Object.assign(enquiry, contact);
+    return;
+  }
+  await conn
+    .update(schema.partyHallEnquiries)
+    .set(contact)
+    .where(eq(schema.partyHallEnquiries.id, id));
+}
+
+async function requireSettingsWriter(): Promise<Result> {
+  const member = await getSessionMember();
+  if (!member) return { ok: false, error: "Sign in to edit this." };
+  if (!can(member.role, "settings:write")) {
+    return { ok: false, error: `A ${member.role} account cannot edit settings.` };
+  }
+  return { ok: true };
+}
+
+export const updatePartyHallContactFn = createServerFn({ method: "POST" })
+  .inputValidator(
+    (data: { id: string; contactName: string; contactPhone: string; contactEmail: string }) => data,
+  )
+  .handler(async ({ data }): Promise<Result> => {
+    const auth = await requireSettingsWriter();
+    if (!auth.ok) return auth;
+    if (!data.contactName.trim()) return { ok: false, error: "Contact name is required." };
+
+    await updatePartyHallContact(data.id, {
+      contactName: data.contactName.trim(),
+      contactPhone: data.contactPhone.trim(),
+      contactEmail: data.contactEmail.trim(),
+    });
+    return { ok: true };
+  });
 
 function noDbInsert(): void {
   if (missingDbInProduction()) {

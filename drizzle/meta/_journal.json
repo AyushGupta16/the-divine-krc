@@ -29,6 +29,13 @@
       "when": 1784370405360,
       "tag": "0003_razorpay_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784403231179,
+      "tag": "0004_party_hall_contact_and_invoices",
+      "breakpoints": true
     }
   ]
 }

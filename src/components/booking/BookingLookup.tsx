@@ -11,6 +11,7 @@ import { Home, Loader2, Zap } from "lucide-react";
 
 import { formatINR } from "@/lib/booking-math";
 import { cancelGuestBookingFn, lookupGuestBookingFn } from "@/lib/bookings-data";
+import { issueInvoiceForBookingFn } from "@/lib/invoices-data";
 import type { Booking, Guest } from "@/types/booking";
 import { Nav } from "@/components/home/Nav";
 import { Input } from "@/components/ui/input";
@@ -214,9 +215,17 @@ function ResultCard({
   const [cancelling, setCancelling] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [fetchingReceipt, setFetchingReceipt] = useState(false);
 
   const isCancellable = booking.status === "confirmed" || booking.status === "pending_payment";
   const paidOnline = booking.collection.paidToHotel > 0 || booking.collection.otaCollection > 0;
+
+  async function downloadReceipt() {
+    setFetchingReceipt(true);
+    const res = await issueInvoiceForBookingFn({ data: { bookingId: booking.id } });
+    setFetchingReceipt(false);
+    if (res.ok) window.open(`/invoice/${res.invoiceNo}`, "_blank", "noopener,noreferrer");
+  }
 
   async function cancel() {
     setCancelling(true);
@@ -332,8 +341,11 @@ function ResultCard({
         <div className="mt-5 flex flex-wrap gap-3">
           <button
             type="button"
-            className="min-w-[170px] flex-1 rounded-[4px] bg-obsidian py-3.5 text-[11px] font-bold uppercase tracking-[0.16em] text-gold"
+            disabled={fetchingReceipt}
+            onClick={downloadReceipt}
+            className="flex min-w-[170px] flex-1 items-center justify-center gap-2 rounded-[4px] bg-obsidian py-3.5 text-[11px] font-bold uppercase tracking-[0.16em] text-gold disabled:opacity-60"
           >
+            {fetchingReceipt && <Loader2 className="size-3.5 animate-spin" />}
             Download receipt
           </button>
           <a

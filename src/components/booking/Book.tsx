@@ -25,6 +25,7 @@ import {
   createRazorpayOrderFn,
   verifyRazorpayPaymentFn,
 } from "@/lib/bookings-data";
+import { issueInvoiceForBookingFn } from "@/lib/invoices-data";
 import type { Booking } from "@/types/booking";
 import { Nav } from "@/components/home/Nav";
 import { CounterField } from "@/components/home/CounterField";
@@ -994,6 +995,15 @@ function ConfirmedStep({
         ? "Paid via Razorpay"
         : "Pending — pay online"
       : "Pay at hotel · Reserved";
+  const [fetchingReceipt, setFetchingReceipt] = useState(false);
+
+  async function downloadReceipt() {
+    if (bookings.length === 0) return;
+    setFetchingReceipt(true);
+    const res = await issueInvoiceForBookingFn({ data: { bookingId: bookings[0].id } });
+    setFetchingReceipt(false);
+    if (res.ok) window.open(`/invoice/${res.invoiceNo}`, "_blank", "noopener,noreferrer");
+  }
 
   return (
     <div className="mx-auto max-w-lg px-6 py-16 text-center">
@@ -1030,9 +1040,11 @@ function ConfirmedStep({
       <div className="mt-6 flex justify-center gap-3">
         <button
           type="button"
-          onClick={() => window.print()}
-          className="rounded-[5px] bg-obsidian px-5 py-2.5 text-[11px] font-bold uppercase tracking-[0.16em] text-gold transition-opacity hover:opacity-90"
+          disabled={fetchingReceipt}
+          onClick={downloadReceipt}
+          className="flex items-center gap-2 rounded-[5px] bg-obsidian px-5 py-2.5 text-[11px] font-bold uppercase tracking-[0.16em] text-gold transition-opacity hover:opacity-90 disabled:opacity-60"
         >
+          {fetchingReceipt && <Loader2 className="size-3.5 animate-spin" />}
           Download receipt
         </button>
         <button
