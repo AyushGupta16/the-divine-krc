@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { Download, Plus, Search } from "lucide-react";
 
 import type {
@@ -225,9 +226,12 @@ export function Payments({ data }: { data: PaymentsPageData }) {
         <div className="overflow-hidden rounded-lg border border-[#eae4d6] bg-white">
           <div className="flex items-center border-b border-[#eae4d6] px-5 py-3.75">
             <span className="font-display text-[17px] font-semibold">Recent transactions</span>
-            <span className="ml-auto text-[11px] font-bold uppercase tracking-[0.14em] text-gold">
+            <Link
+              to="/admin/bookings"
+              className="ml-auto text-[11px] font-bold uppercase tracking-[0.14em] text-gold hover:text-[#a8863f]"
+            >
               View all
-            </span>
+            </Link>
           </div>
           <div className="overflow-x-auto">
             <Table>

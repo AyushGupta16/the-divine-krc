@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 
 import type {
@@ -7,6 +8,7 @@ import type {
   PartyHallPackage,
   PartyHallPageData,
   PartyHallPill,
+  PartyHallPillKey,
   PartyHallStat,
   PartyHallStatus,
 } from "@/types/booking";
@@ -213,30 +215,53 @@ function PackageReference({
 
 // ── Pills ───────────────────────────────────────────────────────────────────
 
-function FilterPills({ pills }: { pills: PartyHallPill[] }) {
+function FilterPills({
+  pills,
+  active,
+  onSelect,
+}: {
+  pills: PartyHallPill[];
+  active: PartyHallPillKey;
+  onSelect: (key: PartyHallPillKey) => void;
+}) {
   return (
     <div className="flex flex-wrap gap-1.75">
       {pills.map((pill) => (
-        <span
+        <button
           key={pill.key}
+          type="button"
+          onClick={() => onSelect(pill.key)}
           className={cn(
-            "rounded-full px-3 py-1.25 text-[11.5px] font-semibold",
-            // "All" is the active filter until the interaction pass wires these up.
-            pill.key === "all"
+            "rounded-full px-3 py-1.25 text-[11.5px] font-semibold transition-colors",
+            pill.key === active
               ? "bg-obsidian text-ivory"
-              : "border border-[#eae4d6] bg-white text-warm-gray",
+              : "border border-[#eae4d6] bg-white text-warm-gray hover:bg-black/3",
           )}
         >
           {pill.label} {pill.count}
-        </span>
+        </button>
       ))}
     </div>
   );
 }
 
+/** "new" reads as a fresh enquiry, "confirmed" covers both deposit-paid and fully confirmed. */
+function matchesPill(status: PartyHallStatus, key: PartyHallPillKey): boolean {
+  if (key === "all") return true;
+  if (key === "new") return status === "enquiry";
+  return status === "confirmed" || status === "advance_paid";
+}
+
 // ── Page ────────────────────────────────────────────────────────────────────
 
 export function PartyHall({ data }: { data: PartyHallPageData }) {
+  const [pillFilter, setPillFilter] = useState<PartyHallPillKey>("all");
+
+  const visibleEvents = useMemo(
+    () => data.events.filter((item) => matchesPill(item.enquiry.status, pillFilter)),
+    [data.events, pillFilter],
+  );
+
   return (
     <div className="flex flex-col gap-5 p-4 sm:p-6.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -260,11 +285,15 @@ export function PartyHall({ data }: { data: PartyHallPageData }) {
         <div className="flex flex-col gap-3.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="font-display text-[18px] font-semibold">Enquiries &amp; events</span>
-            <FilterPills pills={data.pills} />
+            <FilterPills pills={data.pills} active={pillFilter} onSelect={setPillFilter} />
           </div>
-          {data.events.map((item) => (
-            <EventCard key={item.enquiry.id} item={item} />
-          ))}
+          {visibleEvents.length === 0 ? (
+            <div className="rounded-lg border border-[#eae4d6] bg-white px-5 py-8 text-center text-[12.5px] text-[#a49d8d]">
+              No enquiries in this filter
+            </div>
+          ) : (
+            visibleEvents.map((item) => <EventCard key={item.enquiry.id} item={item} />)
+          )}
         </div>
 
         <div className="flex flex-col gap-4.5">

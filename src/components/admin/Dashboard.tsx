@@ -1,4 +1,5 @@
 import { useState, type ComponentType } from "react";
+import { Link } from "@tanstack/react-router";
 import { LogIn, LogOut, Globe, TriangleAlert, Check, Sparkles, CreditCard, X } from "lucide-react";
 
 import type {
@@ -100,7 +101,10 @@ function StatCards({ data }: { data: DashboardData }) {
         accent="terracotta"
         valueClassName="text-[#b4553f]"
       >
-        Needs allocation <span className="font-semibold text-[#b4553f]">Assign →</span>
+        Needs allocation{" "}
+        <Link to="/admin/rooms" className="font-semibold text-[#b4553f] hover:underline">
+          Assign →
+        </Link>
       </StatCard>
     </div>
   );
@@ -309,12 +313,12 @@ function ActivityCard({ items }: { items: ActivityItem[] }) {
     <Card className="flex min-h-0 flex-1 flex-col">
       <div className="mb-1.5 flex shrink-0 items-center justify-between">
         <h2 className="font-display text-lg font-semibold">Recent activity</h2>
-        <button
-          type="button"
+        <Link
+          to="/admin/bookings"
           className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-gold hover:text-[#a8863f]"
         >
           View all
-        </button>
+        </Link>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {items.length === 0 ? (
