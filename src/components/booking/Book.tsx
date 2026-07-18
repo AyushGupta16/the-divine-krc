@@ -6,7 +6,7 @@
 // confirmation screen, as `schema.ts` already documents that split.
 
 import { useState } from "react";
-import { Check, Loader2 } from "lucide-react";
+import { Check, Loader2, Minus, Plus } from "lucide-react";
 
 import type { PayMethod, RoomType } from "@/types/booking";
 import { GST_PCT, ROOM_TYPES } from "@/lib/bookings";
@@ -17,13 +17,6 @@ import { Nav } from "@/components/home/Nav";
 import { Input } from "@/components/ui/input";
 import roomDeluxe from "@/assets/room-deluxe.jpg";
 import roomBalcony from "@/assets/room-balcony.jpg";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 const STEPS = ["Rooms", "Details", "Payment", "Confirmed"] as const;
 
@@ -272,18 +265,7 @@ function RoomsStep({
         </div>
         <div>
           <span className={LABEL}>Guests</span>
-          <Select value={guests} onValueChange={setGuests}>
-            <SelectTrigger className={FIELD}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {["1", "2", "3", "4"].map((n) => (
-                <SelectItem key={n} value={n}>
-                  {n} guest{n === "1" ? "" : "s"}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <GuestCounter value={guests} onChange={setGuests} />
         </div>
         <div className="flex items-end">
           <p className="text-[12.5px] text-warm-gray">
@@ -326,6 +308,41 @@ function RoomsStep({
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function GuestCounter({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const n = Number(value);
+
+  function step(delta: number) {
+    const next = Math.min(4, Math.max(1, n + delta));
+    onChange(String(next));
+  }
+
+  return (
+    <div className={`${FIELD} flex items-center justify-between`}>
+      <button
+        type="button"
+        onClick={() => step(-1)}
+        disabled={n <= 1}
+        aria-label="Fewer guests"
+        className="flex size-6 items-center justify-center rounded-full border border-[#e5ddcb] text-obsidian disabled:opacity-30"
+      >
+        <Minus className="size-3" />
+      </button>
+      <span className="text-[13.5px] text-obsidian">
+        {n} guest{n === 1 ? "" : "s"}
+      </span>
+      <button
+        type="button"
+        onClick={() => step(1)}
+        disabled={n >= 4}
+        aria-label="More guests"
+        className="flex size-6 items-center justify-center rounded-full border border-[#e5ddcb] text-obsidian disabled:opacity-30"
+      >
+        <Plus className="size-3" />
+      </button>
     </div>
   );
 }
