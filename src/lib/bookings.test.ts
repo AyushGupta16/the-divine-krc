@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { createBooking, getBookingsPageData, type NewBookingInput } from "@/lib/bookings";
+import {
+  createBooking,
+  getBookingsPageData,
+  markBookingPaid,
+  type NewBookingInput,
+} from "@/lib/bookings";
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import { computeTotalBill, computeTotalCollected } from "@/lib/booking-math";
 
@@ -137,5 +142,66 @@ describe("createBooking", () => {
       createBooking(fixtures, { ...NEW_BOOKING, checkIn: "2026-08-05", checkOut: "2026-08-01" }).ok,
     ).toBe(false);
     expect(createBooking(fixtures, { ...NEW_BOOKING, roomNo: "999" }).ok).toBe(false);
+  });
+});
+
+describe("markBookingPaid", () => {
+  function pendingState() {
+    const created = createBooking(fixtures, NEW_BOOKING, "2026-08-01");
+    if (!created.ok) throw new Error("setup failed");
+    const state = {
+      guests: [...fixtures.guests, created.guest],
+      bookings: [created.booking],
+      partyHall: fixtures.partyHall,
+    };
+    return { state, booking: created.booking };
+  }
+
+  it("confirms a pending booking and settles the collection to the full total", () => {
+    const { state, booking } = pendingState();
+    const res = markBookingPaid(state, booking.id, "order_1", "pay_1");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.booking.status).toBe("confirmed");
+    expect(res.booking.collection.paidToHotel).toBe(booking.totalBill);
+    expect(res.booking.collection.pending).toBe(0);
+    expect(res.booking.razorpayOrderId).toBe("order_1");
+    expect(res.booking.razorpayPaymentId).toBe("pay_1");
+  });
+
+  it("is idempotent on a replay of the same payment id", () => {
+    const { state, booking } = pendingState();
+    const first = markBookingPaid(state, booking.id, "order_1", "pay_1");
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const replayState = {
+      guests: state.guests,
+      bookings: [first.booking],
+      partyHall: state.partyHall,
+    };
+    const second = markBookingPaid(replayState, booking.id, "order_1", "pay_1");
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.booking).toEqual(first.booking);
+  });
+
+  it("rejects a booking that isn't pending payment", () => {
+    const { state, booking } = pendingState();
+    const res = markBookingPaid(
+      {
+        guests: state.guests,
+        bookings: [{ ...booking, status: "cancelled" as const }],
+        partyHall: state.partyHall,
+      },
+      booking.id,
+      "order_1",
+      "pay_1",
+    );
+    expect(res.ok).toBe(false);
+  });
+
+  it("rejects an unknown booking id", () => {
+    const { state } = pendingState();
+    expect(markBookingPaid(state, "KRC-nope", "order_1", "pay_1").ok).toBe(false);
   });
 });

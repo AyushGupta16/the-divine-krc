@@ -57,6 +57,9 @@ export interface Booking {
   status: BookingStatus;
   /** ISO timestamp */
   createdAt: string;
+  /** Razorpay order/payment ids (#16). Undefined until an order is created; pay-at-hotel never sets them. */
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
 }
 
 export type GuestTier = "gold" | "silver" | "new";

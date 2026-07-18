@@ -1,9 +1,8 @@
 // The public 4-step booking flow (spec 14): Rooms -> Details -> Payment -> Confirmed.
 // Mirrors `Guest Booking.dc.html`. Totals reuse the same pure helpers the admin
 // console's manual-entry drawer uses, so a guest sees the number that actually
-// gets persisted. Payment is UI-only — no Razorpay SDK — real gateway wiring is
-// spec #16; selecting it here just records the guest's preference for the
-// confirmation screen, as `schema.ts` already documents that split.
+// gets persisted. Payment step opens real Razorpay Checkout (spec #16) — see
+// `lib/razorpay.ts` and `createRazorpayOrderFn`/`verifyRazorpayPaymentFn`.
 //
 // A guest picks a *quantity per room type* rather than one room per pass, so a
 // family needing two Deluxe rooms and one Balcony room books and pays once.
@@ -21,7 +20,11 @@ import { Check, Home, Info, Loader2, Lock, Zap } from "lucide-react";
 import type { PayMethod, RoomType } from "@/types/booking";
 import { GST_PCT, ROOM_TYPES } from "@/lib/bookings";
 import { computeTotalBill, formatINR, urn } from "@/lib/booking-math";
-import { createGuestBookingFn } from "@/lib/bookings-data";
+import {
+  createGuestBookingFn,
+  createRazorpayOrderFn,
+  verifyRazorpayPaymentFn,
+} from "@/lib/bookings-data";
 import type { Booking } from "@/types/booking";
 import { Nav } from "@/components/home/Nav";
 import { CounterField } from "@/components/home/CounterField";
@@ -40,6 +43,54 @@ import roomDeluxe from "@/assets/room-deluxe.jpg";
 import roomBalcony from "@/assets/room-balcony.jpg";
 
 const STEPS = ["Rooms", "Details", "Payment", "Confirmed"] as const;
+
+// Checkout is a third-party `<script>`, not an npm package — Razorpay only
+// ships it that way. `window.Razorpay` stays undefined until it loads, so
+// every call site awaits `loadRazorpayCheckout()` first.
+interface RazorpayResponse {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+}
+interface RazorpayOptions {
+  key: string;
+  amount: number;
+  currency: string;
+  order_id: string;
+  name: string;
+  description?: string;
+  prefill?: { name?: string; email?: string; contact?: string; method?: CheckoutMethod };
+  theme?: { color?: string };
+  handler: (response: RazorpayResponse) => void;
+  modal?: { ondismiss?: () => void };
+}
+declare global {
+  interface Window {
+    Razorpay?: new (options: RazorpayOptions) => { open: () => void };
+  }
+}
+
+/** Razorpay's own `prefill.method` values — jumps Checkout straight to that tab. */
+type CheckoutMethod = "upi" | "card" | "netbanking" | "wallet";
+const CHECKOUT_METHODS: { key: CheckoutMethod; label: string }[] = [
+  { key: "upi", label: "UPI" },
+  { key: "card", label: "Cards" },
+  { key: "netbanking", label: "Net Banking" },
+  { key: "wallet", label: "Wallets" },
+];
+
+let checkoutScript: Promise<void> | null = null;
+function loadRazorpayCheckout(): Promise<void> {
+  if (window.Razorpay) return Promise.resolve();
+  checkoutScript ??= new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Could not load the payment window."));
+    document.body.appendChild(script);
+  });
+  return checkoutScript;
+}
 
 const ROOM_IMAGES: Record<RoomType, string> = {
   deluxe: roomDeluxe,
@@ -89,6 +140,7 @@ export function Book() {
   const [arrivalTime, setArrivalTime] = useState("14:00");
   const [guest, setGuest] = useState(EMPTY_GUEST);
   const [payMethod, setPayMethod] = useState<PayMethod>("razorpay");
+  const [checkoutMethod, setCheckoutMethod] = useState<CheckoutMethod | null>(null);
   const [bookings, setBookings] = useState<Booking[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -124,6 +176,7 @@ export function Book() {
     setGuests(2);
     setGuest(EMPTY_GUEST);
     setPayMethod("razorpay");
+    setCheckoutMethod(null);
     setBookings(null);
     setError(null);
   }
@@ -158,9 +211,74 @@ export function Book() {
         created.push(res.booking);
       }
     }
-    setBusy(false);
-    setBookings(created);
-    setStep(3);
+
+    if (payMethod === "pay_at_hotel") {
+      setBusy(false);
+      setBookings(created);
+      setStep(3);
+      return;
+    }
+
+    let orderRes;
+    try {
+      orderRes = await createRazorpayOrderFn({ data: { bookingIds: created.map((b) => b.id) } });
+    } catch {
+      // Thrown, not a Result — e.g. RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET missing
+      // from the server env, or the Razorpay API itself unreachable/erroring.
+      setBusy(false);
+      setError("Payment could not be started. Please try again shortly.");
+      return;
+    }
+    if (!orderRes.ok) {
+      setBusy(false);
+      setError(orderRes.error);
+      return;
+    }
+
+    try {
+      await loadRazorpayCheckout();
+    } catch {
+      setBusy(false);
+      setError("Could not load the payment window. Please try again.");
+      return;
+    }
+
+    const rzp = new window.Razorpay!({
+      key: orderRes.keyId,
+      amount: orderRes.amount,
+      currency: orderRes.currency,
+      order_id: orderRes.orderId,
+      name: "The Divine KRC",
+      description: `${created.length} room${created.length > 1 ? "s" : ""} · ${nights} night${nights > 1 ? "s" : ""}`,
+      prefill: {
+        name: guestName,
+        email: guest.email,
+        contact: guest.phone,
+        ...(checkoutMethod ? { method: checkoutMethod } : {}),
+      },
+      theme: { color: "#c5a059" },
+      handler: (response) => {
+        void (async () => {
+          const verifyRes = await verifyRazorpayPaymentFn({
+            data: {
+              bookingIds: created.map((b) => b.id),
+              razorpayOrderId: response.razorpay_order_id,
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpaySignature: response.razorpay_signature,
+            },
+          });
+          setBusy(false);
+          if (!verifyRes.ok) {
+            setError(verifyRes.error);
+            return;
+          }
+          setBookings(verifyRes.bookings);
+          setStep(3);
+        })();
+      },
+      modal: { ondismiss: () => setBusy(false) },
+    });
+    rzp.open();
   }
 
   return (
@@ -206,6 +324,8 @@ export function Book() {
           <PaymentStep
             payMethod={payMethod}
             setPayMethod={setPayMethod}
+            checkoutMethod={checkoutMethod}
+            setCheckoutMethod={setCheckoutMethod}
             cartLines={cartLines}
             checkIn={checkIn}
             checkOut={checkOut}
@@ -698,6 +818,8 @@ function DetailsStep({
 function PaymentStep({
   payMethod,
   setPayMethod,
+  checkoutMethod,
+  setCheckoutMethod,
   cartLines,
   checkIn,
   checkOut,
@@ -712,6 +834,8 @@ function PaymentStep({
 }: {
   payMethod: PayMethod;
   setPayMethod: (v: PayMethod) => void;
+  checkoutMethod: CheckoutMethod | null;
+  setCheckoutMethod: (v: CheckoutMethod | null) => void;
   cartLines: CartLine[];
   checkIn: string;
   checkOut: string;
@@ -770,15 +894,22 @@ function PaymentStep({
               </span>
             </div>
             <div className="bg-white p-4 text-[12.5px] text-warm-gray">
-              <p>Continue to Razorpay to complete payment. Choose from:</p>
+              <p>Jump straight to a payment method, or leave unselected to choose in Razorpay:</p>
               <div className="mt-3 flex flex-wrap gap-2">
-                {["UPI", "Cards", "Net Banking", "Wallets"].map((m) => (
-                  <span
-                    key={m}
-                    className="rounded-full border border-gold/25 px-3 py-1 text-[11px] text-obsidian"
+                {CHECKOUT_METHODS.map((m) => (
+                  <button
+                    key={m.key}
+                    type="button"
+                    onClick={() => setCheckoutMethod(checkoutMethod === m.key ? null : m.key)}
+                    aria-pressed={checkoutMethod === m.key}
+                    className={`rounded-full border px-3 py-1 text-[11px] transition-colors ${
+                      checkoutMethod === m.key
+                        ? "border-gold bg-gold text-obsidian font-semibold"
+                        : "border-gold/25 text-obsidian hover:border-gold/50"
+                    }`}
                   >
-                    {m}
-                  </span>
+                    {m.label}
+                  </button>
                 ))}
               </div>
             </div>
@@ -856,8 +987,13 @@ function ConfirmedStep({
 }) {
   const roomSummary = cartLines.map((l) => `${l.qty}× ${l.name}`).join(", ");
   const roomCount = cartLines.reduce((sum, l) => sum + l.qty, 0);
+  const paid = bookings.every((b) => b.status === "confirmed");
   const paymentValue =
-    payMethod === "razorpay" ? "Pending — pay online" : "Pay at hotel · Reserved";
+    payMethod === "razorpay"
+      ? paid
+        ? "Paid via Razorpay"
+        : "Pending — pay online"
+      : "Pay at hotel · Reserved";
 
   return (
     <div className="mx-auto max-w-lg px-6 py-16 text-center">
@@ -883,7 +1019,7 @@ function ConfirmedStep({
           <Row
             label="Payment"
             value={paymentValue}
-            valueClassName={payMethod === "pay_at_hotel" ? "text-[#3f7a4f]" : undefined}
+            valueClassName={payMethod === "pay_at_hotel" || paid ? "text-[#3f7a4f]" : undefined}
           />
         </dl>
         <div className="flex items-baseline justify-between border-t border-gold/10 px-5 py-4">

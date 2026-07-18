@@ -35,6 +35,7 @@ import {
   getReportsPageData,
   getRoomsPageData,
   getSettingsPageData,
+  markBookingPaid,
   withAdvance,
   withTier,
   withTotal,
@@ -45,6 +46,7 @@ import {
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import { getSessionMember } from "@/lib/auth";
 import { db, missingDbInProduction } from "@/lib/db";
+import { createRazorpayOrder, razorpayKeyId, verifyRazorpaySignature } from "@/lib/razorpay";
 import { loadRoster } from "@/lib/roster";
 import * as schema from "@/lib/schema";
 import { can, type Result } from "@/lib/team";
@@ -121,6 +123,8 @@ function toBooking(r: BookingRow): Booking {
     collection,
     status: r.status as BookingStatus,
     createdAt: r.createdAt.toISOString(),
+    razorpayOrderId: r.razorpayOrderId ?? undefined,
+    razorpayPaymentId: r.razorpayPaymentId ?? undefined,
   });
 }
 
@@ -256,6 +260,32 @@ async function updateBookingStatus(bookingId: string, status: BookingStatus): Pr
   await conn.update(schema.bookings).set({ status }).where(eq(schema.bookings.id, bookingId));
 }
 
+/**
+ * The Razorpay verify route's write (#16): persists what `markBookingPaid`
+ * decided — status, the now-settled collection, and the two id columns
+ * `schema.ts` reserves for a gateway payment. Same fixtures-mutation
+ * convenience as the other row-store helpers when there is no database.
+ */
+async function updateBookingPayment(booking: Booking): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    const existing = fixtures.bookings.find((b) => b.id === booking.id);
+    if (existing) Object.assign(existing, booking);
+    return;
+  }
+  await conn
+    .update(schema.bookings)
+    .set({
+      status: booking.status,
+      collectionPaidToHotel: booking.collection.paidToHotel,
+      collectionPending: booking.collection.pending,
+      razorpayOrderId: booking.razorpayOrderId ?? null,
+      razorpayPaymentId: booking.razorpayPaymentId ?? null,
+    })
+    .where(eq(schema.bookings.id, booking.id));
+}
+
 function noDbInsert(): void {
   if (missingDbInProduction()) {
     throw new Error(
@@ -333,6 +363,74 @@ export const cancelGuestBookingFn = createServerFn({ method: "POST" })
 
     await updateBookingStatus(res.booking.id, "cancelled");
     return res;
+  });
+
+/**
+ * The Payment step's "Pay online" path (#16): opens one Razorpay order
+ * covering every booking the guest's cart just created. The amount is summed
+ * here from the bookings' own `totalBill`, never taken from the client — a
+ * guest's browser proposing its own total would be a guest naming their own
+ * price. `bookingIds` not yet `pending_payment` (e.g. a stale double-submit)
+ * are dropped from the sum rather than failing the whole order.
+ */
+export const createRazorpayOrderFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { bookingIds: string[] }) => data)
+  .handler(
+    async ({
+      data,
+    }): Promise<Result<{ orderId: string; amount: number; currency: string; keyId: string }>> => {
+      const current = await load();
+      const rows = data.bookingIds
+        .map((id) => current.bookings.find((b) => b.id === id))
+        .filter((b): b is Booking => !!b && b.status === "pending_payment");
+      if (rows.length === 0) {
+        return { ok: false, error: "No payable booking found for this order." };
+      }
+
+      const amount = rows.reduce((sum, b) => sum + b.totalBill, 0);
+      const order = await createRazorpayOrder(amount, rows[0].id);
+      return {
+        ok: true,
+        orderId: order.id,
+        amount: order.amount,
+        currency: order.currency,
+        keyId: razorpayKeyId(),
+      };
+    },
+  );
+
+/**
+ * The Checkout `handler` callback's call (#16): verifies the signature once,
+ * then settles every booking the order covered. Not a transaction — same
+ * documented tradeoff as `insertBooking` — a failure partway through leaves
+ * whatever already settled as `confirmed`, and a retry with the same
+ * signature is a no-op on those rows via `markBookingPaid`'s idempotence.
+ */
+export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
+  .inputValidator(
+    (data: {
+      bookingIds: string[];
+      razorpayOrderId: string;
+      razorpayPaymentId: string;
+      razorpaySignature: string;
+    }) => data,
+  )
+  .handler(async ({ data }): Promise<Result<{ bookings: Booking[] }>> => {
+    if (
+      !verifyRazorpaySignature(data.razorpayOrderId, data.razorpayPaymentId, data.razorpaySignature)
+    ) {
+      return { ok: false, error: "Payment could not be verified. Please contact the front desk." };
+    }
+
+    const settled: Booking[] = [];
+    for (const id of data.bookingIds) {
+      const current = await load();
+      const res = markBookingPaid(current, id, data.razorpayOrderId, data.razorpayPaymentId);
+      if (!res.ok) return res;
+      await updateBookingPayment(res.booking);
+      settled.push(res.booking);
+    }
+    return { ok: true, bookings: settled };
   });
 
 export const dashboardPage = createServerFn({ method: "GET" }).handler(
