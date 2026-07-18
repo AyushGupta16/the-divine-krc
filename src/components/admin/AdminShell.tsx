@@ -310,13 +310,21 @@ function HeaderTitle({ isDashboard, user }: { isDashboard: boolean; user: Sessio
 }
 
 /** Global header actions — notifications, search, new booking. */
-function HeaderActions({ notifications }: { notifications: NotificationsData }) {
+function HeaderActions({
+  notifications,
+  onSearch,
+}: {
+  notifications: NotificationsData;
+  onSearch: () => void;
+}) {
   return (
     <div className="ml-auto flex items-center gap-2">
       <NotificationsBell notifications={notifications} />
       <button
         type="button"
+        onClick={onSearch}
         aria-label="Search bookings, guests"
+        title="Search bookings, guests"
         className="flex size-10 items-center justify-center rounded-[5px] border border-[#eae4d6] bg-white text-warm-gray transition-colors hover:bg-black/[0.03]"
       >
         <Search className="size-4.25" />
@@ -325,10 +333,64 @@ function HeaderActions({ notifications }: { notifications: NotificationsData }) 
         to="/admin/bookings"
         search={{ new: "1" }}
         aria-label="New booking"
+        title="New booking"
         className="flex size-10 items-center justify-center rounded-[5px] bg-gold text-obsidian transition-opacity hover:opacity-90"
       >
         <Plus className="size-4.5" strokeWidth={2.4} />
       </Link>
+    </div>
+  );
+}
+
+const SEARCH_SHORTCUTS: NavItem[] = ADMIN_NAV.flatMap((g) => g.items);
+
+/** Full-screen overlay opened from the header's search icon on mobile. */
+function SearchOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    if (open) setQuery("");
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex flex-col bg-ivory">
+      <div className="flex h-16 items-center gap-3 border-b border-[#eae4d6] px-4 sm:px-6">
+        <Search className="size-4.5 shrink-0 text-warm-gray" />
+        <input
+          autoFocus
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search bookings, guests…"
+          className="min-w-0 flex-1 bg-transparent text-[15px] text-obsidian outline-none placeholder:text-warm-gray/60"
+        />
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close search"
+          className="flex size-9 shrink-0 items-center justify-center rounded-md text-obsidian hover:bg-black/5"
+        >
+          <X className="size-5" />
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-2 px-4 py-5 sm:px-6">
+        {SEARCH_SHORTCUTS.map((item) => {
+          const Icon = item.icon;
+          return (
+            <Link
+              key={item.to}
+              to={item.to}
+              onClick={onClose}
+              className="inline-flex items-center gap-1.75 rounded-full border border-[#eae4d6] bg-white px-3.5 py-2 text-[12px] font-semibold text-warm-gray transition-colors hover:border-gold/50 hover:text-obsidian"
+            >
+              <Icon className="size-3.75" />
+              {item.label}
+            </Link>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -386,6 +448,7 @@ export function AdminShell({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const isDashboard = useRouterState({
     select: (s) => (s.location.pathname.replace(/\/$/, "") || "/admin") === "/admin",
   });
@@ -456,7 +519,7 @@ export function AdminShell({
           </button>
 
           <HeaderTitle isDashboard={isDashboard} user={user} />
-          <HeaderActions notifications={notifications} />
+          <HeaderActions notifications={notifications} onSearch={() => setSearchOpen(true)} />
         </header>
 
         {/* Page content */}
@@ -464,6 +527,8 @@ export function AdminShell({
           <Outlet />
         </main>
       </div>
+
+      <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} />
 
       <BottomNav onMore={() => setDrawerOpen(true)} />
     </div>

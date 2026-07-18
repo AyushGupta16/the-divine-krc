@@ -289,7 +289,7 @@ function TotalsRow({ totals }: { totals: BookingsTotals }) {
 
 function BookingsTable({ rows, totals }: { rows: BookingListItem[]; totals: BookingsTotals }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-[#eae4d6] bg-white">
+    <div className="overflow-x-auto rounded-lg border border-[#eae4d6] bg-white">
       <Table className="min-w-430 border-separate border-spacing-0">
         <TableHeader>
           {/* group band */}
