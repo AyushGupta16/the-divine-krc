@@ -274,6 +274,24 @@ export const createBookingFn = createServerFn({ method: "POST" })
     return { ok: true, booking: res.booking };
   });
 
+/**
+ * The public `/book` flow's write path (spec 14). Same rule and row-store as
+ * `createBookingFn` above — the two entry points share `createBooking` and
+ * `insertBooking` by construction so a guest's booking and an admin's manual
+ * entry can never validate or persist differently. No `requireBookingWriter`
+ * check: this *is* the unauthenticated path, not a bypass of the admin one.
+ */
+export const createGuestBookingFn = createServerFn({ method: "POST" })
+  .inputValidator((data: NewBookingInput) => data)
+  .handler(async ({ data }): Promise<Result<{ booking: Booking }>> => {
+    const current = await load();
+    const res = createBooking(current, data);
+    if (!res.ok) return res;
+
+    await insertBooking(res.guest, res.booking);
+    return { ok: true, booking: res.booking };
+  });
+
 export const dashboardPage = createServerFn({ method: "GET" }).handler(
   async (): Promise<DashboardData> => getDashboardData(await load()),
 );
