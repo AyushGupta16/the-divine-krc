@@ -40,3 +40,7 @@ dist-ssr
 
 # Claude Code local files
 .claude/
+
+# Local secrets — never committed
+.env
+.env.local
