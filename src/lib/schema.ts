@@ -13,9 +13,9 @@
 //
 // 2. **Money is `integer` rupees, never float.** The domain is whole rupees:
 //    `computeTotalBill` rounds to the nearest one and `formatINR` shows no
-//    paise. Razorpay (#16) speaks paise and is authoritative when it lands; that
-//    is where paise columns belong, decided alongside the money semantics rather
-//    than smuggled in here.
+//    paise. Razorpay (#16) speaks paise at the API boundary only — `lib/razorpay.ts`
+//    converts at the edge, and the two id columns below are the only trace of a
+//    gateway payment stored in `bookings`, both nullable (pay-at-hotel never sets them).
 
 import { integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
@@ -70,6 +70,11 @@ export const bookings = pgTable("bookings", {
 
   status: text("status").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+
+  /** Set once an order is created; null for pay-at-hotel bookings. */
+  razorpayOrderId: text("razorpay_order_id"),
+  /** Set only after `verifyRazorpaySignature` passes. */
+  razorpayPaymentId: text("razorpay_payment_id"),
 });
 
 export const partyHallEnquiries = pgTable("party_hall_enquiries", {

@@ -455,6 +455,46 @@ export function cancelGuestBooking(
   return { ok: true, booking: { ...found.booking, status: "cancelled" } };
 }
 
+/**
+ * The Razorpay verify route's write (#16): flips a `pending_payment` booking to
+ * `confirmed` and settles its collection — `paidToHotel` takes the whole bill,
+ * `pending` drops to zero, since a Checkout payment is always the full amount,
+ * never a partial one.
+ *
+ * Idempotent by construction: a webhook retry or a duplicate `handler` fire
+ * with the same `paymentId` on an already-`confirmed` booking returns the
+ * existing row rather than re-settling it, which matters because
+ * `bookings-data.ts` calls this once per resolved signature and Razorpay does
+ * not guarantee its webhook fires exactly once.
+ */
+export function markBookingPaid(
+  data: BookingData,
+  bookingId: string,
+  razorpayOrderId: string,
+  razorpayPaymentId: string,
+): Result<{ booking: Booking }> {
+  const booking = data.bookings.find((b) => b.id === bookingId);
+  if (!booking) return { ok: false, error: "Booking not found." };
+
+  if (booking.status === "confirmed" && booking.razorpayPaymentId === razorpayPaymentId) {
+    return { ok: true, booking };
+  }
+  if (booking.status !== "pending_payment") {
+    return { ok: false, error: `Booking is already ${booking.status.replace("_", " ")}.` };
+  }
+
+  return {
+    ok: true,
+    booking: {
+      ...booking,
+      status: "confirmed",
+      collection: { ...booking.collection, paidToHotel: booking.totalBill, pending: 0 },
+      razorpayOrderId,
+      razorpayPaymentId,
+    },
+  };
+}
+
 /** Statuses that hold a physical room off the market. */
 const OCCUPYING_STATUSES = new Set(["confirmed", "checked_in", "pending_payment"]);
 

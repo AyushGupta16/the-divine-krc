@@ -21,7 +21,11 @@ import { Check, Home, Info, Loader2, Lock, Zap } from "lucide-react";
 import type { PayMethod, RoomType } from "@/types/booking";
 import { GST_PCT, ROOM_TYPES } from "@/lib/bookings";
 import { computeTotalBill, formatINR, urn } from "@/lib/booking-math";
-import { createGuestBookingFn } from "@/lib/bookings-data";
+import {
+  createGuestBookingFn,
+  createRazorpayOrderFn,
+  verifyRazorpayPaymentFn,
+} from "@/lib/bookings-data";
 import type { Booking } from "@/types/booking";
 import { Nav } from "@/components/home/Nav";
 import { CounterField } from "@/components/home/CounterField";
@@ -40,6 +44,45 @@ import roomDeluxe from "@/assets/room-deluxe.jpg";
 import roomBalcony from "@/assets/room-balcony.jpg";
 
 const STEPS = ["Rooms", "Details", "Payment", "Confirmed"] as const;
+
+// Checkout is a third-party `<script>`, not an npm package — Razorpay only
+// ships it that way. `window.Razorpay` stays undefined until it loads, so
+// every call site awaits `loadRazorpayCheckout()` first.
+interface RazorpayResponse {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+}
+interface RazorpayOptions {
+  key: string;
+  amount: number;
+  currency: string;
+  order_id: string;
+  name: string;
+  description?: string;
+  prefill?: { name?: string; email?: string; contact?: string };
+  theme?: { color?: string };
+  handler: (response: RazorpayResponse) => void;
+  modal?: { ondismiss?: () => void };
+}
+declare global {
+  interface Window {
+    Razorpay?: new (options: RazorpayOptions) => { open: () => void };
+  }
+}
+
+let checkoutScript: Promise<void> | null = null;
+function loadRazorpayCheckout(): Promise<void> {
+  if (window.Razorpay) return Promise.resolve();
+  checkoutScript ??= new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Could not load the payment window."));
+    document.body.appendChild(script);
+  });
+  return checkoutScript;
+}
 
 const ROOM_IMAGES: Record<RoomType, string> = {
   deluxe: roomDeluxe,
@@ -158,9 +201,62 @@ export function Book() {
         created.push(res.booking);
       }
     }
-    setBusy(false);
-    setBookings(created);
-    setStep(3);
+
+    if (payMethod === "pay_at_hotel") {
+      setBusy(false);
+      setBookings(created);
+      setStep(3);
+      return;
+    }
+
+    const orderRes = await createRazorpayOrderFn({
+      data: { bookingIds: created.map((b) => b.id) },
+    });
+    if (!orderRes.ok) {
+      setBusy(false);
+      setError(orderRes.error);
+      return;
+    }
+
+    try {
+      await loadRazorpayCheckout();
+    } catch {
+      setBusy(false);
+      setError("Could not load the payment window. Please try again.");
+      return;
+    }
+
+    const rzp = new window.Razorpay!({
+      key: orderRes.keyId,
+      amount: orderRes.amount,
+      currency: orderRes.currency,
+      order_id: orderRes.orderId,
+      name: "The Divine KRC",
+      description: `${created.length} room${created.length > 1 ? "s" : ""} · ${nights} night${nights > 1 ? "s" : ""}`,
+      prefill: { name: guestName, email: guest.email, contact: guest.phone },
+      theme: { color: "#c5a059" },
+      handler: (response) => {
+        void (async () => {
+          const verifyRes = await verifyRazorpayPaymentFn({
+            data: {
+              bookingIds: created.map((b) => b.id),
+              razorpayOrderId: response.razorpay_order_id,
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpaySignature: response.razorpay_signature,
+            },
+          });
+          setBusy(false);
+          if (!verifyRes.ok) {
+            setError(verifyRes.error);
+            return;
+          }
+          setBookings(verifyRes.bookings);
+          setStep(3);
+        })();
+      },
+      modal: { ondismiss: () => setBusy(false) },
+    });
+    rzp.open();
   }
 
   return (
@@ -856,8 +952,13 @@ function ConfirmedStep({
 }) {
   const roomSummary = cartLines.map((l) => `${l.qty}× ${l.name}`).join(", ");
   const roomCount = cartLines.reduce((sum, l) => sum + l.qty, 0);
+  const paid = bookings.every((b) => b.status === "confirmed");
   const paymentValue =
-    payMethod === "razorpay" ? "Pending — pay online" : "Pay at hotel · Reserved";
+    payMethod === "razorpay"
+      ? paid
+        ? "Paid via Razorpay"
+        : "Pending — pay online"
+      : "Pay at hotel · Reserved";
 
   return (
     <div className="mx-auto max-w-lg px-6 py-16 text-center">
@@ -883,7 +984,7 @@ function ConfirmedStep({
           <Row
             label="Payment"
             value={paymentValue}
-            valueClassName={payMethod === "pay_at_hotel" ? "text-[#3f7a4f]" : undefined}
+            valueClassName={payMethod === "pay_at_hotel" || paid ? "text-[#3f7a4f]" : undefined}
           />
         </dl>
         <div className="flex items-baseline justify-between border-t border-gold/10 px-5 py-4">
