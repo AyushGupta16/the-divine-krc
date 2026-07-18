@@ -102,7 +102,9 @@ export interface BookingData {
   rooms?: RoomTile[];
   /** Per-type area/rate overrides. `count` is never one of these — it is
    *  always derived from `rooms`. */
-  roomTypeOverrides?: Partial<Record<RoomType, { areaSqm: number; pricePerNight: number }>>;
+  roomTypeOverrides?: Partial<
+    Record<RoomType, { name?: string; areaSqm: number; pricePerNight: number }>
+  >;
 }
 
 export interface RoomTypeInfo {
@@ -887,6 +889,7 @@ export function resolveRoomTypes(
 ): RoomTypeInfo[] {
   return ROOM_TYPES.map((rt) => ({
     ...rt,
+    name: overrides?.[rt.type]?.name ?? rt.name,
     count: tiles.filter((t) => t.type === rt.type).length,
     areaSqm: overrides?.[rt.type]?.areaSqm ?? rt.areaSqm,
     pricePerNight: overrides?.[rt.type]?.pricePerNight ?? rt.pricePerNight,

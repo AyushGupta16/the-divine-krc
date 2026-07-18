@@ -163,12 +163,13 @@ export const rooms = pgTable("rooms", {
 });
 
 /**
- * Per-room-type settings that are genuinely editable (area, rate) — as
+ * Per-room-type settings that are genuinely editable (name, area, rate) — as
  * opposed to `count`, which is never stored here because it is derived from
  * `rooms`. See rule 1 at the top of this file.
  */
 export const roomTypeSettings = pgTable("room_type_settings", {
   type: text("type").primaryKey(),
+  name: text("name"),
   areaSqm: integer("area_sqm").notNull(),
   pricePerNight: integer("price_per_night").notNull(),
 });

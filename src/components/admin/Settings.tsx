@@ -15,7 +15,12 @@ import type {
   TeamMember,
   ToggleSetting,
 } from "@/types/booking";
-import { addRoomFn, removeRoomFn, updateRoomTypeSettingsFn } from "@/lib/bookings-data";
+import {
+  addRoomFn,
+  removeRoomFn,
+  setRoomCountFn,
+  updateRoomTypeSettingsFn,
+} from "@/lib/bookings-data";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -165,23 +170,33 @@ const TYPE_LABEL: Record<RoomType, string> = {
  *  genuinely editable; `count` is read-only because it comes off the actual
  *  floor board below, not a number typed here. */
 function TariffRow({ tariff, onSaved }: { tariff: RoomTariff; onSaved: () => void }) {
+  const [name, setName] = useState(tariff.name);
   const [areaSqm, setAreaSqm] = useState(String(tariff.areaSqm));
   const [rate, setRate] = useState(String(tariff.pricePerNight));
+  const [count, setCount] = useState(String(tariff.count));
   const [busy, setBusy] = useState(false);
 
-  async function save() {
+  async function saveDetails() {
+    const trimmed = name.trim();
     const area = Number(areaSqm);
     const price = Number(rate);
+    if (!trimmed) {
+      toast.error("Name is required.");
+      setName(tariff.name);
+      return;
+    }
     if (!Number.isFinite(area) || area <= 0 || !Number.isFinite(price) || price <= 0) {
       toast.error("Area and rate must be positive numbers.");
       setAreaSqm(String(tariff.areaSqm));
       setRate(String(tariff.pricePerNight));
       return;
     }
-    if (area === tariff.areaSqm && price === tariff.pricePerNight) return;
+    if (trimmed === tariff.name && area === tariff.areaSqm && price === tariff.pricePerNight) {
+      return;
+    }
     setBusy(true);
     const res = await updateRoomTypeSettingsFn({
-      data: { type: tariff.type, areaSqm: area, pricePerNight: price },
+      data: { type: tariff.type, name: trimmed, areaSqm: area, pricePerNight: price },
     });
     setBusy(false);
     if (!res.ok) {
@@ -191,11 +206,45 @@ function TariffRow({ tariff, onSaved }: { tariff: RoomTariff; onSaved: () => voi
     onSaved();
   }
 
+  async function saveCount() {
+    const next = Number(count);
+    if (!Number.isInteger(next) || next < 0) {
+      toast.error("Room count must be a whole number, zero or more.");
+      setCount(String(tariff.count));
+      return;
+    }
+    if (next === tariff.count) return;
+    setBusy(true);
+    const res = await setRoomCountFn({ data: { type: tariff.type, count: next } });
+    setBusy(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      setCount(String(tariff.count));
+      return;
+    }
+    onSaved();
+  }
+
   return (
     <div className={cn(ROW, "flex flex-wrap items-center gap-3.5 px-3.5 py-3")}>
-      <div className="flex-1">
-        <div className="text-[13.5px] font-semibold">{tariff.name}</div>
-        <div className="text-[11.5px] text-[#a49d8d]">{tariff.count} rooms</div>
+      <Input
+        className={cn(FIELD, "min-w-40 flex-1 font-semibold")}
+        value={name}
+        disabled={busy}
+        aria-label="Room type name"
+        onChange={(e) => setName(e.target.value)}
+        onBlur={() => void saveDetails()}
+      />
+      <div className="flex items-center gap-1.5">
+        <Input
+          className={cn(FIELD, "w-14 text-right")}
+          value={count}
+          disabled={busy}
+          aria-label={`${tariff.name} room count`}
+          onChange={(e) => setCount(e.target.value)}
+          onBlur={() => void saveCount()}
+        />
+        <span className="text-[11px] text-[#a49d8d]">rooms</span>
       </div>
       <div className="flex items-center gap-1.5">
         <Input
@@ -204,7 +253,7 @@ function TariffRow({ tariff, onSaved }: { tariff: RoomTariff; onSaved: () => voi
           disabled={busy}
           aria-label={`${tariff.name} area`}
           onChange={(e) => setAreaSqm(e.target.value)}
-          onBlur={() => void save()}
+          onBlur={() => void saveDetails()}
         />
         <span className="text-[11px] text-[#a49d8d]">m²</span>
       </div>
@@ -216,7 +265,7 @@ function TariffRow({ tariff, onSaved }: { tariff: RoomTariff; onSaved: () => voi
           disabled={busy}
           aria-label={`${tariff.name} rate per night`}
           onChange={(e) => setRate(e.target.value)}
-          onBlur={() => void save()}
+          onBlur={() => void saveDetails()}
         />
         <span className="text-[11px] text-[#a49d8d]">/ night</span>
       </div>

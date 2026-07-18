@@ -202,7 +202,10 @@ async function load(): Promise<BookingData> {
     partyHall: partyHallRows.map(toPartyHall),
     rooms: roomRows.map(toRoomTile),
     roomTypeOverrides: Object.fromEntries(
-      roomTypeRows.map((r) => [r.type, { areaSqm: r.areaSqm, pricePerNight: r.pricePerNight }]),
+      roomTypeRows.map((r) => [
+        r.type,
+        { name: r.name ?? undefined, areaSqm: r.areaSqm, pricePerNight: r.pricePerNight },
+      ]),
     ) as BookingData["roomTypeOverrides"],
   };
 }
@@ -394,22 +397,56 @@ async function updateRoom(no: string, status: RoomStatus, detail: string): Promi
 
 async function upsertRoomTypeSettings(
   type: RoomType,
-  areaSqm: number,
-  pricePerNight: number,
+  patch: { name?: string; areaSqm: number; pricePerNight: number },
 ): Promise<void> {
   const conn = db();
   if (!conn) {
     noDbInsert();
     fixtures.roomTypeOverrides = {
       ...fixtures.roomTypeOverrides,
-      [type]: { areaSqm, pricePerNight },
+      [type]: { ...fixtures.roomTypeOverrides[type], ...patch },
     };
     return;
   }
   await conn
     .insert(schema.roomTypeSettings)
-    .values({ type, areaSqm, pricePerNight })
-    .onConflictDoUpdate({ target: schema.roomTypeSettings.type, set: { areaSqm, pricePerNight } });
+    .values({ type, ...patch })
+    .onConflictDoUpdate({ target: schema.roomTypeSettings.type, set: patch });
+}
+
+/**
+ * Settings' room-count field: adds or removes rooms of a type until the
+ * floor board has exactly `count` of them, since `count` itself is never
+ * stored (see `resolveRoomTypes`). New numbers alternate floor 1/2 and
+ * continue that floor's highest existing number; shrinking removes the
+ * highest-numbered rooms of the type first.
+ */
+async function resizeRoomType(type: RoomType, count: number): Promise<Result> {
+  const current = await load();
+  const allRooms = current.rooms ?? [];
+  const ofType = allRooms.filter((r) => r.type === type);
+  const diff = count - ofType.length;
+  if (diff === 0) return { ok: true };
+
+  if (diff > 0) {
+    for (let i = 0; i < diff; i++) {
+      const floor: 1 | 2 = (ofType.length + i) % 2 === 0 ? 1 : 2;
+      const onFloor = allRooms.filter((r) => r.floor === floor);
+      const maxSuffix = Math.max(0, ...onFloor.map((r) => Number(r.no.slice(1)) || 0));
+      const no = `${floor}${String(maxSuffix + 1).padStart(2, "0")}`;
+      if (allRooms.some((r) => r.no === no)) {
+        return { ok: false, error: `Could not generate a free room number on floor ${floor}.` };
+      }
+      await insertRoom({ no, floor, type, status: "available", detail: "Ready" });
+      allRooms.push({ no, floor, type, status: "available", detail: "Ready" });
+    }
+  } else {
+    const toRemove = [...ofType].sort((a, b) => b.no.localeCompare(a.no)).slice(0, -diff);
+    for (const room of toRemove) {
+      await deleteRoom(room.no);
+    }
+  }
+  return { ok: true };
 }
 
 /**
@@ -643,15 +680,37 @@ export const removeRoomFn = createServerFn({ method: "POST" })
 
 /** Settings' per-type area/rate fields. */
 export const updateRoomTypeSettingsFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { type: RoomType; areaSqm: number; pricePerNight: number }) => data)
+  .inputValidator(
+    (data: { type: RoomType; name?: string; areaSqm: number; pricePerNight: number }) => data,
+  )
   .handler(async ({ data }): Promise<Result> => {
     const auth = await requireSettingsWriter();
     if (!auth.ok) return auth;
     if (data.areaSqm <= 0 || data.pricePerNight <= 0) {
       return { ok: false, error: "Area and rate must be greater than zero." };
     }
-    await upsertRoomTypeSettings(data.type, data.areaSqm, data.pricePerNight);
+    const name = data.name?.trim();
+    if (data.name !== undefined && !name) {
+      return { ok: false, error: "Name cannot be empty." };
+    }
+    await upsertRoomTypeSettings(data.type, {
+      name,
+      areaSqm: data.areaSqm,
+      pricePerNight: data.pricePerNight,
+    });
     return { ok: true };
+  });
+
+/** Settings' room-count field — resizes the floor board to match. */
+export const setRoomCountFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { type: RoomType; count: number }) => data)
+  .handler(async ({ data }): Promise<Result> => {
+    const auth = await requireRoomWriter();
+    if (!auth.ok) return auth;
+    if (!Number.isInteger(data.count) || data.count < 0) {
+      return { ok: false, error: "Room count must be a whole number, zero or more." };
+    }
+    return resizeRoomType(data.type, data.count);
   });
 
 /** Sidebar badges. Counts only — the shell has no use for the rows themselves. */
