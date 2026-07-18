@@ -15,6 +15,8 @@ import { createGuestBookingFn } from "@/lib/bookings-data";
 import type { Booking } from "@/types/booking";
 import { Nav } from "@/components/home/Nav";
 import { Input } from "@/components/ui/input";
+import roomDeluxe from "@/assets/room-deluxe.jpg";
+import roomBalcony from "@/assets/room-balcony.jpg";
 import {
   Select,
   SelectContent,
@@ -24,6 +26,11 @@ import {
 } from "@/components/ui/select";
 
 const STEPS = ["Rooms", "Details", "Payment", "Confirmed"] as const;
+
+const ROOM_IMAGES: Record<RoomType, string> = {
+  deluxe: roomDeluxe,
+  deluxe_balcony: roomBalcony,
+};
 
 const FIELD =
   "h-auto rounded-[5px] border-[#e5ddcb] bg-white px-3.25 py-2.75 text-[13.5px] shadow-none " +
@@ -293,8 +300,9 @@ function RoomsStep({
             key={rt.type}
             className="overflow-hidden rounded-[6px] border border-gold/15 bg-white"
           >
-            <div className="flex h-[230px] items-center justify-center bg-obsidian/5">
-              <span className="text-xs uppercase tracking-[0.2em] text-warm-gray/60">
+            <div className="relative h-[230px]">
+              <img src={ROOM_IMAGES[rt.type]} alt={rt.name} className="size-full object-cover" />
+              <span className="absolute right-3 top-3 rounded-full bg-obsidian/70 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-ivory">
                 {rt.areaSqm} m²
               </span>
             </div>

@@ -52,7 +52,7 @@ export function Nav() {
 
         <div className="flex items-center gap-3">
           <a
-            href="#book"
+            href="/book"
             className="hidden md:inline-flex items-center text-[11px] uppercase tracking-[0.22em] text-obsidian bg-gold hover:bg-gold-soft transition-colors px-5 py-2.5 font-semibold"
           >
             Book Direct
@@ -85,7 +85,7 @@ export function Nav() {
             </a>
           ))}
           <a
-            href="#book"
+            href="/book"
             onClick={() => setOpen(false)}
             className="mt-2 inline-flex justify-center bg-gold text-obsidian text-[11px] uppercase tracking-[0.22em] py-3 font-semibold"
           >
