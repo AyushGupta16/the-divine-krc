@@ -16,7 +16,7 @@
 
 import { useState } from "react";
 import { format, parseISO, addDays } from "date-fns";
-import { Check, Loader2 } from "lucide-react";
+import { Check, Home, Loader2, Lock, Zap } from "lucide-react";
 
 import type { PayMethod, RoomType } from "@/types/booking";
 import { GST_PCT, ROOM_TYPES } from "@/lib/bookings";
@@ -525,29 +525,37 @@ function Summary({
   subtotal: number;
   total: number;
 }) {
+  const coverImage = cartLines.length > 0 ? ROOM_IMAGES[cartLines[0].type] : undefined;
+
   return (
-    <div className="w-full shrink-0 rounded-[6px] bg-obsidian p-6 text-ivory sm:w-[380px]">
-      <h3 className="font-display text-lg text-gold">Your stay</h3>
-      <p className="mt-1 text-[12.5px] text-ivory/70">
-        {checkIn} → {checkOut} · {nights} night{nights === 1 ? "" : "s"}
-      </p>
-      <div className="mt-5 flex flex-col gap-2 border-t border-ivory/10 pt-4 text-[13px]">
-        {cartLines.map((l) => (
-          <div key={l.type} className="flex justify-between text-ivory/80">
-            <span>
-              {l.name} × {l.qty} × {nights} night{nights === 1 ? "" : "s"}
-            </span>
-            <span>{formatINR(l.pricePerNight * nights * l.qty)}</span>
+    <div className="w-full shrink-0 overflow-hidden rounded-[6px] bg-obsidian text-ivory sm:w-[380px]">
+      {coverImage && <img src={coverImage} alt="" className="h-[155px] w-full object-cover" />}
+      <div className="p-6">
+        <p className="text-[10px] uppercase tracking-[0.18em] text-ivory/50">Your stay</p>
+        <h3 className="mt-1 font-display text-lg text-gold">
+          {cartLines.map((l) => l.name).join(" + ")}
+        </h3>
+        <p className="mt-1 text-[12.5px] text-ivory/70">
+          {checkIn} → {checkOut} · {nights} night{nights === 1 ? "" : "s"}
+        </p>
+        <div className="mt-5 flex flex-col gap-2 border-t border-ivory/10 pt-4 text-[13px]">
+          {cartLines.map((l) => (
+            <div key={l.type} className="flex justify-between text-ivory/80">
+              <span>
+                {l.name} × {l.qty} × {nights} night{nights === 1 ? "" : "s"}
+              </span>
+              <span>{formatINR(l.pricePerNight * nights * l.qty)}</span>
+            </div>
+          ))}
+          <div className="flex justify-between text-ivory/80">
+            <span>Taxes & fees ({GST_PCT}%)</span>
+            <span>{formatINR(total - subtotal)}</span>
           </div>
-        ))}
-        <div className="flex justify-between text-ivory/80">
-          <span>Taxes & fees ({GST_PCT}%)</span>
-          <span>{formatINR(total - subtotal)}</span>
         </div>
-      </div>
-      <div className="mt-4 flex items-baseline justify-between border-t border-ivory/10 pt-4">
-        <span className="text-[12px] uppercase tracking-[0.14em] text-ivory/60">Total</span>
-        <span className="font-display text-2xl text-gold">{formatINR(total)}</span>
+        <div className="mt-4 flex items-baseline justify-between border-t border-ivory/10 pt-4">
+          <span className="text-[12px] uppercase tracking-[0.14em] text-ivory/60">Total</span>
+          <span className="font-display text-2xl text-gold">{formatINR(total)}</span>
+        </div>
       </div>
     </div>
   );
@@ -715,35 +723,62 @@ function PaymentStep({
           <button
             type="button"
             onClick={() => setPayMethod("razorpay")}
-            className={`rounded-[6px] border p-4 text-left transition-colors ${
+            className={`flex items-center gap-3 rounded-[6px] border p-4 text-left transition-colors ${
               payMethod === "razorpay" ? "border-gold bg-gold/5" : "border-[#e5ddcb] bg-white"
             }`}
           >
-            <p className="text-[13.5px] font-semibold text-obsidian">Pay online</p>
-            <p className="text-[12px] text-warm-gray">via Razorpay</p>
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-[5px] bg-obsidian text-gold">
+              <Zap className="size-4" />
+            </span>
+            <span>
+              <p className="text-[13.5px] font-semibold text-obsidian">Pay online</p>
+              <p className="text-[12px] text-warm-gray">via Razorpay</p>
+            </span>
           </button>
           <button
             type="button"
             onClick={() => setPayMethod("pay_at_hotel")}
-            className={`rounded-[6px] border p-4 text-left transition-colors ${
+            className={`flex items-center gap-3 rounded-[6px] border p-4 text-left transition-colors ${
               payMethod === "pay_at_hotel" ? "border-gold bg-gold/5" : "border-[#e5ddcb] bg-white"
             }`}
           >
-            <p className="text-[13.5px] font-semibold text-obsidian">Pay at hotel</p>
-            <p className="text-[12px] text-warm-gray">Settle on arrival</p>
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-[5px] bg-gold/15 text-gold">
+              <Home className="size-4" />
+            </span>
+            <span>
+              <p className="text-[13.5px] font-semibold text-obsidian">Pay at hotel</p>
+              <p className="text-[12px] text-warm-gray">Reserve, pay on arrival</p>
+            </span>
           </button>
         </div>
 
-        <div className="mt-5 rounded-[6px] border border-gold/15 bg-white p-4 text-[12.5px] text-warm-gray">
-          {payMethod === "razorpay" ? (
-            <>
-              <p className="font-medium text-obsidian">Secure checkout powered by Razorpay</p>
-              <p className="mt-1">UPI · Cards · Net Banking · Wallets</p>
-            </>
-          ) : (
+        {payMethod === "razorpay" ? (
+          <div className="mt-5 overflow-hidden rounded-[6px] border border-gold/15">
+            <div className="flex items-center gap-2 bg-obsidian px-4 py-3 text-[13px] text-ivory">
+              <Lock className="size-3.5 text-gold" />
+              <span>
+                Secure checkout powered by <span className="font-semibold text-gold">Razorpay</span>
+              </span>
+            </div>
+            <div className="bg-white p-4 text-[12.5px] text-warm-gray">
+              <p>Continue to Razorpay to complete payment. Choose from:</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {["UPI", "Cards", "Net Banking", "Wallets"].map((m) => (
+                  <span
+                    key={m}
+                    className="rounded-full border border-gold/25 px-3 py-1 text-[11px] text-obsidian"
+                  >
+                    {m}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-5 rounded-[6px] border border-gold/15 bg-white p-4 text-[12.5px] text-warm-gray">
             <p>Your rooms are held; settle the full amount at check-in.</p>
-          )}
-        </div>
+          </div>
+        )}
 
         {error && (
           <p className="mt-4 rounded-md border border-[#e6cbc2] bg-[#f7e6e0] px-3.25 py-2.5 text-[12.5px] font-medium text-[#b4553f]">
