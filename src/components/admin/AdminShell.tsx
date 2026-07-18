@@ -310,13 +310,21 @@ function HeaderTitle({ isDashboard, user }: { isDashboard: boolean; user: Sessio
 }
 
 /** Global header actions — notifications, search, new booking. */
-function HeaderActions({ notifications }: { notifications: NotificationsData }) {
+function HeaderActions({
+  notifications,
+  onSearch,
+}: {
+  notifications: NotificationsData;
+  onSearch: () => void;
+}) {
   return (
     <div className="ml-auto flex items-center gap-2">
       <NotificationsBell notifications={notifications} />
       <button
         type="button"
+        onClick={onSearch}
         aria-label="Search bookings, guests"
+        title="Search bookings, guests"
         className="flex size-10 items-center justify-center rounded-[5px] border border-[#eae4d6] bg-white text-warm-gray transition-colors hover:bg-black/[0.03]"
       >
         <Search className="size-4.25" />
@@ -325,10 +333,83 @@ function HeaderActions({ notifications }: { notifications: NotificationsData }) 
         to="/admin/bookings"
         search={{ new: "1" }}
         aria-label="New booking"
+        title="New booking"
         className="flex size-10 items-center justify-center rounded-[5px] bg-gold text-obsidian transition-opacity hover:opacity-90"
       >
         <Plus className="size-4.5" strokeWidth={2.4} />
       </Link>
+    </div>
+  );
+}
+
+/** Keyword shortcuts, not raw nav labels — what a front-desk staffer would actually type. */
+const SEARCH_SHORTCUTS: { label: string; to: string }[] = [
+  { label: "Today's check-ins", to: "/admin/bookings" },
+  { label: "Today's check-outs", to: "/admin/bookings" },
+  { label: "Pending payments", to: "/admin/payments" },
+  { label: "Guest directory", to: "/admin/guests" },
+  { label: "Vacant rooms", to: "/admin/rooms" },
+  { label: "Occupied rooms", to: "/admin/rooms" },
+  { label: "Party hall", to: "/admin/party-hall" },
+  { label: "This month's revenue", to: "/admin/reports" },
+  { label: "New booking", to: "/admin/bookings" },
+  { label: "Upcoming reservations", to: "/admin/calendar" },
+  { label: "Team & access", to: "/admin/settings/invite" },
+];
+
+/** Search popover opened from the header's search icon — covers the content area only, not the sidebar. */
+function SearchOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    if (open) setQuery("");
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-y-0 right-0 left-0 z-60 md:left-(--rail-w)">
+      <div
+        className="absolute inset-0 bg-obsidian/40 backdrop-blur-md"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div className="relative flex h-16 items-center gap-3 border-b border-[#eae4d6] bg-white px-4 sm:px-6">
+        <Search className="size-4.5 shrink-0 text-warm-gray" />
+        <input
+          autoFocus
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search bookings, guests, rooms…"
+          className="min-w-0 flex-1 bg-transparent text-[15px] text-obsidian outline-none placeholder:text-warm-gray/60"
+        />
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close search"
+          className="flex size-9 shrink-0 items-center justify-center rounded-md text-obsidian hover:bg-black/5"
+        >
+          <X className="size-5" />
+        </button>
+      </div>
+      <div className="relative mx-4 mt-4 rounded-lg border border-[#eae4d6] bg-white p-5 shadow-2xl sm:mx-6">
+        <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[#a49d8d]">
+          Quick access
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {SEARCH_SHORTCUTS.map((item) => (
+            <Link
+              key={item.label}
+              to={item.to}
+              onClick={onClose}
+              className="inline-flex items-center rounded-full border border-[#eae4d6] bg-white px-3.5 py-2 text-[12px] font-semibold text-warm-gray transition-colors hover:border-gold/50 hover:text-obsidian"
+            >
+              {item.label}
+            </Link>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -386,6 +467,7 @@ export function AdminShell({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const isDashboard = useRouterState({
     select: (s) => (s.location.pathname.replace(/\/$/, "") || "/admin") === "/admin",
   });
@@ -456,7 +538,7 @@ export function AdminShell({
           </button>
 
           <HeaderTitle isDashboard={isDashboard} user={user} />
-          <HeaderActions notifications={notifications} />
+          <HeaderActions notifications={notifications} onSearch={() => setSearchOpen(true)} />
         </header>
 
         {/* Page content */}
@@ -464,6 +546,8 @@ export function AdminShell({
           <Outlet />
         </main>
       </div>
+
+      <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} />
 
       <BottomNav onMore={() => setDrawerOpen(true)} />
     </div>
