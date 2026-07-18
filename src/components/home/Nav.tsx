@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { FileSearch } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import logo from "@/assets/krc-logo.jpg";
 
 const links = ["Rooms", "Events", "Dining", "Amenities", "Gallery", "Contact"];
@@ -57,13 +59,26 @@ export function Nav({ alwaysSolid = false }: { alwaysSolid?: boolean } = {}) {
           ))}
         </div>
 
-        <div className="flex items-center gap-5">
-          <a
-            href="/booking-lookup"
-            className="hidden md:inline-flex items-center text-[11px] uppercase tracking-[0.2em] text-ivory/70 hover:text-gold transition-colors"
-          >
-            Manage Booking
-          </a>
+        <div className="flex items-center gap-4">
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <a
+                  href="/booking-lookup"
+                  aria-label="Manage booking"
+                  className="hidden md:inline-flex size-9 items-center justify-center rounded-full border border-gold/30 text-ivory/70 hover:border-gold hover:text-gold transition-colors"
+                >
+                  <FileSearch className="size-4" />
+                </a>
+              </TooltipTrigger>
+              <TooltipContent
+                side="bottom"
+                className="rounded-[4px] border border-gold/20 bg-obsidian px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-gold"
+              >
+                Manage Booking
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <a
             href="/book"
             className="hidden md:inline-flex items-center text-[11px] uppercase tracking-[0.22em] text-obsidian bg-gold hover:bg-gold-soft transition-colors px-5 py-2.5 font-semibold"
