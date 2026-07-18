@@ -855,35 +855,47 @@ function ConfirmedStep({
   onRestart: () => void;
 }) {
   const roomSummary = cartLines.map((l) => `${l.qty}× ${l.name}`).join(", ");
+  const roomCount = cartLines.reduce((sum, l) => sum + l.qty, 0);
+  const paymentValue =
+    payMethod === "razorpay" ? "Pending — pay online" : "Pay at hotel · Reserved";
 
   return (
     <div className="mx-auto max-w-lg px-6 py-16 text-center">
-      <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-gold/15 text-gold">
-        <Check className="size-7" />
+      <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-gold text-obsidian">
+        <Check className="size-8" />
       </div>
-      <h2 className="mt-5 font-display text-2xl text-obsidian">Booking confirmed</h2>
-      <div className="mt-6 rounded-[6px] border border-gold/15 bg-white text-left">
-        <div className="border-b border-gold/10 px-5 py-3">
-          <p className="text-xs uppercase tracking-[0.16em] text-gold">
-            {bookings.map((b) => b.id).join(" · ")}
-          </p>
+      <h2 className="mt-6 font-display text-3xl font-semibold text-obsidian">Booking confirmed</h2>
+      <p className="mt-2 text-[13.5px] text-warm-gray">
+        A confirmation has been sent to your email &amp; WhatsApp.
+      </p>
+      <div className="mt-8 overflow-hidden rounded-[6px] border border-gold/15 bg-white text-left">
+        <div className="flex items-baseline justify-between bg-obsidian px-5 py-3.5">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-ivory/50">Booking ID</p>
+          <p className="font-display text-lg text-gold">{bookings.map((b) => b.id).join(" · ")}</p>
         </div>
         <dl className="flex flex-col gap-2.5 px-5 py-4 text-[13px]">
           <Row label="Rooms" value={roomSummary} />
           <Row label="Dates" value={`${checkIn} → ${checkOut}`} />
-          <Row label="Guests" value={`${guests} ${guests === 1 ? "Adult" : "Adults"}`} />
+          <Row
+            label="Guests"
+            value={`${guests} · ${roomCount} room${roomCount === 1 ? "" : "s"}`}
+          />
           <Row
             label="Payment"
-            value={payMethod === "razorpay" ? "Pending — pay online" : "Pay at hotel"}
+            value={paymentValue}
+            valueClassName={payMethod === "pay_at_hotel" ? "text-[#3f7a4f]" : undefined}
           />
-          <Row label="Total" value={formatINR(total)} />
         </dl>
+        <div className="flex items-baseline justify-between border-t border-gold/10 px-5 py-4">
+          <span className="text-[13.5px] font-semibold text-obsidian">Total</span>
+          <span className="font-display text-xl text-gold">{formatINR(total)}</span>
+        </div>
       </div>
       <div className="mt-6 flex justify-center gap-3">
         <button
           type="button"
           onClick={() => window.print()}
-          className="rounded-[5px] border border-gold/30 px-5 py-2.5 text-[11px] font-bold uppercase tracking-[0.16em] text-obsidian"
+          className="rounded-[5px] bg-obsidian px-5 py-2.5 text-[11px] font-bold uppercase tracking-[0.16em] text-gold transition-opacity hover:opacity-90"
         >
           Download receipt
         </button>
@@ -899,11 +911,19 @@ function ConfirmedStep({
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({
+  label,
+  value,
+  valueClassName,
+}: {
+  label: string;
+  value: string;
+  valueClassName?: string;
+}) {
   return (
     <div className="flex justify-between">
       <dt className="text-warm-gray">{label}</dt>
-      <dd className="font-medium text-obsidian">{value}</dd>
+      <dd className={`font-semibold ${valueClassName ?? "text-obsidian"}`}>{value}</dd>
     </div>
   );
 }
