@@ -12,9 +12,11 @@
 // beats: load the state the rule needs, ask the rule, persist what it decided.
 // The rule stays testable with no connection, which is why it does not fetch.
 
+import { randomUUID } from "node:crypto";
+
 import { createServerFn } from "@tanstack/react-start";
 
-import { getSessionMember } from "@/lib/auth";
+import { establishSession, getSessionMember } from "@/lib/auth";
 import { hashPassword } from "@/lib/password";
 import {
   acceptMember,
@@ -215,5 +217,32 @@ export const acceptInviteFn = createServerFn({ method: "POST" })
 
     // Opportunistic tidy: tokens that died unused are of no interest to anyone.
     await purgeExpiredInvites();
+    return { ok: true, email: result.member.email };
+  });
+
+/**
+ * Simulated Google sign-up, mirroring `googleLoginFn` in `auth.ts`: real OAuth
+ * needs a Google client id/secret + redirect flow, so this accepts the invite
+ * on the invited person's own email — the token already proved it's theirs —
+ * mints a password nobody will ever type, and signs them straight into the
+ * console. Same token-is-the-proof stance as `acceptInviteFn`, deliberately
+ * unauthenticated.
+ */
+export const googleAcceptInviteFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { token: string }) => data)
+  .handler(async ({ data }): Promise<Result<{ email: string }>> => {
+    const [roster, invite] = await Promise.all([loadRoster(), findInviteByToken(data.token)]);
+    const { burn, result } = acceptInvite({ roster, invite });
+
+    if (!result.ok) {
+      if (burn) await deleteInvite(burn);
+      return result;
+    }
+
+    await acceptMember(result.member, await hashPassword(randomUUID()));
+    if (burn) await deleteInvite(burn);
+
+    await purgeExpiredInvites();
+    await establishSession({ email: result.member.email, name: result.member.name });
     return { ok: true, email: result.member.email };
   });

@@ -5,7 +5,7 @@
 // are simulated (UI-complete) — see the clearly marked stubs below. Swap the
 // mock store for a DB and the stubs for real OAuth / an email provider later.
 
-import { createServerFn } from "@tanstack/react-start";
+import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { useSession } from "@tanstack/react-start/server";
 import { redirect } from "@tanstack/react-router";
 
@@ -102,6 +102,17 @@ function getSession() {
     password: sessionPassword(),
   });
 }
+
+/**
+ * Sign the given member into the session directly. Exported so the invite
+ * flow's simulated Google sign-up (`googleAcceptInviteFn` in `invites.ts`)
+ * can land someone in the console the same way `loginFn`/`googleLoginFn` do,
+ * without duplicating `getSession`'s h3 wiring outside this module.
+ */
+export const establishSession = createServerOnlyFn(async (user: SessionUser) => {
+  const session = await getSession();
+  await session.update({ user });
+});
 
 // --- Credentials --------------------------------------------------------
 //
@@ -202,8 +213,7 @@ export const googleLoginFn = createServerFn({ method: "POST" }).handler(
     if (!admin || !ownerPassword()) {
       return { ok: false, error: "Google sign-in is unavailable." };
     }
-    const session = await getSession();
-    await session.update({ user: { email: admin.email, name: admin.name } });
+    await establishSession({ email: admin.email, name: admin.name });
     return { ok: true };
   },
 );
