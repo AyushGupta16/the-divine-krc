@@ -35,6 +35,8 @@ export function ScrollDial() {
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
+  const label = atBottom ? "TOP" : "SCROLL";
+
   return (
     <button
       type="button"
@@ -45,7 +47,14 @@ export function ScrollDial() {
       }`}
     >
       <span className="h-10 w-px bg-gold/40 motion-safe:animate-pulse" />
-      <span className="text-[9px] uppercase tracking-[0.3em]">{atBottom ? "Top" : "Scroll"}</span>
+      <span
+        className="flex flex-col items-center text-[9px] uppercase leading-[1.6] tracking-widest"
+        aria-hidden="true"
+      >
+        {label.split("").map((ch, i) => (
+          <span key={i}>{ch}</span>
+        ))}
+      </span>
     </button>
   );
 }
