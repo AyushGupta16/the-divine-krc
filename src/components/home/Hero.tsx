@@ -53,11 +53,6 @@ export function Hero() {
         </div>
       </div>
 
-      <div className="absolute bottom-6 right-6 md:right-10 z-10 hidden sm:flex flex-col items-center gap-3 text-ivory/50 text-[9px] uppercase tracking-[0.3em] writing-mode-vertical">
-        <span className="h-10 w-px bg-gold/40 motion-safe:animate-pulse" />
-        <span>Scroll</span>
-      </div>
-
       <style>{`
         @keyframes kenburns {
           0% { transform: scale(1.04) translate3d(0,0,0); }
