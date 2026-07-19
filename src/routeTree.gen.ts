@@ -14,6 +14,7 @@ import { Route as BookRouteImport } from './routes/book'
 import { Route as AdminRouteRouteImport } from './routes/admin/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as InvoiceInvoiceNoRouteImport } from './routes/invoice.$invoiceNo'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
 import { Route as AdminRoomsRouteImport } from './routes/admin/rooms'
 import { Route as AdminResetPasswordRouteImport } from './routes/admin/reset-password'
@@ -53,6 +54,11 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AdminRouteRoute,
+} as any)
+const InvoiceInvoiceNoRoute = InvoiceInvoiceNoRouteImport.update({
+  id: '/invoice/$invoiceNo',
+  path: '/invoice/$invoiceNo',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AdminSettingsRoute = AdminSettingsRouteImport.update({
   id: '/settings',
@@ -143,6 +149,7 @@ export interface FileRoutesByFullPath {
   '/admin/reset-password': typeof AdminResetPasswordRoute
   '/admin/rooms': typeof AdminRoomsRoute
   '/admin/settings': typeof AdminSettingsRoute
+  '/invoice/$invoiceNo': typeof InvoiceInvoiceNoRoute
   '/admin/': typeof AdminIndexRoute
   '/admin/settings/invite': typeof AdminSettingsInviteRoute
 }
@@ -163,6 +170,7 @@ export interface FileRoutesByTo {
   '/admin/reset-password': typeof AdminResetPasswordRoute
   '/admin/rooms': typeof AdminRoomsRoute
   '/admin/settings': typeof AdminSettingsRoute
+  '/invoice/$invoiceNo': typeof InvoiceInvoiceNoRoute
   '/admin': typeof AdminIndexRoute
   '/admin/settings/invite': typeof AdminSettingsInviteRoute
 }
@@ -185,6 +193,7 @@ export interface FileRoutesById {
   '/admin/reset-password': typeof AdminResetPasswordRoute
   '/admin/rooms': typeof AdminRoomsRoute
   '/admin/settings': typeof AdminSettingsRoute
+  '/invoice/$invoiceNo': typeof InvoiceInvoiceNoRoute
   '/admin/': typeof AdminIndexRoute
   '/admin/settings_/invite': typeof AdminSettingsInviteRoute
 }
@@ -208,6 +217,7 @@ export interface FileRouteTypes {
     | '/admin/reset-password'
     | '/admin/rooms'
     | '/admin/settings'
+    | '/invoice/$invoiceNo'
     | '/admin/'
     | '/admin/settings/invite'
   fileRoutesByTo: FileRoutesByTo
@@ -228,6 +238,7 @@ export interface FileRouteTypes {
     | '/admin/reset-password'
     | '/admin/rooms'
     | '/admin/settings'
+    | '/invoice/$invoiceNo'
     | '/admin'
     | '/admin/settings/invite'
   id:
@@ -249,6 +260,7 @@ export interface FileRouteTypes {
     | '/admin/reset-password'
     | '/admin/rooms'
     | '/admin/settings'
+    | '/invoice/$invoiceNo'
     | '/admin/'
     | '/admin/settings_/invite'
   fileRoutesById: FileRoutesById
@@ -258,6 +270,7 @@ export interface RootRouteChildren {
   AdminRouteRoute: typeof AdminRouteRouteWithChildren
   BookRoute: typeof BookRoute
   BookingLookupRoute: typeof BookingLookupRoute
+  InvoiceInvoiceNoRoute: typeof InvoiceInvoiceNoRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -296,6 +309,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/'
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof AdminRouteRoute
+    }
+    '/invoice/$invoiceNo': {
+      id: '/invoice/$invoiceNo'
+      path: '/invoice/$invoiceNo'
+      fullPath: '/invoice/$invoiceNo'
+      preLoaderRoute: typeof InvoiceInvoiceNoRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/admin/settings': {
       id: '/admin/settings'
@@ -443,6 +463,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminRouteRoute: AdminRouteRouteWithChildren,
   BookRoute: BookRoute,
   BookingLookupRoute: BookingLookupRoute,
+  InvoiceInvoiceNoRoute: InvoiceInvoiceNoRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

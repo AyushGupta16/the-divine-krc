@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Download, Plus } from "lucide-react";
+import { Download, FileText, Loader2, Plus } from "lucide-react";
 
 import type {
   BookingListItem,
@@ -12,6 +12,7 @@ import type {
   RoomType,
 } from "@/types/booking";
 import { formatINR } from "@/lib/booking-math";
+import { adminIssueInvoiceFn } from "@/lib/invoices-data";
 import { BookingEntryForm } from "@/components/admin/BookingEntryForm";
 import {
   Table,
@@ -200,6 +201,15 @@ function StatusBadge({ status }: { status: BookingStatus }) {
 function BookingRow({ item, sr }: { item: BookingListItem; sr: number }) {
   const { booking: b, guestName } = item;
   const meal: MealPlan = b.mealPlan;
+  const [issuing, setIssuing] = useState(false);
+
+  async function openInvoice() {
+    setIssuing(true);
+    const res = await adminIssueInvoiceFn({ data: { kind: "booking", id: b.id } });
+    setIssuing(false);
+    if (res.ok) window.open(`/invoice/${res.invoiceNo}`, "_blank", "noopener,noreferrer");
+  }
+
   return (
     <TableRow className="border-[#f2ede2] hover:bg-[#faf7ef]">
       <TableCell className={cn(cell, "text-[#a49d8d]")}>{sr}</TableCell>
@@ -245,6 +255,17 @@ function BookingRow({ item, sr }: { item: BookingListItem; sr: number }) {
       <TableCell className={cell}>
         <StatusBadge status={b.status} />
       </TableCell>
+      <TableCell className={cell}>
+        <button
+          type="button"
+          disabled={issuing}
+          onClick={openInvoice}
+          className="flex items-center gap-1.25 text-[11px] font-bold uppercase tracking-[0.06em] text-[#3a6ea5] hover:opacity-75 disabled:opacity-50"
+        >
+          {issuing ? <Loader2 className="size-3 animate-spin" /> : <FileText className="size-3" />}
+          Invoice
+        </button>
+      </TableCell>
     </TableRow>
   );
 }
@@ -283,6 +304,7 @@ function TotalsRow({ totals }: { totals: BookingsTotals }) {
         {inr(totals.pending)}
       </TableCell>
       <TableCell className={cell} />
+      <TableCell className={cell} />
     </TableRow>
   );
 }
@@ -303,7 +325,7 @@ function BookingsTable({ rows, totals }: { rows: BookingListItem[]; totals: Book
             <TableHead colSpan={3} className={cn(bandHead, "border-l border-[#c5a05940]")}>
               Collection (₹)
             </TableHead>
-            <TableHead className={cn(bandHead, "border-l border-[#c5a05940]")} />
+            <TableHead colSpan={2} className={cn(bandHead, "border-l border-[#c5a05940]")} />
           </TableRow>
           {/* column heads */}
           <TableRow className="border-b border-[#eae4d6] bg-[#faf7ef] hover:bg-[#faf7ef]">
@@ -326,6 +348,7 @@ function BookingsTable({ rows, totals }: { rows: BookingListItem[]; totals: Book
             <TableHead className={cn(colHead, "text-right")}>OTA Coll</TableHead>
             <TableHead className={cn(colHead, "text-right")}>Pending</TableHead>
             <TableHead className={colHead}>Status</TableHead>
+            <TableHead className={colHead}>Invoice</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

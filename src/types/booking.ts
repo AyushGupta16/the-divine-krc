@@ -97,6 +97,10 @@ export interface PartyHallEnquiry {
   amount: number;
   /** Money in hand — derived from `amount` and `status`, never seeded. */
   advancePaid: number;
+  /** Who to bill for the invoice — enquiries carry no guest row of their own. */
+  contactName?: string;
+  contactPhone?: string;
+  contactEmail?: string;
 }
 
 // ── Admin dashboard (PR #3) ──────────────────────────────────────────────

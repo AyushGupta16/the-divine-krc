@@ -37,6 +37,7 @@ dist-ssr
 # Design handoff package (reference only — not part of the app source)
 /Room booking system dashboard/
 /Room booking system dashboard.zip
+/design_handoff_krc_invoices/
 
 # Claude Code local files
 .claude/

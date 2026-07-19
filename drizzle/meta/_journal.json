@@ -43,6 +43,13 @@
       "when": 1784384633480,
       "tag": "0005_room_type_name",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784451381632,
+      "tag": "0006_party_hall_contact_and_invoices",
+      "breakpoints": true
     }
   ]
 }
