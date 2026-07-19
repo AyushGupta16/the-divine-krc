@@ -30,9 +30,14 @@ export function ScrollDial() {
   }, []);
 
   function go() {
-    document
-      .getElementById(atBottom ? "top" : "contact")
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (atBottom) {
+      document.getElementById("top")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    // Scroll to the true bottom, not just the top of #contact: the footer
+    // itself runs taller than one screen on mobile, so landing on its top
+    // edge left most of it — and the "atBottom" flip — below the fold.
+    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
   }
 
   const label = atBottom ? "TOP" : "SCROLL";
@@ -48,12 +53,10 @@ export function ScrollDial() {
     >
       <span className="h-10 w-px bg-gold/40 motion-safe:animate-pulse" />
       <span
-        className="flex flex-col items-center text-[9px] uppercase leading-[1.6] tracking-widest"
+        className="text-[9px] uppercase tracking-[0.3em] [writing-mode:vertical-rl] rotate-180"
         aria-hidden="true"
       >
-        {label.split("").map((ch, i) => (
-          <span key={i}>{ch}</span>
-        ))}
+        {label}
       </span>
     </button>
   );
