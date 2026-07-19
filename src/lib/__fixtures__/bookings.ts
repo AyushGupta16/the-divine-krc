@@ -13,7 +13,14 @@
 // and a local seed.
 
 import type { Booking, Guest, PartyHallEnquiry } from "@/types/booking";
-import { GST_PCT, withAdvance, withTier, withTotal, type BookingData } from "@/lib/bookings";
+import {
+  defaultRoomTiles,
+  GST_PCT,
+  withAdvance,
+  withTier,
+  withTotal,
+  type BookingData,
+} from "@/lib/bookings";
 
 const GUEST_SEED: Omit<Guest, "tier">[] = [
   {
@@ -534,9 +541,21 @@ export const bookings: Booking[] = BOOKINGS;
 /** Advance is derived from the quote, at `PARTY_HALL_ADVANCE_PCT`. */
 export const partyHallEnquiries: PartyHallEnquiry[] = PARTY_HALL_SEED.map(withAdvance);
 
-/** The whole seeded world, in the shape every derivation function reads. */
-export const fixtures: BookingData = {
+/** The floor board — mutated in place by the no-DB dev path, same convenience
+ *  `insertBooking` gives bookings when there is no database to persist to. */
+export const rooms = defaultRoomTiles();
+
+/** The whole seeded world, in the shape every derivation function reads.
+ *  `rooms` and `roomTypeOverrides` are always present here (unlike the
+ *  optional fields on `BookingData`), since this is the no-DB dev path's own
+ *  mutable store — narrower call sites can rely on that. */
+export const fixtures: BookingData & {
+  rooms: NonNullable<BookingData["rooms"]>;
+  roomTypeOverrides: NonNullable<BookingData["roomTypeOverrides"]>;
+} = {
   bookings,
   guests,
   partyHall: partyHallEnquiries,
+  rooms,
+  roomTypeOverrides: {},
 };
