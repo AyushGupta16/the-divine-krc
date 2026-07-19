@@ -438,6 +438,20 @@ async function updateRoom(no: string, status: RoomStatus, detail: string): Promi
   await conn.update(schema.rooms).set({ status, detail }).where(eq(schema.rooms.no, no));
 }
 
+async function updateRoomDetails(no: string, floor: 1 | 2, type: RoomType): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    const room = fixtures.rooms.find((r) => r.no === no);
+    if (room) {
+      room.floor = floor;
+      room.type = type;
+    }
+    return;
+  }
+  await conn.update(schema.rooms).set({ floor, type }).where(eq(schema.rooms.no, no));
+}
+
 async function upsertRoomTypeSettings(
   type: RoomType,
   patch: { name?: string; areaSqm: number; pricePerNight: number },
@@ -708,6 +722,20 @@ export const addRoomFn = createServerFn({ method: "POST" })
       status: "available",
       detail: "Ready",
     });
+    return { ok: true };
+  });
+
+/** Settings' per-room inline floor/type edit. */
+export const updateRoomDetailsFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { no: string; floor: 1 | 2; type: RoomType }) => data)
+  .handler(async ({ data }): Promise<Result> => {
+    const auth = await requireRoomWriter();
+    if (!auth.ok) return auth;
+    const current = await load();
+    if (!(current.rooms ?? []).some((r) => r.no === data.no)) {
+      return { ok: false, error: `Room ${data.no} does not exist.` };
+    }
+    await updateRoomDetails(data.no, data.floor, data.type);
     return { ok: true };
   });
 
