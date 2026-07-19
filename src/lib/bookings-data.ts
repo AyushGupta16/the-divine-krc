@@ -336,15 +336,6 @@ async function updatePartyHallContact(
     .where(eq(schema.partyHallEnquiries.id, id));
 }
 
-async function requireSettingsWriter(): Promise<Result> {
-  const member = await getSessionMember();
-  if (!member) return { ok: false, error: "Sign in to edit this." };
-  if (!can(member.role, "settings:write")) {
-    return { ok: false, error: `A ${member.role} account cannot edit settings.` };
-  }
-  return { ok: true };
-}
-
 export const updatePartyHallContactFn = createServerFn({ method: "POST" })
   .inputValidator(
     (data: { id: string; contactName: string; contactPhone: string; contactEmail: string }) => data,
