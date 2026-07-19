@@ -3,7 +3,10 @@ import logo from "@/assets/krc-logo.jpg";
 
 export function Footer() {
   return (
-    <footer className="bg-obsidian text-ivory/70 px-6 md:px-10 pt-20 pb-10 border-t border-gold/15">
+    <footer
+      id="contact"
+      className="bg-obsidian text-ivory/70 px-6 md:px-10 pt-20 pb-10 border-t border-gold/15"
+    >
       <div className="mx-auto max-w-7xl">
         <div className="grid md:grid-cols-12 gap-12 mb-16">
           <div className="md:col-span-4 space-y-5">
