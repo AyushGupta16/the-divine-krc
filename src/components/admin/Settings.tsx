@@ -19,6 +19,7 @@ import {
   addRoomFn,
   removeRoomFn,
   setRoomCountFn,
+  updateRoomDetailsFn,
   updateRoomTypeSettingsFn,
 } from "@/lib/bookings-data";
 import { Input } from "@/components/ui/input";
@@ -161,11 +162,6 @@ const STATUS_LABEL: Record<RoomStatus, string> = {
   maintenance: "Maintenance",
 };
 
-const TYPE_LABEL: Record<RoomType, string> = {
-  deluxe: "Deluxe",
-  deluxe_balcony: "Deluxe · Balcony",
-};
-
 /** One room type's rate + area — the only two fields on a tariff that are
  *  genuinely editable; `count` is read-only because it comes off the actual
  *  floor board below, not a number typed here. */
@@ -283,10 +279,30 @@ function TariffRow({ tariff, onSaved }: { tariff: RoomTariff; onSaved: () => voi
   );
 }
 
-/** One physical room's row: status + remove, in the floor-board table below
- *  the tariffs. Adding/removing here is what actually moves `count`. */
+/** One physical room's row: floor/type edit, status display, and remove, in
+ *  the floor-board table below the tariffs. Adding/removing here is what
+ *  actually moves `count`; floor and type save inline on change — status
+ *  still only changes from the Rooms screen's tile popup. */
 function RoomRow({ room, onChanged }: { room: RoomTile; onChanged: () => void }) {
+  const [floor, setFloor] = useState<"1" | "2">(String(room.floor) as "1" | "2");
+  const [type, setType] = useState<RoomType>(room.type);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => setFloor(String(room.floor) as "1" | "2"), [room.floor]);
+  useEffect(() => setType(room.type), [room.type]);
+
+  async function save(nextFloor: "1" | "2", nextType: RoomType) {
+    setBusy(true);
+    const res = await updateRoomDetailsFn({
+      data: { no: room.no, floor: Number(nextFloor) as 1 | 2, type: nextType },
+    });
+    setBusy(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    onChanged();
+  }
 
   async function remove() {
     setBusy(true);
@@ -302,10 +318,42 @@ function RoomRow({ room, onChanged }: { room: RoomTile; onChanged: () => void })
   return (
     <div className="flex items-center gap-3 border-b border-[#f2ede2] py-2 last:border-b-0">
       <span className="w-14 flex-none font-display text-[14px] font-semibold">{room.no}</span>
-      <span className="flex-1 text-[12px] text-[#a49d8d]">
-        Floor {room.floor} · {TYPE_LABEL[room.type]}
-      </span>
-      <span className="text-[11.5px] font-semibold" style={{ color: STATUS_TONE[room.status] }}>
+      <Select
+        value={floor}
+        disabled={busy}
+        onValueChange={(v: "1" | "2") => {
+          setFloor(v);
+          void save(v, type);
+        }}
+      >
+        <SelectTrigger className={cn(FIELD, "h-8 w-24 flex-none py-1.5 text-[12px]")}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="1">Floor 1</SelectItem>
+          <SelectItem value="2">Floor 2</SelectItem>
+        </SelectContent>
+      </Select>
+      <Select
+        value={type}
+        disabled={busy}
+        onValueChange={(v: RoomType) => {
+          setType(v);
+          void save(floor, v);
+        }}
+      >
+        <SelectTrigger className={cn(FIELD, "h-8 flex-1 py-1.5 text-[12px]")}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="deluxe">Deluxe</SelectItem>
+          <SelectItem value="deluxe_balcony">Deluxe · Balcony</SelectItem>
+        </SelectContent>
+      </Select>
+      <span
+        className="w-24 flex-none text-right text-[11.5px] font-semibold"
+        style={{ color: STATUS_TONE[room.status] }}
+      >
         {STATUS_LABEL[room.status]}
       </span>
       <button
