@@ -3,16 +3,23 @@ import logo from "@/assets/krc-logo.jpg";
 
 const links = ["Rooms", "Events", "Dining", "Amenities", "Gallery", "Contact"];
 
-export function Nav() {
-  const [scrolled, setScrolled] = useState(false);
+/**
+ * `alwaysSolid` skips the transparent-over-hero gradient for pages with no
+ * hero image behind the nav (the booking flow's ivory background would
+ * otherwise show through the gradient as a near-white bar until the guest
+ * scrolls past 24px).
+ */
+export function Nav({ alwaysSolid = false }: { alwaysSolid?: boolean } = {}) {
+  const [scrolled, setScrolled] = useState(alwaysSolid);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
+    if (alwaysSolid) return;
     const onScroll = () => setScrolled(window.scrollY > 24);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+  }, [alwaysSolid]);
 
   return (
     <nav
@@ -23,7 +30,7 @@ export function Nav() {
       }`}
     >
       <div className="mx-auto max-w-7xl px-5 md:px-10 py-3 md:py-4 flex items-center justify-between">
-        <a href="#top" className="flex items-center gap-3 group">
+        <a href="/#top" className="flex items-center gap-3 group">
           <img
             src={logo}
             alt="The Divine KRC crest"
@@ -42,7 +49,7 @@ export function Nav() {
           {links.map((l) => (
             <a
               key={l}
-              href={`#${l.toLowerCase()}`}
+              href={`/#${l.toLowerCase()}`}
               className="relative text-ivory/80 hover:text-gold text-[12px] uppercase tracking-[0.22em] transition-colors after:absolute after:left-0 after:-bottom-1 after:h-px after:w-0 hover:after:w-full after:bg-gold after:transition-all after:duration-500"
             >
               {l}
@@ -50,9 +57,15 @@ export function Nav() {
           ))}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-5">
           <a
-            href="#book"
+            href="/booking-lookup"
+            className="hidden md:inline-flex items-center text-[11px] uppercase tracking-[0.2em] text-ivory/70 hover:text-gold transition-colors"
+          >
+            Manage Booking
+          </a>
+          <a
+            href="/book"
             className="hidden md:inline-flex items-center text-[11px] uppercase tracking-[0.22em] text-obsidian bg-gold hover:bg-gold-soft transition-colors px-5 py-2.5 font-semibold"
           >
             Book Direct
@@ -70,14 +83,14 @@ export function Nav() {
       {/* Mobile menu */}
       <div
         className={`md:hidden overflow-hidden transition-all duration-500 bg-obsidian border-t border-gold/10 ${
-          open ? "max-h-96" : "max-h-0"
+          open ? "max-h-[28rem]" : "max-h-0"
         }`}
       >
         <div className="px-6 py-6 flex flex-col gap-4">
           {links.map((l) => (
             <a
               key={l}
-              href={`#${l.toLowerCase()}`}
+              href={`/#${l.toLowerCase()}`}
               onClick={() => setOpen(false)}
               className="text-ivory/80 text-sm uppercase tracking-[0.22em]"
             >
@@ -85,11 +98,18 @@ export function Nav() {
             </a>
           ))}
           <a
-            href="#book"
+            href="/book"
             onClick={() => setOpen(false)}
             className="mt-2 inline-flex justify-center bg-gold text-obsidian text-[11px] uppercase tracking-[0.22em] py-3 font-semibold"
           >
             Book Direct
+          </a>
+          <a
+            href="/booking-lookup"
+            onClick={() => setOpen(false)}
+            className="inline-flex justify-center border border-gold/30 text-gold text-[11px] uppercase tracking-[0.22em] py-3 font-semibold"
+          >
+            Manage Booking
           </a>
         </div>
       </div>

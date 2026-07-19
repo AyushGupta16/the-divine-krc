@@ -1,4 +1,5 @@
 import { useState, type ComponentType } from "react";
+import { Link } from "@tanstack/react-router";
 import { LogIn, LogOut, Globe, TriangleAlert, Check, Sparkles, CreditCard, X } from "lucide-react";
 
 import type {
@@ -76,8 +77,22 @@ function StatCards({ data }: { data: DashboardData }) {
         <span className="font-semibold text-[#b4553f]">{checkOutsToday.late} late</span>
       </StatCard>
       <StatCard icon={Globe} label="Expected arrivals" value={expectedArrivals.total}>
-        Next: <span className="font-semibold text-obsidian">{expectedArrivals.nextTime}</span>,{" "}
-        {expectedArrivals.nextLabel}
+        {expectedArrivals.nextLabel ? (
+          <>
+            {/* No arrival time of day in the data yet (spec 19), so name the
+                guest who is due rather than invent a clock time. */}
+            {expectedArrivals.nextTime && (
+              <>
+                Next:{" "}
+                <span className="font-semibold text-obsidian">{expectedArrivals.nextTime}</span>
+                ,{" "}
+              </>
+            )}
+            {expectedArrivals.nextLabel} due
+          </>
+        ) : (
+          "None still expected"
+        )}
       </StatCard>
       <StatCard
         icon={TriangleAlert}
@@ -86,7 +101,10 @@ function StatCards({ data }: { data: DashboardData }) {
         accent="terracotta"
         valueClassName="text-[#b4553f]"
       >
-        Needs allocation <span className="font-semibold text-[#b4553f]">Assign →</span>
+        Needs allocation{" "}
+        <Link to="/admin/rooms" className="font-semibold text-[#b4553f] hover:underline">
+          Assign →
+        </Link>
       </StatCard>
     </div>
   );
@@ -295,17 +313,23 @@ function ActivityCard({ items }: { items: ActivityItem[] }) {
     <Card className="flex min-h-0 flex-1 flex-col">
       <div className="mb-1.5 flex shrink-0 items-center justify-between">
         <h2 className="font-display text-lg font-semibold">Recent activity</h2>
-        <button
-          type="button"
+        <Link
+          to="/admin/bookings"
           className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-gold hover:text-[#a8863f]"
         >
           View all
-        </button>
+        </Link>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        {items.map((item, i) => (
-          <ActivityRow key={item.id} item={item} last={i === items.length - 1} />
-        ))}
+        {items.length === 0 ? (
+          <div className="flex flex-1 items-center justify-center py-8 text-[12.5px] text-[#a49d8d]">
+            No recent activity yet
+          </div>
+        ) : (
+          items.map((item, i) => (
+            <ActivityRow key={item.id} item={item} last={i === items.length - 1} />
+          ))
+        )}
       </div>
     </Card>
   );
@@ -329,7 +353,7 @@ function ArrivalRow({ item }: { item: ArrivalItem }) {
         </div>
       </div>
       <div className="text-right">
-        <div className="text-[12.5px] font-bold">{item.time}</div>
+        {item.time && <div className="text-[12.5px] font-bold">{item.time}</div>}
         <div className={cn("text-[10.5px]", item.assigned ? "text-[#5a8a5a]" : "text-[#b4553f]")}>
           {item.assignment}
         </div>
@@ -348,9 +372,13 @@ function ArrivalsCard({ items }: { items: ArrivalItem[] }) {
         </span>
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
-        {items.map((item) => (
-          <ArrivalRow key={item.id} item={item} />
-        ))}
+        {items.length === 0 ? (
+          <div className="flex flex-1 items-center justify-center py-8 text-[12.5px] text-[#a49d8d]">
+            No arrivals due today
+          </div>
+        ) : (
+          items.map((item) => <ArrivalRow key={item.id} item={item} />)
+        )}
       </div>
     </Card>
   );

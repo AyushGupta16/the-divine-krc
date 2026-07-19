@@ -1,18 +1,36 @@
-import { useState } from "react";
-import { Link } from "@tanstack/react-router";
-import { Save, Zap } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Link, useRouter } from "@tanstack/react-router";
+import { Plus, Save, Trash2, Zap } from "lucide-react";
+import { toast } from "sonner";
 
 import type {
   ChannelSetting,
   ChargeSetting,
   PropertyProfile,
+  RoomStatus,
   RoomTariff,
+  RoomTile,
+  RoomType,
   SettingsPageData,
   TeamMember,
   ToggleSetting,
 } from "@/types/booking";
+import {
+  addRoomFn,
+  removeRoomFn,
+  setRoomCountFn,
+  updateRoomDetailsFn,
+  updateRoomTypeSettingsFn,
+} from "@/lib/bookings-data";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 // ── Tokens ──────────────────────────────────────────────────────────────────
@@ -137,17 +155,320 @@ function PropertyPanel({
   );
 }
 
+const STATUS_LABEL: Record<RoomStatus, string> = {
+  available: "Available",
+  occupied: "Occupied",
+  cleaning: "Cleaning",
+  maintenance: "Maintenance",
+};
+
+/** One room type's rate + area — the only two fields on a tariff that are
+ *  genuinely editable; `count` is read-only because it comes off the actual
+ *  floor board below, not a number typed here. */
+function TariffRow({ tariff, onSaved }: { tariff: RoomTariff; onSaved: () => void }) {
+  const [name, setName] = useState(tariff.name);
+  const [areaSqm, setAreaSqm] = useState(String(tariff.areaSqm));
+  const [rate, setRate] = useState(String(tariff.pricePerNight));
+  const [count, setCount] = useState(String(tariff.count));
+  const [busy, setBusy] = useState(false);
+
+  // `tariff` is fresh data after every `onSaved()` invalidate, but this row's
+  // own edits live in local state — a prop change alone doesn't re-run
+  // `useState`. Room count in particular changes from *outside* this row
+  // (the floor-board add/remove actions below), so without this the count
+  // field goes stale the moment another room is added or removed.
+  useEffect(() => setName(tariff.name), [tariff.name]);
+  useEffect(() => setAreaSqm(String(tariff.areaSqm)), [tariff.areaSqm]);
+  useEffect(() => setRate(String(tariff.pricePerNight)), [tariff.pricePerNight]);
+  useEffect(() => setCount(String(tariff.count)), [tariff.count]);
+
+  async function saveDetails() {
+    const trimmed = name.trim();
+    const area = Number(areaSqm);
+    const price = Number(rate);
+    if (!trimmed) {
+      toast.error("Name is required.");
+      setName(tariff.name);
+      return;
+    }
+    if (!Number.isFinite(area) || area <= 0 || !Number.isFinite(price) || price <= 0) {
+      toast.error("Area and rate must be positive numbers.");
+      setAreaSqm(String(tariff.areaSqm));
+      setRate(String(tariff.pricePerNight));
+      return;
+    }
+    if (trimmed === tariff.name && area === tariff.areaSqm && price === tariff.pricePerNight) {
+      return;
+    }
+    setBusy(true);
+    const res = await updateRoomTypeSettingsFn({
+      data: { type: tariff.type, name: trimmed, areaSqm: area, pricePerNight: price },
+    });
+    setBusy(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    onSaved();
+  }
+
+  async function saveCount() {
+    const next = Number(count);
+    if (!Number.isInteger(next) || next < 0) {
+      toast.error("Room count must be a whole number, zero or more.");
+      setCount(String(tariff.count));
+      return;
+    }
+    if (next === tariff.count) return;
+    setBusy(true);
+    const res = await setRoomCountFn({ data: { type: tariff.type, count: next } });
+    setBusy(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      setCount(String(tariff.count));
+      return;
+    }
+    onSaved();
+  }
+
+  return (
+    <div className={cn(ROW, "flex flex-wrap items-center gap-3.5 px-3.5 py-3")}>
+      <Input
+        className={cn(FIELD, "min-w-40 flex-1 font-semibold")}
+        value={name}
+        disabled={busy}
+        aria-label="Room type name"
+        onChange={(e) => setName(e.target.value)}
+        onBlur={() => void saveDetails()}
+      />
+      <div className="flex items-center gap-1.5">
+        <Input
+          className={cn(FIELD, "w-14 text-right")}
+          value={count}
+          disabled={busy}
+          aria-label={`${tariff.name} room count`}
+          onChange={(e) => setCount(e.target.value)}
+          onBlur={() => void saveCount()}
+        />
+        <span className="text-[11px] text-[#a49d8d]">rooms</span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <Input
+          className={cn(FIELD, "w-16 text-right")}
+          value={areaSqm}
+          disabled={busy}
+          aria-label={`${tariff.name} area`}
+          onChange={(e) => setAreaSqm(e.target.value)}
+          onBlur={() => void saveDetails()}
+        />
+        <span className="text-[11px] text-[#a49d8d]">m²</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="text-[12px] text-[#7a746a]">₹</span>
+        <Input
+          className={cn(FIELD, "w-24 text-right font-semibold")}
+          value={rate}
+          disabled={busy}
+          aria-label={`${tariff.name} rate per night`}
+          onChange={(e) => setRate(e.target.value)}
+          onBlur={() => void saveDetails()}
+        />
+        <span className="text-[11px] text-[#a49d8d]">/ night</span>
+      </div>
+    </div>
+  );
+}
+
+/** One physical room's row: floor/type edit, status display, and remove, in
+ *  the floor-board table below the tariffs. Adding/removing here is what
+ *  actually moves `count`; floor and type save inline on change — status
+ *  still only changes from the Rooms screen's tile popup. */
+function RoomRow({ room, onChanged }: { room: RoomTile; onChanged: () => void }) {
+  const [floor, setFloor] = useState<"1" | "2">(String(room.floor) as "1" | "2");
+  const [type, setType] = useState<RoomType>(room.type);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => setFloor(String(room.floor) as "1" | "2"), [room.floor]);
+  useEffect(() => setType(room.type), [room.type]);
+
+  async function save(nextFloor: "1" | "2", nextType: RoomType) {
+    setBusy(true);
+    const res = await updateRoomDetailsFn({
+      data: { no: room.no, floor: Number(nextFloor) as 1 | 2, type: nextType },
+    });
+    setBusy(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    onChanged();
+  }
+
+  async function remove() {
+    setBusy(true);
+    const res = await removeRoomFn({ data: { no: room.no } });
+    setBusy(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    onChanged();
+  }
+
+  return (
+    <div className="flex items-center gap-3 border-b border-[#f2ede2] py-2 last:border-b-0">
+      <span className="w-14 flex-none font-display text-[14px] font-semibold">{room.no}</span>
+      <Select
+        value={floor}
+        disabled={busy}
+        onValueChange={(v: "1" | "2") => {
+          setFloor(v);
+          void save(v, type);
+        }}
+      >
+        <SelectTrigger className={cn(FIELD, "h-8 w-24 flex-none py-1.5 text-[12px]")}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="1">Floor 1</SelectItem>
+          <SelectItem value="2">Floor 2</SelectItem>
+        </SelectContent>
+      </Select>
+      <Select
+        value={type}
+        disabled={busy}
+        onValueChange={(v: RoomType) => {
+          setType(v);
+          void save(floor, v);
+        }}
+      >
+        <SelectTrigger className={cn(FIELD, "h-8 flex-1 py-1.5 text-[12px]")}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="deluxe">Deluxe</SelectItem>
+          <SelectItem value="deluxe_balcony">Deluxe · Balcony</SelectItem>
+        </SelectContent>
+      </Select>
+      <span
+        className="w-24 flex-none text-right text-[11.5px] font-semibold"
+        style={{ color: STATUS_TONE[room.status] }}
+      >
+        {STATUS_LABEL[room.status]}
+      </span>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void remove()}
+        aria-label={`Remove room ${room.no}`}
+        title="Remove room"
+        className="flex size-7 flex-none items-center justify-center rounded-md text-[#a49d8d] transition-colors hover:bg-[#f7e6e0] hover:text-[#b4553f] disabled:opacity-50"
+      >
+        <Trash2 className="size-3.75" />
+      </button>
+    </div>
+  );
+}
+
+const STATUS_TONE: Record<RoomStatus, string> = {
+  available: "#5a8a5a",
+  occupied: "#a8863f",
+  cleaning: "#3a6ea5",
+  maintenance: "#b4553f",
+};
+
+/** Inline "add a room" form — a room number, floor and type, nothing else;
+ *  status starts "available" and gets set from the Rooms screen's popup. */
+function AddRoomForm({ onAdded }: { onAdded: () => void }) {
+  const [no, setNo] = useState("");
+  const [floor, setFloor] = useState<"1" | "2">("1");
+  const [type, setType] = useState<RoomType>("deluxe");
+  const [busy, setBusy] = useState(false);
+
+  async function add() {
+    if (!no.trim()) {
+      toast.error("Room number is required.");
+      return;
+    }
+    setBusy(true);
+    const res = await addRoomFn({
+      data: { no: no.trim(), floor: Number(floor) as 1 | 2, type },
+    });
+    setBusy(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    setNo("");
+    onAdded();
+  }
+
+  return (
+    <div className="mt-3 flex flex-wrap items-end gap-2.5">
+      <div className="flex-1">
+        <label className={LABEL} htmlFor="new-room-no">
+          Room no.
+        </label>
+        <Input
+          id="new-room-no"
+          className={FIELD}
+          value={no}
+          disabled={busy}
+          placeholder="e.g. 208"
+          onChange={(e) => setNo(e.target.value)}
+        />
+      </div>
+      <div>
+        <label className={LABEL}>Floor</label>
+        <Select value={floor} onValueChange={(v: "1" | "2") => setFloor(v)}>
+          <SelectTrigger className={cn(FIELD, "w-24")}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="1">Floor 1</SelectItem>
+            <SelectItem value="2">Floor 2</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div>
+        <label className={LABEL}>Type</label>
+        <Select value={type} onValueChange={(v: RoomType) => setType(v)}>
+          <SelectTrigger className={cn(FIELD, "w-40")}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="deluxe">Deluxe</SelectItem>
+            <SelectItem value="deluxe_balcony">Deluxe · Balcony</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void add()}
+        className="flex items-center gap-1.5 rounded-md bg-gold px-3.5 py-2.5 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f] disabled:opacity-50"
+      >
+        <Plus className="size-3.75" />
+        Add room
+      </button>
+    </div>
+  );
+}
+
 function PricingPanel({
   tariffs,
   charges,
-  onRate,
+  rooms,
   onCharge,
 }: {
   tariffs: RoomTariff[];
   charges: ChargeSetting[];
-  onRate: (type: string, rate: string) => void;
+  rooms: RoomTile[];
   onCharge: (key: string, value: string) => void;
 }) {
+  const router = useRouter();
+  const refresh = () => void router.invalidate();
+
   return (
     <section id="pricing" className={PANEL}>
       <PanelHead
@@ -156,22 +477,7 @@ function PricingPanel({
       />
       <div className="flex flex-col gap-3">
         {tariffs.map((t) => (
-          <div key={t.type} className={cn(ROW, "flex flex-wrap items-center gap-3.5 px-3.5 py-3")}>
-            <div className="flex-1">
-              <div className="text-[13.5px] font-semibold">{t.name}</div>
-              <div className="text-[11.5px] text-[#a49d8d]">{t.inventoryLabel}</div>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[12px] text-[#7a746a]">₹</span>
-              <Input
-                className={cn(FIELD, "w-24 text-right font-semibold")}
-                value={t.rate}
-                aria-label={`${t.name} rate per night`}
-                onChange={(e) => onRate(t.type, e.target.value)}
-              />
-            </div>
-            <span className="text-[11px] text-[#a49d8d]">/ night</span>
-          </div>
+          <TariffRow key={t.type} tariff={t} onSaved={refresh} />
         ))}
       </div>
 
@@ -189,6 +495,21 @@ function PricingPanel({
             />
           </div>
         ))}
+      </div>
+
+      <div className="mt-5 border-t border-[#f0ebe0] pt-4">
+        <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#7a746a]">
+          Floor board ({rooms.length} rooms)
+        </div>
+        <div className="text-[11.5px] text-[#a49d8d]">
+          Add or remove a physical room here; set its live status from the Rooms screen.
+        </div>
+        <div className="mt-3 flex flex-col">
+          {rooms.map((room) => (
+            <RoomRow key={room.no} room={room} onChanged={refresh} />
+          ))}
+        </div>
+        <AddRoomForm onAdded={refresh} />
       </div>
     </section>
   );
@@ -275,7 +596,6 @@ function TeamPanel({ team }: { team: TeamMember[] }) {
 
 export function Settings({ data }: { data: SettingsPageData }) {
   const [property, setProperty] = useState(data.property);
-  const [tariffs, setTariffs] = useState(data.pricing.tariffs);
   const [charges, setCharges] = useState(data.pricing.charges);
   const [payToggles, setPayToggles] = useState(data.payments.toggles);
   const [notifications, setNotifications] = useState(data.notifications);
@@ -329,11 +649,9 @@ export function Settings({ data }: { data: SettingsPageData }) {
           />
 
           <PricingPanel
-            tariffs={tariffs}
+            tariffs={data.pricing.tariffs}
             charges={charges}
-            onRate={(type, rate) =>
-              setTariffs(tariffs.map((t) => (t.type === type ? { ...t, rate } : t)))
-            }
+            rooms={data.pricing.rooms}
             onCharge={(key, value) =>
               setCharges(charges.map((c) => (c.key === key ? { ...c, value } : c)))
             }

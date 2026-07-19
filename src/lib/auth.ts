@@ -5,11 +5,39 @@
 // are simulated (UI-complete) — see the clearly marked stubs below. Swap the
 // mock store for a DB and the stubs for real OAuth / an email provider later.
 
-import { createServerFn } from "@tanstack/react-start";
+import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { useSession } from "@tanstack/react-start/server";
 import { redirect } from "@tanstack/react-router";
 
-import { findMember, isActive, makeToken, normalizeEmail, passwordProblem, team } from "@/lib/team";
+import {
+  findMember,
+  isActive,
+  makeToken,
+  normalizeEmail,
+  passwordProblem,
+  type TeamAccount,
+} from "@/lib/team";
+
+// `roster.ts` and `password.ts` are reached through *dynamic* imports, and this
+// is load-bearing, not a flourish.
+//
+// This module cannot be dropped from the client build the way `bookings-data.ts`
+// can: `requireAuth` is called from `routes/admin/route.tsx`'s `beforeLoad`,
+// which runs in the browser, so `auth.ts` is in the client graph. A static
+// `import { loadRoster } from "@/lib/roster"` is then a module-level edge the
+// bundler keeps even though every *caller* sits inside a stripped handler — and
+// it dragged `roster.ts` → `schema.ts` → the neon driver into `dist/client`,
+// putting `password_hash` and the connection parser's `PGPASSWORD` in the chunk
+// the landing page serves anonymous visitors. `check:bundle` caught it; it is
+// #12's shape exactly, and `db.ts`'s own header had already written down the
+// rule this crossed.
+//
+// A dynamic import is not a module-level edge, so nothing follows it into the
+// client. Each `await import()` runs only inside a server-fn handler (or
+// `requireAuth`, which the router only invokes server-side for the guard), Node
+// caches the module, and the cost is one lookup rather than a load.
+const rosterStore = () => import("@/lib/roster");
+const passwordLib = () => import("@/lib/password");
 
 export interface SessionUser {
   email: string;
@@ -26,7 +54,8 @@ export interface SessionUser {
 export async function getSessionMember() {
   const user = await getSessionUser();
   if (!user) return null;
-  const member = findMember(user.email);
+  const { loadRoster } = await rosterStore();
+  const member = findMember(await loadRoster(), user.email);
   return member && isActive(member) ? member : null;
 }
 
@@ -74,19 +103,38 @@ function getSession() {
   });
 }
 
-// --- Credentials (replace with hashed rows in a DB) ---------------------
-//
-// Who exists is `team` in `lib/team.ts`, shared with the Settings roster and the
-// invite flow. How they prove it is here, and only here: this module is
-// server-only — it imports `@tanstack/react-start/server`, and every export is a
-// server function — so nothing in it reaches `dist/client`. #12 briefly kept
-// passwords beside the roster and shipped them to the browser; that is the
-// mistake this split exists to prevent.
-//
-// A real store would hold a hash. This one holds the mock's plaintext, which is
-// tolerable only while it stays server-side and the data behind it is fake.
+/**
+ * Sign the given member into the session directly. Exported so the invite
+ * flow's simulated Google sign-up (`googleAcceptInviteFn` in `invites.ts`)
+ * can land someone in the console the same way `loginFn`/`googleLoginFn` do,
+ * without duplicating `getSession`'s h3 wiring outside this module.
+ */
+export const establishSession = createServerOnlyFn(async (user: SessionUser) => {
+  const session = await getSession();
+  await session.update({ user });
+});
 
-const credentials = new Map<string, string>();
+// --- Credentials --------------------------------------------------------
+//
+// Who exists is the roster — one list, shared with the Settings screen and the
+// invite flow. How they prove it is here, and only here: this module is
+// server-only (every export is a server function), so nothing in it reaches
+// `dist/client`. #12 briefly kept passwords beside the roster and shipped them
+// to the browser; that is the mistake this split exists to prevent.
+//
+// #12b: the store is now `team.password_hash`, scrypt-hashed, read through
+// `roster.ts` and never through a `TeamAccount`. Two credentials, two homes:
+//
+//   - **Staff** hold a hash, set the moment they accept an invite. Before that
+//     they hold nothing, which is the same fact that renders them Pending.
+//   - **The Owner** holds no hash at all. `ADMIN_PASSWORD` is the Owner's
+//     credential and lives in the env, so rotating it is a Netlify change rather
+//     than a migration — and a stolen table does not contain it.
+//
+// The seeded staff therefore cannot log in, and that is correct: they accepted
+// long before the console existed, so nothing here has any business inventing a
+// password for them. Previously they were given a random one per boot to say the
+// same thing; a null hash says it without the machinery.
 
 /**
  * The owner's password. `ADMIN_PASSWORD` in production; a known value in dev so
@@ -99,41 +147,10 @@ function ownerPassword(): string | null {
   return isProduction ? null : "krc-admin";
 }
 
-/**
- * The seeded staff hold a credential nobody knows: they accepted long before the
- * console existed, so the mock has no business inventing a password for them,
- * and a guessable one would be four public logins rather than one. Random per
- * boot means they are Active — which they are — and unreachable, which is right.
- */
-function unguessable(): string {
-  return makeToken() + makeToken();
-}
-
-/**
- * Seeded on first use rather than at module load, and this is not a style
- * choice. `auth.ts` is reachable from the client — the login page imports
- * `loginFn` — and a bundler must keep module-level side effects, so a seeding
- * loop up here would run in the browser and drag `ownerPassword` into
- * `dist/client` with it. Everything below is called only from inside server
- * function handlers, whose bodies are stripped client-side, so this whole store
- * tree-shakes away. Nothing about credentials should survive into a bundle a
- * stranger can read.
- */
-let seeded = false;
-function store(): Map<string, string> {
-  if (seeded) return credentials;
-  seeded = true;
-  for (const member of team) {
-    if (!isActive(member)) continue;
-    const password = member.role === "Owner" ? ownerPassword() : unguessable();
-    if (password) credentials.set(member.email.toLowerCase(), password);
-  }
-  return credentials;
-}
-
 /** Record a password. Called only where a token has already proved the person. */
-function setCredential(email: string, password: string) {
-  store().set(normalizeEmail(email), password);
+async function setCredential(email: string, secret: string) {
+  const [{ setPasswordHash }, { hashPassword }] = await Promise.all([rosterStore(), passwordLib()]);
+  await setPasswordHash(email, await hashPassword(secret));
 }
 
 /**
@@ -141,11 +158,19 @@ function setCredential(email: string, password: string) {
  * Someone invited but undecided has no credential, so they fall out here — the
  * same fact that renders them as Pending.
  */
-function verify(email: string, password: string) {
-  const member = findMember(email);
+async function verify(email: string, attempt: string): Promise<TeamAccount | undefined> {
+  const [{ loadRoster, passwordHashFor }, { secretsMatch, verifyPassword }] = await Promise.all([
+    rosterStore(),
+    passwordLib(),
+  ]);
+  const member = findMember(await loadRoster(), email);
   if (!member || !isActive(member)) return undefined;
-  const stored = store().get(normalizeEmail(email));
-  return stored && stored === password ? member : undefined;
+
+  if (member.role === "Owner") {
+    const secret = ownerPassword();
+    return secret && secretsMatch(attempt, secret) ? member : undefined;
+  }
+  return (await verifyPassword(attempt, await passwordHashFor(email))) ? member : undefined;
 }
 
 // Reset tokens: token -> { email, expiresAt }. In-memory, single-use.
@@ -164,7 +189,7 @@ export const getSessionUser = createServerFn({ method: "GET" }).handler(
 export const loginFn = createServerFn({ method: "POST" })
   .inputValidator((data: { email: string; password: string }) => data)
   .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
-    const admin = verify(data.email, data.password);
+    const admin = await verify(data.email, data.password);
     if (!admin) {
       return { ok: false, error: "Incorrect email or password." };
     }
@@ -179,12 +204,16 @@ export const loginFn = createServerFn({ method: "POST" })
 // the login on a production deploy that never set ADMIN_PASSWORD.
 export const googleLoginFn = createServerFn({ method: "POST" }).handler(
   async (): Promise<{ ok: true } | { ok: false; error: string }> => {
-    const admin = findMember("admin@thedivinekrc.in");
-    if (!admin || !store().has(admin.email.toLowerCase())) {
+    const { loadRoster } = await rosterStore();
+    const admin = findMember(await loadRoster(), "admin@thedivinekrc.in");
+    // Still gated on the owner having a credential at all — which, now that the
+    // Owner's lives in the env rather than the table, means ADMIN_PASSWORD is
+    // set. A production deploy that never set one must not gain a way past the
+    // login here.
+    if (!admin || !ownerPassword()) {
       return { ok: false, error: "Google sign-in is unavailable." };
     }
-    const session = await getSession();
-    await session.update({ user: { email: admin.email, name: admin.name } });
+    await establishSession({ email: admin.email, name: admin.name });
     return { ok: true };
   },
 );
@@ -203,7 +232,8 @@ export const logoutFn = createServerFn({ method: "POST" }).handler(
 export const requestResetFn = createServerFn({ method: "POST" })
   .inputValidator((data: { email: string }) => data)
   .handler(async ({ data }): Promise<{ ok: true }> => {
-    const admin = findMember(data.email);
+    const { loadRoster } = await rosterStore();
+    const admin = findMember(await loadRoster(), data.email);
     if (admin && isActive(admin)) {
       const token = makeToken();
       resetTokens.set(token, {
@@ -229,18 +259,16 @@ export const resetPasswordFn = createServerFn({ method: "POST" })
     const problem = passwordProblem(data.password);
     if (problem) return { ok: false, error: problem };
 
-    setCredential(entry.email, data.password);
+    await setCredential(entry.email, data.password);
     resetTokens.delete(data.token); // single use
     return { ok: true };
   });
 
-/**
- * Give a member a password. Exported for `acceptInviteFn`, which owns the only
- * other moment someone proves a token and chooses one; keeping the store here
- * is what keeps it off the client. Never call this without a proven token.
- */
-export const setMemberCredential = (email: string, password: string) =>
-  setCredential(email, password);
+// `setMemberCredential` is gone. `acceptInviteFn` used to call it right after
+// `acceptInvite`, so "on the roster" and "has a credential" were two writes with
+// a gap between them — a cold start in that gap left someone accepted who could
+// never log in. `roster.acceptMember` now sets both halves in one statement,
+// which is what "both or neither" was always claiming.
 
 /**
  * Route-guard helper for admin console routes. Call from `beforeLoad`.

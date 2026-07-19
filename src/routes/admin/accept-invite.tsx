@@ -1,9 +1,12 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router";
+import { AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { AuthLayout } from "@/components/admin/AuthLayout";
+import { GoogleIcon } from "@/components/admin/GoogleIcon";
 import { SetPasswordForm } from "@/components/admin/SetPasswordForm";
-import { acceptInviteFn, getInviteFn } from "@/lib/invites";
+import { acceptInviteFn, getInviteFn, googleAcceptInviteFn } from "@/lib/invites";
 
 const searchSchema = z.object({
   token: z.string().optional(),
@@ -28,8 +31,27 @@ function AcceptInvitePage() {
   const { token } = Route.useSearch();
   const { invite } = Route.useLoaderData();
   const navigate = useNavigate();
+  const router = useRouter();
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const [googleError, setGoogleError] = useState<string | null>(null);
 
   const dead = "This invite link is invalid or has expired. Ask for a new one.";
+
+  async function google() {
+    if (!token) return;
+    setGoogleBusy(true);
+    setGoogleError(null);
+    const res = await googleAcceptInviteFn({ data: { token } });
+    if (!res.ok) {
+      setGoogleBusy(false);
+      setGoogleError(res.error);
+      return;
+    }
+    await router.invalidate();
+    setGoogleBusy(false);
+    toast.success("You're on the team.");
+    void navigate({ to: "/admin" });
+  }
 
   return (
     <AuthLayout
@@ -68,6 +90,33 @@ function AcceptInvitePage() {
           return res;
         }}
       />
+
+      {invite && (
+        <>
+          <div className="my-3 flex items-center gap-2.5 text-[10.5px] uppercase tracking-[0.14em] text-[#a49d8d]">
+            <span className="h-px flex-1 bg-[#eae4d6]" />
+            or
+            <span className="h-px flex-1 bg-[#eae4d6]" />
+          </div>
+
+          {googleError && (
+            <div className="mb-3.5 flex items-center gap-2.5 rounded-md border border-[#e6cbc2] bg-[#f7e6e0] px-3.5 py-2.5">
+              <AlertCircle className="size-4 shrink-0 text-[#b4553f]" />
+              <span className="text-[12.5px] font-medium text-[#b4553f]">{googleError}</span>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => void google()}
+            disabled={googleBusy}
+            className="flex w-full items-center justify-center gap-3 rounded-[5px] border border-[#e5ddcb] bg-white px-4 py-3 text-[13px] font-semibold text-[#2a2a2a] transition-colors hover:bg-ivory disabled:opacity-60"
+          >
+            <GoogleIcon />
+            {googleBusy ? "Joining…" : "Continue with Google"}
+          </button>
+        </>
+      )}
 
       <Link
         to="/admin/login"

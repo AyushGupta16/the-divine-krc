@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { Plus, Search } from "lucide-react";
 
 import type { GuestListItem, GuestsPageData, GuestStat, GuestTier } from "@/types/booking";
@@ -114,7 +115,13 @@ function GuestRow({ item }: { item: GuestListItem }) {
         <TierBadge tier={g.tier} />
       </TableCell>
       <TableCell className={cn(cell, "text-right")}>
-        <span className="text-[11px] font-semibold text-gold">View &rarr;</span>
+        <Link
+          to="/admin/bookings"
+          search={{ guest: g.name }}
+          className="text-[11px] font-semibold text-gold hover:text-[#a8863f]"
+        >
+          View &rarr;
+        </Link>
       </TableCell>
     </TableRow>
   );

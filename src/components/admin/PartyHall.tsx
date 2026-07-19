@@ -1,4 +1,6 @@
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useRouter } from "@tanstack/react-router";
+import { ChevronLeft, ChevronRight, FileText, Loader2, Plus } from "lucide-react";
 
 import type {
   PartyHallCalendarCell,
@@ -7,10 +9,19 @@ import type {
   PartyHallPackage,
   PartyHallPageData,
   PartyHallPill,
+  PartyHallPillKey,
   PartyHallStat,
   PartyHallStatus,
 } from "@/types/booking";
+import { updatePartyHallContactFn } from "@/lib/bookings-data";
+import { adminIssueInvoiceFn } from "@/lib/invoices-data";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+
+/** Invoices need someone to bill — enquiries have no earlier stage that asks. */
+function canInvoice(status: PartyHallStatus): boolean {
+  return status === "advance_paid" || status === "confirmed" || status === "completed";
+}
 
 // ── Tokens ──────────────────────────────────────────────────────────────────
 
@@ -63,6 +74,31 @@ function StatusPill({ item }: { item: PartyHallEventItem }) {
 }
 
 function EventCard({ item }: { item: PartyHallEventItem }) {
+  const router = useRouter();
+  const [editingContact, setEditingContact] = useState(false);
+  const [issuing, setIssuing] = useState(false);
+  const [name, setName] = useState(item.enquiry.contactName ?? "");
+  const [phone, setPhone] = useState(item.enquiry.contactPhone ?? "");
+  const [email, setEmail] = useState(item.enquiry.contactEmail ?? "");
+  const [saving, setSaving] = useState(false);
+
+  async function saveContact() {
+    setSaving(true);
+    await updatePartyHallContactFn({
+      data: { id: item.enquiry.id, contactName: name, contactPhone: phone, contactEmail: email },
+    });
+    setSaving(false);
+    setEditingContact(false);
+    await router.invalidate();
+  }
+
+  async function openInvoice() {
+    setIssuing(true);
+    const res = await adminIssueInvoiceFn({ data: { kind: "party_hall", id: item.enquiry.id } });
+    setIssuing(false);
+    if (res.ok) window.open(`/invoice/${res.invoiceNo}`, "_blank", "noopener,noreferrer");
+  }
+
   return (
     <div className="rounded-lg border border-[#eae4d6] bg-white px-5 py-4.5 transition-colors hover:border-[#d9cba6]">
       <div className="flex flex-wrap items-start gap-3.5">
@@ -89,6 +125,45 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
               </span>
             ))}
           </div>
+          {canInvoice(item.enquiry.status) && (
+            <button
+              type="button"
+              onClick={() => setEditingContact((v) => !v)}
+              className="mt-2.5 text-[11px] font-semibold text-[#3a6ea5] hover:opacity-75"
+            >
+              {item.enquiry.contactName ? "Edit billing contact" : "Add billing contact"}
+            </button>
+          )}
+          {editingContact && (
+            <div className="mt-2.5 flex max-w-sm flex-col gap-1.75 rounded-md border border-[#eae4d6] bg-[#faf7ef] p-3">
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Billed-to name"
+                className="h-8 border-[#e5ddcb] bg-white text-[12px]"
+              />
+              <Input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="Phone"
+                className="h-8 border-[#e5ddcb] bg-white text-[12px]"
+              />
+              <Input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Email"
+                className="h-8 border-[#e5ddcb] bg-white text-[12px]"
+              />
+              <button
+                type="button"
+                disabled={saving}
+                onClick={saveContact}
+                className="mt-1 self-start rounded bg-obsidian px-3 py-1.5 text-[10.5px] font-bold uppercase tracking-[0.1em] text-gold-soft disabled:opacity-60"
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="flex w-full items-center justify-between gap-2.5 border-t border-[#f2ede2] pt-3 sm:w-auto sm:flex-col sm:items-end sm:border-t-0 sm:pt-0 sm:text-right">
@@ -98,17 +173,34 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
             </div>
             <div className="font-display text-[19px]">{item.amount}</div>
           </div>
-          <button
-            type="button"
-            className={cn(
-              "rounded px-4 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors",
-              item.ctaPrimary
-                ? "bg-obsidian text-gold-soft hover:bg-[#262626]"
-                : "border border-[#d9d0bd] bg-white text-warm-gray hover:bg-black/[0.03]",
+          <div className="flex items-center gap-2">
+            {canInvoice(item.enquiry.status) && (
+              <button
+                type="button"
+                disabled={issuing}
+                onClick={openInvoice}
+                className="flex items-center gap-1.25 rounded border border-[#d9d0bd] bg-white px-3 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] text-warm-gray hover:bg-black/[0.03] disabled:opacity-60"
+              >
+                {issuing ? (
+                  <Loader2 className="size-3 animate-spin" />
+                ) : (
+                  <FileText className="size-3" />
+                )}
+                Invoice
+              </button>
             )}
-          >
-            {item.cta}
-          </button>
+            <button
+              type="button"
+              className={cn(
+                "rounded px-4 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors",
+                item.ctaPrimary
+                  ? "bg-obsidian text-gold-soft hover:bg-[#262626]"
+                  : "border border-[#d9d0bd] bg-white text-warm-gray hover:bg-black/[0.03]",
+              )}
+            >
+              {item.cta}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -213,30 +305,53 @@ function PackageReference({
 
 // ── Pills ───────────────────────────────────────────────────────────────────
 
-function FilterPills({ pills }: { pills: PartyHallPill[] }) {
+function FilterPills({
+  pills,
+  active,
+  onSelect,
+}: {
+  pills: PartyHallPill[];
+  active: PartyHallPillKey;
+  onSelect: (key: PartyHallPillKey) => void;
+}) {
   return (
     <div className="flex flex-wrap gap-1.75">
       {pills.map((pill) => (
-        <span
+        <button
           key={pill.key}
+          type="button"
+          onClick={() => onSelect(pill.key)}
           className={cn(
-            "rounded-full px-3 py-1.25 text-[11.5px] font-semibold",
-            // "All" is the active filter until the interaction pass wires these up.
-            pill.key === "all"
+            "rounded-full px-3 py-1.25 text-[11.5px] font-semibold transition-colors",
+            pill.key === active
               ? "bg-obsidian text-ivory"
-              : "border border-[#eae4d6] bg-white text-warm-gray",
+              : "border border-[#eae4d6] bg-white text-warm-gray hover:bg-black/3",
           )}
         >
           {pill.label} {pill.count}
-        </span>
+        </button>
       ))}
     </div>
   );
 }
 
+/** "new" reads as a fresh enquiry, "confirmed" covers both deposit-paid and fully confirmed. */
+function matchesPill(status: PartyHallStatus, key: PartyHallPillKey): boolean {
+  if (key === "all") return true;
+  if (key === "new") return status === "enquiry";
+  return status === "confirmed" || status === "advance_paid";
+}
+
 // ── Page ────────────────────────────────────────────────────────────────────
 
 export function PartyHall({ data }: { data: PartyHallPageData }) {
+  const [pillFilter, setPillFilter] = useState<PartyHallPillKey>("all");
+
+  const visibleEvents = useMemo(
+    () => data.events.filter((item) => matchesPill(item.enquiry.status, pillFilter)),
+    [data.events, pillFilter],
+  );
+
   return (
     <div className="flex flex-col gap-5 p-4 sm:p-6.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -260,11 +375,15 @@ export function PartyHall({ data }: { data: PartyHallPageData }) {
         <div className="flex flex-col gap-3.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="font-display text-[18px] font-semibold">Enquiries &amp; events</span>
-            <FilterPills pills={data.pills} />
+            <FilterPills pills={data.pills} active={pillFilter} onSelect={setPillFilter} />
           </div>
-          {data.events.map((item) => (
-            <EventCard key={item.enquiry.id} item={item} />
-          ))}
+          {visibleEvents.length === 0 ? (
+            <div className="rounded-lg border border-[#eae4d6] bg-white px-5 py-8 text-center text-[12.5px] text-[#a49d8d]">
+              No enquiries in this filter
+            </div>
+          ) : (
+            visibleEvents.map((item) => <EventCard key={item.enquiry.id} item={item} />)
+          )}
         </div>
 
         <div className="flex flex-col gap-4.5">

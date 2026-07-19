@@ -57,6 +57,9 @@ export interface Booking {
   status: BookingStatus;
   /** ISO timestamp */
   createdAt: string;
+  /** Razorpay order/payment ids (#16). Undefined until an order is created; pay-at-hotel never sets them. */
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
 }
 
 export type GuestTier = "gold" | "silver" | "new";
@@ -94,6 +97,10 @@ export interface PartyHallEnquiry {
   amount: number;
   /** Money in hand — derived from `amount` and `status`, never seeded. */
   advancePaid: number;
+  /** Who to bill for the invoice — enquiries carry no guest row of their own. */
+  contactName?: string;
+  contactPhone?: string;
+  contactEmail?: string;
 }
 
 // ── Admin dashboard (PR #3) ──────────────────────────────────────────────
@@ -683,6 +690,13 @@ export interface RoomTariff {
   inventoryLabel: string;
   /** Grouped rupees without the symbol, e.g. "1,500" — the ₹ sits outside the field. */
   rate: string;
+  /** Room count — read-only here; it only ever changes by adding/removing a
+   *  room on the floor board below, never by typing a number. */
+  count: number;
+  /** Editable, unlike `count`. */
+  areaSqm: number;
+  /** Same rupee figure as `rate`, as a number the "Save" round-trip can post. */
+  pricePerNight: number;
 }
 
 /** A flat charge or rate the property applies on top of the tariff. */
@@ -696,6 +710,8 @@ export interface ChargeSetting {
 export interface PricingSettings {
   tariffs: RoomTariff[];
   charges: ChargeSetting[];
+  /** The full floor board, so the panel can add/remove/edit individual rooms. */
+  rooms: RoomTile[];
 }
 
 /** An on/off property setting. The screen controls these locally; Save is stubbed. */

@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { Link, useRouter } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 
 import type {
@@ -11,7 +13,15 @@ import type {
   RoomTypeCard,
 } from "@/types/booking";
 import { formatINR } from "@/lib/booking-math";
+import { updateRoomStatusFn } from "@/lib/bookings-data";
 import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import roomDeluxe from "@/assets/room-deluxe.jpg";
 import roomBalcony from "@/assets/room-balcony.jpg";
 import partyHallImg from "@/assets/party-hall.jpg";
@@ -75,12 +85,13 @@ function TypeCard({ card }: { card: RoomTypeCard }) {
         <div className="font-display text-[21px] text-[#a8863f]">
           {formatINR(card.pricePerNight)}
         </div>
-        <button
-          type="button"
+        <Link
+          to="/admin/settings"
+          hash="pricing"
           className="text-[11px] font-semibold text-gold transition-colors hover:text-[#a8863f]"
         >
           Edit
-        </button>
+        </Link>
       </div>
     </div>
   );
@@ -106,11 +117,12 @@ function Legend({ items }: { items: RoomsLegendItem[] }) {
 
 // ── Floor board ─────────────────────────────────────────────────────────────
 
-function RoomTileCard({ room }: { room: RoomTile }) {
+function RoomTileCard({ room, onClick }: { room: RoomTile; onClick: () => void }) {
   const color = STATUS_COLOR[room.status];
   return (
     <button
       type="button"
+      onClick={onClick}
       className="relative overflow-hidden rounded-lg border border-[#eae4d6] bg-white px-3.5 py-3.25 text-left transition-shadow hover:border-[#c9bd98] hover:shadow-[0_6px_16px_-10px_rgba(10,10,10,0.3)]"
     >
       <span className="absolute inset-y-0 left-0 w-1" style={{ background: color }} />
@@ -129,7 +141,7 @@ function RoomTileCard({ room }: { room: RoomTile }) {
   );
 }
 
-function FloorBoard({ floor }: { floor: RoomFloor }) {
+function FloorBoard({ floor, onSelect }: { floor: RoomFloor; onSelect: (room: RoomTile) => void }) {
   return (
     <div>
       <div className="mb-3 mt-1 font-display text-[15px] font-semibold text-warm-gray">
@@ -137,10 +149,68 @@ function FloorBoard({ floor }: { floor: RoomFloor }) {
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
         {floor.rooms.map((room) => (
-          <RoomTileCard key={room.no} room={room} />
+          <RoomTileCard key={room.no} room={room} onClick={() => onSelect(room)} />
         ))}
       </div>
     </div>
+  );
+}
+
+const STATUS_ORDER: RoomStatus[] = ["available", "occupied", "cleaning", "maintenance"];
+
+/** Room-tile popup: set the status of one physical room. */
+function RoomStatusDialog({ room, onClose }: { room: RoomTile | null; onClose: () => void }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function setStatus(status: RoomStatus) {
+    if (!room) return;
+    setBusy(true);
+    setError(null);
+    const res = await updateRoomStatusFn({
+      data: { no: room.no, status, detail: status === "available" ? "Ready" : room.detail },
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    await router.invalidate();
+    onClose();
+  }
+
+  return (
+    <Dialog open={room !== null} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Room {room?.no}</DialogTitle>
+          <DialogDescription>
+            {room ? `${TYPE_SHORT[room.type]} · Floor ${room.floor}` : ""}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid grid-cols-2 gap-2.5">
+          {STATUS_ORDER.map((status) => (
+            <button
+              key={status}
+              type="button"
+              disabled={busy}
+              onClick={() => void setStatus(status)}
+              className={cn(
+                "rounded-md border px-3 py-2.5 text-[12.5px] font-semibold transition-colors disabled:opacity-50",
+                room?.status === status
+                  ? "border-transparent text-white"
+                  : "border-[#eae4d6] bg-white text-warm-gray hover:bg-black/3",
+              )}
+              style={room?.status === status ? { background: STATUS_COLOR[status] } : undefined}
+            >
+              {STATUS_LABEL[status]}
+            </button>
+          ))}
+        </div>
+        {error && <p className="text-[12px] text-[#b4553f]">{error}</p>}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -177,17 +247,20 @@ function PartyHallCard({ hall }: { hall: RoomsPartyHall }) {
 // ── Page ────────────────────────────────────────────────────────────────────
 
 export function Rooms({ data }: { data: RoomsPageData }) {
+  const [selected, setSelected] = useState<RoomTile | null>(null);
+
   return (
     <div className="flex flex-col gap-5.5 p-4 sm:p-6.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-[12px] tracking-[0.01em] text-[#7a746a]">{data.summaryLine}</p>
-        <button
-          type="button"
+        <Link
+          to="/admin/settings"
+          hash="pricing"
           className="inline-flex items-center gap-2 rounded-md bg-gold px-3 py-2 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
         >
           <Plus className="size-4" />
           Add room
-        </button>
+        </Link>
       </div>
 
       <div className="grid gap-4.5 lg:grid-cols-2">
@@ -199,10 +272,12 @@ export function Rooms({ data }: { data: RoomsPageData }) {
       <Legend items={data.legend} />
 
       {data.floors.map((floor) => (
-        <FloorBoard key={floor.floor} floor={floor} />
+        <FloorBoard key={floor.floor} floor={floor} onSelect={setSelected} />
       ))}
 
       <PartyHallCard hall={data.partyHall} />
+
+      <RoomStatusDialog room={selected} onClose={() => setSelected(null)} />
     </div>
   );
 }

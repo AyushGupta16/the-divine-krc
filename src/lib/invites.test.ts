@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { getSettingsPageData } from "@/lib/bookings";
+import { fixtures } from "@/lib/__fixtures__/bookings";
+import { invites as seedInvites, team as seedTeam } from "@/lib/__fixtures__/team";
 import {
   INVITABLE_ROLES,
   INVITE_TTL_MS,
@@ -12,34 +14,87 @@ import {
   findInvite,
   findInviteByEmail,
   findMember,
-  invites,
   isActive,
   passwordProblem,
   refreshInvite,
   revokeInvite,
-  team,
   type Invite,
   type Role,
+  type TeamAccount,
 } from "@/lib/team";
 
 // These call the same functions the server functions in `invites.ts` call —
-// those add a permission check and an email stub and nothing else, so the
-// lifecycle is tested here as it actually ships, not as a copy of itself.
+// those add a permission check, an email stub, and the writes, and nothing else.
+//
+// #12b moved the rows to Postgres, so the rules no longer mutate: they decide
+// and return, and the caller persists. The helpers below are that caller, kept
+// deliberately tiny and in one place — they mirror the three beats `invites.ts`
+// reads in (load, ask the rule, persist what it decided) and mirror the memory
+// branch of `roster.ts`. What they are NOT is a second copy of the rules: every
+// decision below still comes from `team.ts`, which is the code that ships.
+//
+// The SQL itself is not tested here, because the suite has no database — that
+// is the price of the 122 tests running without one, and the cold-start
+// acceptance in the PR is what covers it instead.
 
-const SEEDED_TEAM = [...team];
-const SEEDED_INVITES = [...invites];
+let roster: TeamAccount[];
+let pending: Invite[];
 
 beforeEach(() => {
-  team.splice(0, team.length, ...SEEDED_TEAM.map((m) => ({ ...m })));
-  invites.splice(0, invites.length, ...SEEDED_INVITES.map((i) => ({ ...i })));
+  roster = seedTeam.map((m) => ({ ...m }));
+  pending = seedInvites.map((i) => ({ ...i }));
 });
+
+/** What `putInvite` does: one row per address, newest link wins. */
+function put(invite: Invite) {
+  const i = pending.findIndex((x) => x.email === invite.email);
+  if (i >= 0) pending.splice(i, 1);
+  pending.push(invite);
+}
+
+function burnToken(token: string) {
+  const i = pending.findIndex((x) => x.token === token);
+  if (i >= 0) pending.splice(i, 1);
+}
 
 /** Send an invite and hand back the row it created. */
 function send(email: string, role: Role = "Front desk"): Invite {
-  const res = createInvite({ email, role });
+  const res = createInvite({ roster, pending }, { email, role });
   if (!res.ok) throw new Error(res.error);
+  put(res.invite);
   return res.invite;
 }
+
+/** What `acceptInviteFn` does, minus the password and the hashing. */
+function accept(token: string): boolean {
+  const { burn, result } = acceptInvite({ roster, invite: findInvite(pending, token) });
+  if (burn) burnToken(burn);
+  if (!result.ok) return false;
+
+  // `roster.acceptMember` — one upsert, roster row and credential together.
+  const i = roster.findIndex((m) => m.email === result.member.email);
+  if (i >= 0) roster[i] = result.member;
+  else roster.push(result.member);
+  return true;
+}
+
+function resend(token: string): boolean {
+  const res = refreshInvite(findInvite(pending, token));
+  if (!res.ok) return false;
+  // The rotated invite keeps the address, so this replaces the old row — and
+  // with it the old token.
+  put(res.invite);
+  return true;
+}
+
+function revoke(token: string): boolean {
+  const res = revokeInvite(findInvite(pending, token));
+  if (!res.ok) return false;
+  burnToken(token);
+  return true;
+}
+
+const member = (email: string) => findMember(roster, email);
 
 describe("roles", () => {
   it("grants exactly what the sentence beside the role picker promises", () => {
@@ -60,7 +115,9 @@ describe("roles", () => {
   it("never offers the Owner seat as something to invite someone into", () => {
     expect(INVITABLE_ROLES).not.toContain("Owner");
     for (const role of INVITABLE_ROLES) expect(ROLE_PERMISSIONS[role]).toBeDefined();
-    expect(createInvite({ email: "x@krc.in", role: "Owner" as Role }).ok).toBe(false);
+    expect(createInvite({ roster, pending }, { email: "x@krc.in", role: "Owner" as Role }).ok).toBe(
+      false,
+    );
   });
 
   it("lets only roles that can manage the team hand out access", () => {
@@ -77,16 +134,15 @@ describe("roles", () => {
 describe("the invite lifecycle", () => {
   it("turns an accepted invite into an active member on the Settings roster", async () => {
     const i = send("priya@thedivinekrc.in", "Accounts");
-    expect(acceptInvite(i.token).ok).toBe(true);
+    expect(accept(i.token)).toBe(true);
 
-    const member = findMember("priya@thedivinekrc.in")!;
-    expect(member.role).toBe("Accounts");
+    expect(member("priya@thedivinekrc.in")!.role).toBe("Accounts");
 
     // The acceptance criterion, end to end: they land on the roster Settings
     // renders. That screen keeps no list of its own, so this cannot pass by
-    // coincidence — it reads the store the invite just wrote to.
-    const { team: roster } = await getSettingsPageData();
-    const row = roster.find((m) => m.email === "priya@thedivinekrc.in");
+    // coincidence — it reads the roster the invite just wrote to.
+    const { team } = await getSettingsPageData(fixtures, roster);
+    const row = team.find((m) => m.email === "priya@thedivinekrc.in");
     expect(row).toBeDefined();
     expect(row!.role).toBe("Accounts");
     expect(row!.name).toBe("Priya");
@@ -96,28 +152,39 @@ describe("the invite lifecycle", () => {
     send("nobody@thedivinekrc.in");
 
     // On the roster you are a person with keys, and they have not taken theirs.
-    const { team: roster } = await getSettingsPageData();
-    expect(roster.map((m) => m.email)).not.toContain("nobody@thedivinekrc.in");
+    const { team } = await getSettingsPageData(fixtures, roster);
+    expect(team.map((m) => m.email)).not.toContain("nobody@thedivinekrc.in");
   });
 
   it("rejects an expired token and creates nobody", () => {
     const i = send("late@thedivinekrc.in", "Manager");
     i.expiresAt = Date.now() - 1;
+    put(i);
 
-    const res = acceptInvite(i.token);
-    expect(res.ok).toBe(false);
-    expect(findMember("late@thedivinekrc.in")).toBeUndefined();
+    expect(accept(i.token)).toBe(false);
+    expect(member("late@thedivinekrc.in")).toBeUndefined();
   });
 
   it("burns the token on the way in, so an invite works exactly once", () => {
     const i = send("once@thedivinekrc.in");
 
-    expect(acceptInvite(i.token).ok).toBe(true);
-    const joined = findMember("once@thedivinekrc.in")!.acceptedAt;
-    expect(findInvite(i.token)).toBeUndefined();
+    expect(accept(i.token)).toBe(true);
+    const joined = member("once@thedivinekrc.in")!.acceptedAt;
+    expect(findInvite(pending, i.token)).toBeUndefined();
     // A forwarded link cannot be replayed to seize the account.
-    expect(acceptInvite(i.token).ok).toBe(false);
-    expect(findMember("once@thedivinekrc.in")!.acceptedAt).toBe(joined);
+    expect(accept(i.token)).toBe(false);
+    expect(member("once@thedivinekrc.in")!.acceptedAt).toBe(joined);
+  });
+
+  it("burns a dead token rather than leaving it to be retried", () => {
+    const i = send("dead@thedivinekrc.in");
+    i.expiresAt = Date.now() - 1;
+    put(i);
+
+    expect(accept(i.token)).toBe(false);
+    // The rule reports `burn` on the failure path too, which is the only reason
+    // the row goes. Fold it into the success case and a dead token lives on.
+    expect(findInvite(pending, i.token)).toBeUndefined();
   });
 
   it("refuses a password too short to be worth having, and lets them retry", () => {
@@ -127,62 +194,68 @@ describe("the invite lifecycle", () => {
     // password leaves the invite usable rather than stranding them.
     expect(passwordProblem("short")).toBeTruthy();
     expect(passwordProblem("a-good-password")).toBeNull();
-    expect(findInvite(i.token)).toBeDefined();
-    expect(acceptInvite(i.token).ok).toBe(true);
+    expect(findInvite(pending, i.token)).toBeDefined();
+    expect(accept(i.token)).toBe(true);
   });
 
   it("gives a resent invite a new token and lets the old link die", () => {
     const i = send("resend@thedivinekrc.in");
     const old = i.token;
 
-    const res = refreshInvite(old);
-    expect(res.ok).toBe(true);
+    expect(resend(old)).toBe(true);
 
-    expect(findInvite(old)).toBeUndefined();
-    expect(acceptInvite(old).ok).toBe(false);
-    expect(acceptInvite(i.token).ok).toBe(true);
+    expect(findInvite(pending, old)).toBeUndefined();
+    expect(accept(old)).toBe(false);
+    expect(pending.filter((x) => x.email === "resend@thedivinekrc.in")).toHaveLength(1);
   });
 
   it("revives an expired invite when it is re-sent, rather than stranding them", () => {
     const i = send("lapsed@thedivinekrc.in");
     i.expiresAt = Date.now() - 1;
+    put(i);
 
-    expect(refreshInvite(i.token).ok).toBe(true);
-    expect(acceptInvite(i.token).ok).toBe(true);
+    expect(resend(i.token)).toBe(true);
+    const live = findInviteByEmail(pending, "lapsed@thedivinekrc.in")!;
+    expect(accept(live.token)).toBe(true);
   });
 
   it("revokes an invite so the link stops working", () => {
     const i = send("revoked@thedivinekrc.in");
 
-    expect(revokeInvite(i.token).ok).toBe(true);
-    expect(acceptInvite(i.token).ok).toBe(false);
-    expect(findMember("revoked@thedivinekrc.in")).toBeUndefined();
+    expect(revoke(i.token)).toBe(true);
+    expect(accept(i.token)).toBe(false);
+    expect(member("revoked@thedivinekrc.in")).toBeUndefined();
     // Revoking twice is a no-op, not a crash.
-    expect(revokeInvite(i.token).ok).toBe(false);
+    expect(revoke(i.token)).toBe(false);
   });
 
   it("holds one invite per person, so re-inviting cannot leave two live links", () => {
     const first = send("dup@thedivinekrc.in");
     const second = send("DUP@thedivinekrc.in", "Accounts");
 
-    expect(invites.filter((x) => x.email === "dup@thedivinekrc.in")).toHaveLength(1);
-    expect(findInvite(first.token)).toBeUndefined();
-    expect(acceptInvite(second.token).ok).toBe(true);
+    expect(pending.filter((x) => x.email === "dup@thedivinekrc.in")).toHaveLength(1);
+    expect(findInvite(pending, first.token)).toBeUndefined();
+    expect(accept(second.token)).toBe(true);
     // The role that lands is the one from the invite they actually used.
-    expect(findMember("dup@thedivinekrc.in")!.role).toBe("Accounts");
+    expect(member("dup@thedivinekrc.in")!.role).toBe("Accounts");
   });
 
   it("will not invite someone who is already on the team", () => {
-    const res = createInvite({ email: "RAHUL@thedivinekrc.in", role: "Manager" });
+    // Cased differently on purpose: the guard has to normalize before it looks.
+    const existing = roster[1].email;
+    const res = createInvite(
+      { roster, pending },
+      { email: existing.toUpperCase(), role: "Manager" },
+    );
     expect(res.ok).toBe(false);
-    expect(invites.some((i) => i.email === "rahul@thedivinekrc.in")).toBe(false);
+    expect(pending.some((i) => i.email === existing)).toBe(false);
   });
 
   it("will not send an invite to something that is not an address", () => {
     for (const bad of ["", "  ", "nobody", "no@body", "@krc.in"]) {
-      expect(createInvite({ email: bad, role: "Front desk" }).ok).toBe(false);
+      expect(createInvite({ roster, pending }, { email: bad, role: "Front desk" }).ok).toBe(false);
     }
-    expect(invites).toHaveLength(SEEDED_INVITES.length);
+    expect(pending).toHaveLength(seedInvites.length);
   });
 });
 
@@ -196,15 +269,24 @@ describe("reading a person off an invite", () => {
 
   it("matches an address however it was typed", () => {
     send("mixed.case@thedivinekrc.in");
-    expect(findInviteByEmail("  MIXED.CASE@THEDIVINEKRC.IN  ")).toBeDefined();
-    expect(findMember("ADMIN@thedivinekrc.in")).toBeDefined();
+    expect(findInviteByEmail(pending, "  MIXED.CASE@THEDIVINEKRC.IN  ")).toBeDefined();
+    expect(member("ADMIN@thedivinekrc.in")).toBeDefined();
+  });
+
+  it("keeps the name someone already had rather than re-deriving it", () => {
+    // Re-inviting an existing row must not rewrite "Shivam Gupta" into "Shivam".
+    const existing = roster[1];
+    existing.acceptedAt = undefined;
+    const i = send(existing.email, "Manager");
+    expect(accept(i.token)).toBe(true);
+    expect(member(existing.email)!.name).toBe("Shivam Gupta");
   });
 });
 
 describe("the seeded roster", () => {
   it("ships one open invite, so the screen has a pending row to act on", () => {
-    expect(SEEDED_INVITES).toHaveLength(1);
-    const [seed] = invites;
+    expect(seedInvites).toHaveLength(1);
+    const [seed] = pending;
     expect(seed.expiresAt).toBeGreaterThan(Date.now());
     expect(seed.expiresAt - seed.createdAt).toBe(INVITE_TTL_MS);
   });
@@ -212,9 +294,9 @@ describe("the seeded roster", () => {
   it("only lets people who have accepted sign in", () => {
     // `verify` in auth.ts applies this same filter, which is why an invited but
     // undecided person cannot log in despite being known to the system.
-    expect(findMember("admin@thedivinekrc.in")!.role).toBe("Owner");
-    expect(findMember("aarti@thedivinekrc.in")).toBeUndefined();
-    for (const m of team) expect(isActive(m)).toBe(true);
+    expect(member("admin@thedivinekrc.in")!.role).toBe("Owner");
+    expect(member("aarti@thedivinekrc.in")).toBeUndefined();
+    for (const m of roster) expect(isActive(m)).toBe(true);
   });
 
   it("keeps every credential out of this module, and so out of the browser", () => {
@@ -222,10 +304,22 @@ describe("the seeded roster", () => {
     // roster, `bookings.ts` imports the roster for Settings, route loaders run
     // on the client — and `krc-admin` landed in dist/client. A TeamAccount must
     // carry no secret, only the fact that one exists elsewhere.
-    for (const m of team) {
+    for (const m of roster) {
       expect(Object.keys(m).sort()).toEqual(["acceptedAt", "email", "name", "role"]);
     }
-    const source = JSON.stringify(team) + JSON.stringify(invites);
+    const source = JSON.stringify(roster) + JSON.stringify(pending);
     expect(source).not.toMatch(/password|secret/i);
+  });
+
+  it("keeps the hash off a member the rules just built", () => {
+    // #12b gave `team` a `password_hash` column, so the shape above is no longer
+    // the only way one could arrive: `acceptInvite` mints a TeamAccount, and
+    // `roster.ts` maps rows into them. Either could widen and carry a hash back
+    // into `bookings.ts` — which the client imports.
+    const i = send("hash@thedivinekrc.in");
+    const { result } = acceptInvite({ roster, invite: findInvite(pending, i.token) });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(Object.keys(result.member).sort()).toEqual(["acceptedAt", "email", "name", "role"]);
   });
 });

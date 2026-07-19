@@ -1,0 +1,105 @@
+name: Migrate
+
+# Applies committed migrations to the production Neon branch.
+#
+# Fires only after CI has *succeeded* on a push to main. A migration is the one
+# thing here that reverting a commit cannot undo, so it must never run from a red
+# build. `workflow_run` is what gives that ordering — CI already runs on push to
+# main, so this waits for that run rather than duplicating the five gates.
+#
+# NOT in `netlify.toml`'s build command, deliberately: that runs on every deploy
+# preview, so an unmerged branch would migrate production.
+#
+# Runs on **dev as well as main**, which looks wrong and is not. All four Netlify
+# contexts — production, dev, branch deploys, previews — currently point at the
+# same production Neon branch. So the schema has to lead the code *everywhere*:
+# merge a query to dev without the table and dev's admin console 500s until the
+# next release. Migrating from dev does touch the production database early, and
+# that is safe for exactly one reason — every migration here is additive and
+# backward-compatible, so a table nothing reads yet costs nothing. It is what
+# expand-contract buys.
+#
+# When previews get their own Neon branch (before #14), revisit this: dev should
+# migrate dev's database, not production's.
+#
+# `workflow_dispatch` is here so the very first migration can be run by hand from
+# the Actions tab. Chicken-and-egg otherwise: the code that queries the tables
+# cannot deploy until the tables exist, and nobody holds DATABASE_URL locally.
+#
+# `DATABASE_URL` is a *repo secret*, separate from the one on Netlify: Netlify's
+# env is invisible to Actions. Two copies of one credential is the cost of an
+# automated, auditable migration; the alternative is remembering to run
+# `npm run db:migrate` by hand before every merge, on a repo where main
+# auto-deploys.
+#
+# `workflow_run` only ever runs from the default branch's definition and never
+# from a fork's PR, which is the other half of why it is used here.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main, dev]
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "Also load the fixture rows (safe: ON CONFLICT DO NOTHING)"
+        type: boolean
+        default: false
+
+# Never run two migrations at once, and never cancel one half-applied.
+concurrency:
+  group: migrate-production
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: migrate
+    runs-on: ubuntu-latest
+    # A red CI run still triggers `completed`. Only a green one may migrate.
+    # (`workflow_dispatch` has no workflow_run payload, so it passes here.)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Migrate exactly the commit CI went green on, not whatever the branch
+          # has drifted to since. Empty on workflow_dispatch, which checks out
+          # the ref it was launched from.
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      # Same load-bearing 24 as ci.yml — see the comment there.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # THIS RACES NETLIFY'S DEPLOY. Both fire on push to main and neither waits
+      # for the other, so for a window of seconds either "new code, old schema"
+      # or "new schema, old code" is live. Both must work.
+      #
+      # That is why every migration from here is expand-contract: additive and
+      # backward-compatible only. Add nullable columns, tables, indexes. Never
+      # rename, never narrow, never add NOT NULL without a default in the same
+      # migration that starts writing it. Drops go in a LATER PR, once the code
+      # that used them is deployed and gone.
+      #
+      # A migration that cannot satisfy both sides of the race gets split into
+      # two PRs. There is no ordering guarantee here to time against.
+      - name: Apply migrations
+        run: npm run db:migrate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      # Manual only, and idempotent (ON CONFLICT DO NOTHING). The fixture rows
+      # are what the console renders until #14 brings real bookings — the client
+      # is being shown this dashboard, so production wants them today. Once real
+      # guests exist, this must never be run against production again.
+      - name: Seed fixture rows
+        if: inputs.seed
+        run: npm run db:seed
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}

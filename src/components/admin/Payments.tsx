@@ -1,4 +1,6 @@
-import { Download, Plus, Search } from "lucide-react";
+import { useState } from "react";
+import { Link } from "@tanstack/react-router";
+import { Download, FileText, Loader2, Plus, Search } from "lucide-react";
 
 import type {
   OtaSettlement,
@@ -9,6 +11,7 @@ import type {
   TransactionStatus,
 } from "@/types/booking";
 import { formatINR, formatINRCompact } from "@/lib/booking-math";
+import { adminIssueInvoiceFn } from "@/lib/invoices-data";
 import {
   Table,
   TableBody,
@@ -103,6 +106,15 @@ function KpiCard({ kpi }: { kpi: PaymentsKpi }) {
 function TxnRow({ item }: { item: PaymentsTxnItem }) {
   const m = METHOD_TOKENS[item.txn.method];
   const s = STATUS_TOKENS[item.txn.status];
+  const [issuing, setIssuing] = useState(false);
+
+  async function openInvoice() {
+    setIssuing(true);
+    const res = await adminIssueInvoiceFn({ data: { kind: "booking", id: item.txn.bookingId } });
+    setIssuing(false);
+    if (res.ok) window.open(`/invoice/${res.invoiceNo}`, "_blank", "noopener,noreferrer");
+  }
+
   return (
     <TableRow className="border-[#f2ede2] hover:bg-[#faf7ef]">
       <TableCell className={cn(cell, "px-5")}>
@@ -140,6 +152,17 @@ function TxnRow({ item }: { item: PaymentsTxnItem }) {
         >
           {item.statusLabel}
         </span>
+      </TableCell>
+      <TableCell className={cn(cell, "px-5 text-right")}>
+        <button
+          type="button"
+          disabled={issuing}
+          onClick={openInvoice}
+          className="inline-flex items-center gap-1.25 text-[11px] font-bold uppercase tracking-[0.06em] text-[#3a6ea5] hover:opacity-75 disabled:opacity-50"
+        >
+          {issuing ? <Loader2 className="size-3 animate-spin" /> : <FileText className="size-3" />}
+          Invoice
+        </button>
       </TableCell>
     </TableRow>
   );
@@ -225,9 +248,12 @@ export function Payments({ data }: { data: PaymentsPageData }) {
         <div className="overflow-hidden rounded-lg border border-[#eae4d6] bg-white">
           <div className="flex items-center border-b border-[#eae4d6] px-5 py-3.75">
             <span className="font-display text-[17px] font-semibold">Recent transactions</span>
-            <span className="ml-auto text-[11px] font-bold uppercase tracking-[0.14em] text-gold">
+            <Link
+              to="/admin/bookings"
+              className="ml-auto text-[11px] font-bold uppercase tracking-[0.14em] text-gold hover:text-[#a8863f]"
+            >
               View all
-            </span>
+            </Link>
           </div>
           <div className="overflow-x-auto">
             <Table>
@@ -238,6 +264,7 @@ export function Payments({ data }: { data: PaymentsPageData }) {
                   <TableHead className={cn(colHead, "text-right")}>Amount</TableHead>
                   <TableHead className={cn(colHead, "hidden sm:table-cell")}>Time</TableHead>
                   <TableHead className={cn(colHead, "px-5 text-right")}>Status</TableHead>
+                  <TableHead className={cn(colHead, "px-5 text-right")}>Invoice</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Download, Plus } from "lucide-react";
+import { Download, FileText, Loader2, Plus } from "lucide-react";
 
 import type {
   BookingListItem,
@@ -12,6 +12,8 @@ import type {
   RoomType,
 } from "@/types/booking";
 import { formatINR } from "@/lib/booking-math";
+import { adminIssueInvoiceFn } from "@/lib/invoices-data";
+import { BookingEntryForm } from "@/components/admin/BookingEntryForm";
 import {
   Table,
   TableBody,
@@ -199,6 +201,15 @@ function StatusBadge({ status }: { status: BookingStatus }) {
 function BookingRow({ item, sr }: { item: BookingListItem; sr: number }) {
   const { booking: b, guestName } = item;
   const meal: MealPlan = b.mealPlan;
+  const [issuing, setIssuing] = useState(false);
+
+  async function openInvoice() {
+    setIssuing(true);
+    const res = await adminIssueInvoiceFn({ data: { kind: "booking", id: b.id } });
+    setIssuing(false);
+    if (res.ok) window.open(`/invoice/${res.invoiceNo}`, "_blank", "noopener,noreferrer");
+  }
+
   return (
     <TableRow className="border-[#f2ede2] hover:bg-[#faf7ef]">
       <TableCell className={cn(cell, "text-[#a49d8d]")}>{sr}</TableCell>
@@ -244,6 +255,17 @@ function BookingRow({ item, sr }: { item: BookingListItem; sr: number }) {
       <TableCell className={cell}>
         <StatusBadge status={b.status} />
       </TableCell>
+      <TableCell className={cell}>
+        <button
+          type="button"
+          disabled={issuing}
+          onClick={openInvoice}
+          className="flex items-center gap-1.25 text-[11px] font-bold uppercase tracking-[0.06em] text-[#3a6ea5] hover:opacity-75 disabled:opacity-50"
+        >
+          {issuing ? <Loader2 className="size-3 animate-spin" /> : <FileText className="size-3" />}
+          Invoice
+        </button>
+      </TableCell>
     </TableRow>
   );
 }
@@ -282,13 +304,14 @@ function TotalsRow({ totals }: { totals: BookingsTotals }) {
         {inr(totals.pending)}
       </TableCell>
       <TableCell className={cell} />
+      <TableCell className={cell} />
     </TableRow>
   );
 }
 
 function BookingsTable({ rows, totals }: { rows: BookingListItem[]; totals: BookingsTotals }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-[#eae4d6] bg-white">
+    <div className="overflow-x-auto rounded-lg border border-[#eae4d6] bg-white">
       <Table className="min-w-430 border-separate border-spacing-0">
         <TableHeader>
           {/* group band */}
@@ -302,7 +325,7 @@ function BookingsTable({ rows, totals }: { rows: BookingListItem[]; totals: Book
             <TableHead colSpan={3} className={cn(bandHead, "border-l border-[#c5a05940]")}>
               Collection (₹)
             </TableHead>
-            <TableHead className={cn(bandHead, "border-l border-[#c5a05940]")} />
+            <TableHead colSpan={2} className={cn(bandHead, "border-l border-[#c5a05940]")} />
           </TableRow>
           {/* column heads */}
           <TableRow className="border-b border-[#eae4d6] bg-[#faf7ef] hover:bg-[#faf7ef]">
@@ -325,6 +348,7 @@ function BookingsTable({ rows, totals }: { rows: BookingListItem[]; totals: Book
             <TableHead className={cn(colHead, "text-right")}>OTA Coll</TableHead>
             <TableHead className={cn(colHead, "text-right")}>Pending</TableHead>
             <TableHead className={colHead}>Status</TableHead>
+            <TableHead className={colHead}>Invoice</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -350,12 +374,29 @@ function BookingsTable({ rows, totals }: { rows: BookingListItem[]; totals: Book
 
 // ── Page ──────────────────────────────────────────────────────────────────
 
-export function Bookings({ data }: { data: BookingsPageData }) {
+export function Bookings({
+  data,
+  openEntryForm = false,
+  guestFilter,
+}: {
+  data: BookingsPageData;
+  openEntryForm?: boolean;
+  guestFilter?: string;
+}) {
   const [active, setActive] = useState<TabKey>("all");
+  const [entryOpen, setEntryOpen] = useState(openEntryForm);
 
-  const visible = useMemo(
+  const byStatus = useMemo(
     () => (active === "all" ? data.rows : data.rows.filter((r) => r.booking.status === active)),
     [active, data.rows],
+  );
+
+  const visible = useMemo(
+    () =>
+      guestFilter
+        ? byStatus.filter((r) => r.guestName.toLowerCase() === guestFilter.toLowerCase())
+        : byStatus,
+    [byStatus, guestFilter],
   );
 
   // Footer totals track the visible rows so they stay honest as tabs filter.
@@ -408,6 +449,7 @@ export function Bookings({ data }: { data: BookingsPageData }) {
           </button>
           <button
             type="button"
+            onClick={() => setEntryOpen(true)}
             className="inline-flex items-center gap-2 rounded-md bg-gold px-3 py-2 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
           >
             <Plus className="size-4" />
@@ -415,6 +457,8 @@ export function Bookings({ data }: { data: BookingsPageData }) {
           </button>
         </div>
       </div>
+
+      <BookingEntryForm open={entryOpen} onOpenChange={setEntryOpen} />
 
       <SummaryCards summary={data.summary} />
 

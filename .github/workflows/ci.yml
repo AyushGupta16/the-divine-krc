@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+
+# A second push to a PR makes the first run pointless — don't pay for it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    name: gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 24 ships npm 11, which is what authored package-lock.json. On
+      # Node 22 (npm 10) `npm ci` rejects the lock outright — it resolves
+      # unstorage's lru-cache to 11.5.2 where the lock pins 11.5.1 — so the
+      # major here is load-bearing, not a default worth "tidying" later.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # Each gate is its own step so a red run names what broke without
+      # anyone opening the log.
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npx vitest run
+
+      - name: Build
+        run: npm run build
+
+      # Must follow Build: it reads dist/client. This is the gate the other
+      # four cannot be: all of them passed while the admin password sat in the
+      # production bundle.
+      - name: No credentials in the client bundle
+        run: npm run check:bundle

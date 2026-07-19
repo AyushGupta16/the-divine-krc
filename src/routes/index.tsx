@@ -12,6 +12,7 @@ import { Testimonials } from "@/components/home/Testimonials";
 import { Gallery } from "@/components/home/Gallery";
 import { FinalCTA } from "@/components/home/FinalCTA";
 import { Footer } from "@/components/home/Footer";
+import { ScrollDial } from "@/components/home/ScrollDial";
 
 const SITE_URL = "https://thedivinekrc.in";
 const OG_IMAGE = `${SITE_URL}/og-image.jpg`;
@@ -90,6 +91,7 @@ function Index() {
       <Testimonials />
       <FinalCTA />
       <Footer />
+      <ScrollDial />
     </main>
   );
 }

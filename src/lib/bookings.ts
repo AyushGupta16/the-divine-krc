@@ -1,11 +1,25 @@
-// Data access layer for the booking system.
+// Derivation layer for the booking system: the rules that turn rows into the
+// view model each admin screen renders.
 //
-// This is an in-memory mock returning seed data that mirrors the design files.
-// It is intentionally the single choke point every route/loader reads through,
-// so swapping to a real database later is a one-file change.
+// !! THIS FILE HOLDS NO DATA, AND MUST NOT. !!
+//
+// Route loaders import it, so whatever it can reach, the bundler compiles into
+// `dist/client` and hands to every anonymous visitor to the landing page. The
+// seed rows used to live here, which put ten guests' names and email addresses
+// in the entry chunk. Mock names made that survivable; real ones would not.
+// The rows now arrive as an argument (`BookingData`) from `bookings.server.ts`,
+// whose handler bodies never reach the browser. Same rule as `lib/team.ts`:
+// what this file imports is public.
+//
+// Everything here is a pure function of its arguments, which is what keeps the
+// test suite able to run without a database, and what lets the DB swap change
+// only where the rows come from — never how they are read.
 
 import type {
+  ArrivalItem,
   Booking,
+  BookingCollection,
+  BookingRevenue,
   BookingSource,
   BookingsPageData,
   BookingStatus,
@@ -70,8 +84,28 @@ import {
   formatINR,
   formatINRCompact,
 } from "@/lib/booking-math";
-import { isActive, team } from "@/lib/team";
+import { isActive, type Result, type TeamAccount } from "@/lib/team";
 import { initialsOf } from "@/lib/utils";
+
+/**
+ * Every row an admin screen derives from, fetched once per request and threaded
+ * through. One bundle rather than three arguments because most screens read more
+ * than one of them, and because the DB swap then changes one signature, not ten.
+ */
+export interface BookingData {
+  bookings: Booking[];
+  guests: Guest[];
+  partyHall: PartyHallEnquiry[];
+  /** The physical floor board. Falls back to the default 14-room inventory
+   *  (`ROOM_UNITS`) when omitted, which is what every existing test that
+   *  builds a partial `BookingData` still gets. */
+  rooms?: RoomTile[];
+  /** Per-type area/rate overrides. `count` is never one of these — it is
+   *  always derived from `rooms`. */
+  roomTypeOverrides?: Partial<
+    Record<RoomType, { name?: string; areaSqm: number; pricePerNight: number }>
+  >;
+}
 
 export interface RoomTypeInfo {
   type: RoomType;
@@ -144,104 +178,6 @@ export const EARLY_CHECKIN_FEE = 400;
 export const LATE_CHECKOUT_FEE = 500;
 
 /**
- * The guest directory, mirroring `Admin Guests.dc.html`. Stays and lifetime
- * value are seeded; tier is derived (see `guestTier`), so a guest's badge can
- * never drift out of step with the stays it is supposed to reflect.
- */
-const GUEST_SEED: Omit<Guest, "tier">[] = [
-  {
-    id: "G-001",
-    name: "Aarav Mehta",
-    phone: "+91 98110 22334",
-    email: "aarav.mehta@example.com",
-    city: "New Delhi",
-    stays: 6,
-    lifetimeValue: 48200,
-  },
-  {
-    id: "G-002",
-    name: "Priya Nair",
-    phone: "+91 99870 55212",
-    email: "priya.nair@example.com",
-    city: "Bengaluru",
-    stays: 3,
-    lifetimeValue: 21400,
-  },
-  {
-    id: "G-003",
-    name: "Rohan Verma",
-    phone: "+91 90000 78451",
-    email: "rohan.verma@example.com",
-    city: "Greater Noida",
-    stays: 1,
-    lifetimeValue: 3400,
-  },
-  {
-    id: "G-004",
-    name: "Meera Krishnan",
-    phone: "+91 98400 11223",
-    email: "meera.krishnan@example.com",
-    city: "Chennai",
-    stays: 4,
-    lifetimeValue: 32600,
-  },
-  {
-    id: "G-005",
-    name: "Rohit Kapoor",
-    phone: "+91 94140 66789",
-    email: "rohit.kapoor@example.com",
-    city: "Jaipur",
-    stays: 2,
-    lifetimeValue: 11800,
-  },
-  {
-    id: "G-006",
-    name: "Fatima Sheikh",
-    phone: "+91 90050 44120",
-    email: "fatima.sheikh@example.com",
-    city: "Lucknow",
-    stays: 2,
-    lifetimeValue: 9600,
-  },
-  {
-    id: "G-007",
-    name: "Deepak Rao",
-    phone: "+91 99490 33087",
-    email: "deepak.rao@example.com",
-    city: "Hyderabad",
-    stays: 1,
-    lifetimeValue: 3400,
-  },
-  {
-    id: "G-008",
-    name: "Karan Malhotra",
-    phone: "+91 98150 90011",
-    email: "karan.malhotra@example.com",
-    city: "Chandigarh",
-    stays: 1,
-    lifetimeValue: 0,
-  },
-  {
-    id: "G-009",
-    name: "Vikram Nair",
-    phone: "+91 90720 55340",
-    email: "vikram.nair@example.com",
-    city: "Kochi",
-    stays: 1,
-    lifetimeValue: 0,
-  },
-  {
-    id: "G-010",
-    name: "Sunita Verma",
-    phone: "+91 98730 21980",
-    email: "sunita.verma@example.com",
-    city: "New Delhi",
-    stays: 3,
-    lifetimeValue: 18900,
-  },
-];
-
-/**
  * Loyalty standing, by stays alone: four stays earns Gold, a second stay earns
  * Silver, and a first-time guest is New.
  *
@@ -256,298 +192,40 @@ export function guestTier(stays: number): GuestTier {
   return "new";
 }
 
-function withTier(g: Omit<Guest, "tier">): Guest {
+/** Hydrates a seeded guest with the tier its stays earn. */
+export function withTier(g: Omit<Guest, "tier">): Guest {
   return { ...g, tier: guestTier(g.stays) };
 }
 
-const GUESTS: Guest[] = GUEST_SEED.map(withTier);
-
-function withTotal(b: Omit<Booking, "totalBill">): Booking {
+/** Hydrates a seeded booking with the bill its charges add up to. */
+export function withTotal(b: Omit<Booking, "totalBill">): Booking {
   return { ...b, totalBill: computeTotalBill(b.revenue) };
 }
 
-const BOOKINGS: Booking[] = [
-  withTotal({
-    id: "KRC-20260714-001",
-    guestId: "G-001",
-    roomNo: "102",
-    roomType: "deluxe",
-    checkIn: "2026-07-14",
-    checkOut: "2026-07-17",
-    urn: 3,
-    source: "direct",
-    mealPlan: "CP",
-    revenue: {
-      room: 4500,
-      earlyCheckIn: 0,
-      lateCheckOut: 0,
-      other: 0,
-      discount: 0,
-      taxPct: GST_PCT,
-    },
-    collection: {
-      paidToHotel: 5040,
-      otaCollection: 0,
-      otaCommission: 0,
-      complimentary: 0,
-      pending: 0,
-    },
-    status: "checked_in",
-    createdAt: "2026-07-10T09:12:00.000Z",
-  }),
-  withTotal({
-    id: "KRC-20260715-002",
-    guestId: "G-002",
-    roomNo: "205",
-    roomType: "deluxe_balcony",
-    checkIn: "2026-07-15",
-    checkOut: "2026-07-16",
-    urn: 1,
-    source: "booking_com",
-    mealPlan: "EP",
-    revenue: {
-      room: 1700,
-      earlyCheckIn: 0,
-      lateCheckOut: 300,
-      other: 0,
-      discount: 0,
-      taxPct: GST_PCT,
-    },
-    collection: {
-      paidToHotel: 0,
-      otaCollection: 2240,
-      otaCommission: 336,
-      complimentary: 0,
-      pending: 0,
-    },
-    status: "confirmed",
-    createdAt: "2026-07-12T14:40:00.000Z",
-  }),
-  withTotal({
-    id: "KRC-20260715-003",
-    guestId: "G-003",
-    roomNo: null,
-    roomType: "deluxe",
-    checkIn: "2026-07-20",
-    checkOut: "2026-07-22",
-    urn: 2,
-    source: "phone",
-    mealPlan: "MAP",
-    revenue: {
-      room: 3000,
-      earlyCheckIn: 0,
-      lateCheckOut: 0,
-      other: 0,
-      discount: 200,
-      taxPct: GST_PCT,
-    },
-    collection: {
-      paidToHotel: 0,
-      otaCollection: 0,
-      otaCommission: 0,
-      complimentary: 0,
-      pending: 3136,
-    },
-    status: "pending_payment",
-    createdAt: "2026-07-15T08:05:00.000Z",
-  }),
-  withTotal({
-    id: "KRC-20260714-004",
-    guestId: "G-004",
-    roomNo: "112",
-    roomType: "deluxe",
-    checkIn: "2026-07-13",
-    checkOut: "2026-07-16",
-    urn: 3,
-    source: "booking_com",
-    mealPlan: "MAP",
-    revenue: {
-      room: 4500,
-      earlyCheckIn: 0,
-      lateCheckOut: 0,
-      other: 600,
-      discount: 0,
-      taxPct: GST_PCT,
-    },
-    collection: {
-      paidToHotel: 0,
-      otaCollection: 5712,
-      otaCommission: 856,
-      complimentary: 0,
-      pending: 0,
-    },
-    status: "checked_in",
-    createdAt: "2026-07-09T11:20:00.000Z",
-  }),
-  withTotal({
-    id: "KRC-20260711-005",
-    guestId: "G-005",
-    roomNo: "108",
-    roomType: "deluxe",
-    checkIn: "2026-07-11",
-    checkOut: "2026-07-13",
-    urn: 2,
-    source: "walk_in",
-    mealPlan: "EP",
-    revenue: {
-      room: 3000,
-      earlyCheckIn: 0,
-      lateCheckOut: 500,
-      other: 0,
-      discount: 0,
-      taxPct: GST_PCT,
-    },
-    collection: {
-      paidToHotel: 3920,
-      otaCollection: 0,
-      otaCommission: 0,
-      complimentary: 0,
-      pending: 0,
-    },
-    status: "checked_out",
-    createdAt: "2026-07-08T16:30:00.000Z",
-  }),
-  withTotal({
-    id: "KRC-20260710-006",
-    guestId: "G-006",
-    roomNo: "207",
-    roomType: "deluxe_balcony",
-    checkIn: "2026-07-10",
-    checkOut: "2026-07-12",
-    urn: 2,
-    source: "goibibo",
-    mealPlan: "CP",
-    revenue: {
-      room: 3400,
-      earlyCheckIn: 0,
-      lateCheckOut: 0,
-      other: 300,
-      discount: 0,
-      taxPct: GST_PCT,
-    },
-    collection: {
-      paidToHotel: 0,
-      otaCollection: 4144,
-      otaCommission: 622,
-      complimentary: 0,
-      pending: 0,
-    },
-    status: "checked_out",
-    createdAt: "2026-07-06T10:15:00.000Z",
-  }),
-  withTotal({
-    id: "KRC-20260714-007",
-    guestId: "G-007",
-    roomNo: "201",
-    roomType: "deluxe_balcony",
-    checkIn: "2026-07-16",
-    checkOut: "2026-07-18",
-    urn: 2,
-    source: "direct",
-    mealPlan: "EP",
-    revenue: {
-      room: 3400,
-      earlyCheckIn: 0,
-      lateCheckOut: 0,
-      other: 0,
-      discount: 0,
-      taxPct: GST_PCT,
-    },
-    collection: {
-      paidToHotel: 0,
-      otaCollection: 0,
-      otaCommission: 0,
-      complimentary: 0,
-      pending: 3808,
-    },
-    status: "confirmed",
-    createdAt: "2026-07-14T13:00:00.000Z",
-  }),
-  withTotal({
-    id: "KRC-20260715-008",
-    guestId: "G-008",
-    roomNo: null,
-    roomType: "deluxe",
-    checkIn: "2026-07-15",
-    checkOut: "2026-07-17",
-    urn: 2,
-    source: "agoda",
-    mealPlan: "EP",
-    revenue: {
-      room: 3000,
-      earlyCheckIn: 0,
-      lateCheckOut: 0,
-      other: 0,
-      discount: 0,
-      taxPct: GST_PCT,
-    },
-    collection: {
-      paidToHotel: 0,
-      otaCollection: 0,
-      otaCommission: 0,
-      complimentary: 0,
-      pending: 0,
-    },
-    status: "cancelled",
-    createdAt: "2026-07-13T19:45:00.000Z",
-  }),
-  withTotal({
-    id: "KRC-20260713-009",
-    guestId: "G-009",
-    roomNo: null,
-    roomType: "deluxe",
-    checkIn: "2026-07-13",
-    checkOut: "2026-07-14",
-    urn: 1,
-    source: "direct",
-    mealPlan: "EP",
-    revenue: {
-      room: 1500,
-      earlyCheckIn: 0,
-      lateCheckOut: 0,
-      other: 0,
-      discount: 0,
-      taxPct: GST_PCT,
-    },
-    collection: {
-      paidToHotel: 0,
-      otaCollection: 0,
-      otaCommission: 0,
-      complimentary: 0,
-      pending: 0,
-    },
-    status: "no_show",
-    createdAt: "2026-07-12T21:10:00.000Z",
-  }),
-  withTotal({
-    id: "KRC-20260712-010",
-    guestId: "G-010",
-    roomNo: "104",
-    roomType: "deluxe",
-    checkIn: "2026-07-12",
-    checkOut: "2026-07-15",
-    urn: 3,
-    source: "phone",
-    mealPlan: "CP",
-    revenue: {
-      room: 4500,
-      earlyCheckIn: 400,
-      lateCheckOut: 0,
-      other: 150,
-      discount: 0,
-      taxPct: GST_PCT,
-    },
-    collection: {
-      paidToHotel: 5656,
-      otaCollection: 0,
-      otaCommission: 0,
-      complimentary: 0,
-      pending: 0,
-    },
-    status: "checked_out",
-    createdAt: "2026-07-05T09:40:00.000Z",
-  }),
-];
+/**
+ * The booking number — the `nnn` an id ends with, and the first column the
+ * Bookings table shows. See `bookingId(date, seq)`.
+ */
+function bookingNumber(id: string): number {
+  return Number(id.slice(id.lastIndexOf("-") + 1));
+}
+
+/**
+ * The order the Bookings screen lists in: by booking number, as the design does
+ * (`KRC-…-001` through `-010`, across several dates).
+ *
+ * Stated here rather than inherited from the row order, because there is no row
+ * order to inherit. These rows arrive from Postgres, which without an ORDER BY
+ * returns whatever the planner finds cheapest and may answer differently after
+ * an UPDATE. This function is what makes the table's order a decision instead of
+ * an accident of storage — and it is testable with no database, which an ORDER
+ * BY is not.
+ *
+ * The id breaks ties: `seq` is not promised to be unique across dates.
+ */
+export function byBookingNumber(a: Booking, b: Booking): number {
+  return bookingNumber(a.id) - bookingNumber(b.id) || a.id.localeCompare(b.id);
+}
 
 /** Share of the total taken up-front to hold a date (design: "25% advance"). */
 export const PARTY_HALL_ADVANCE_PCT = 25;
@@ -569,151 +247,10 @@ function collectedFor(status: PartyHallStatus, amount: number): number {
   return 0;
 }
 
-function withAdvance(e: Omit<PartyHallEnquiry, "advancePaid">): PartyHallEnquiry {
+/** Hydrates a seeded enquiry with the advance its pipeline stage implies. */
+export function withAdvance(e: Omit<PartyHallEnquiry, "advancePaid">): PartyHallEnquiry {
   return { ...e, advancePaid: collectedFor(e.status, e.amount) };
 }
-
-/**
- * The party-hall pipeline, mirroring `Admin Party Hall.dc.html`. Amounts are
- * seeded; advances are derived (see `withAdvance`). An un-quoted enquiry has an
- * amount of 0, which the screen renders as "₹—" rather than a false zero.
- */
-const PARTY_HALL_SEED: Omit<PartyHallEnquiry, "advancePaid">[] = [
-  {
-    id: "PH-20260622-001",
-    title: "Birthday — Nanda family",
-    date: "2026-06-21",
-    slot: "evening",
-    guests: 65,
-    package: "Silver",
-    addOns: ["Decor", "DJ"],
-    status: "completed",
-    amount: 52000,
-  },
-  {
-    id: "PH-20260702-002",
-    title: "Sangeet — Sharma family",
-    date: "2026-07-02",
-    slot: "full_day",
-    guests: 120,
-    package: "Platinum",
-    addOns: ["Catering"],
-    status: "completed",
-    amount: 190000,
-  },
-  {
-    id: "PH-20260730-003",
-    title: "Wedding reception — Rao family",
-    date: "2026-07-30",
-    slot: "evening",
-    guests: 150,
-    package: "Platinum",
-    addOns: ["Catering", "Decor", "DJ"],
-    status: "confirmed",
-    amount: 240000,
-  },
-  {
-    id: "PH-20260808-004",
-    title: "Anniversary — Iyer family",
-    date: "2026-08-08",
-    slot: "evening",
-    guests: 70,
-    package: "Gold",
-    addOns: ["Catering", "Decor"],
-    status: "confirmed",
-    amount: 80000,
-  },
-  {
-    id: "PH-20260812-005",
-    title: "Birthday — Meera Krishnan",
-    date: "2026-08-12",
-    slot: "afternoon",
-    guests: 55,
-    package: "Silver",
-    addOns: ["Decor"],
-    status: "advance_paid",
-    amount: 88000,
-  },
-  {
-    id: "PH-20260816-006",
-    title: "Naming ceremony — Pillai family",
-    date: "2026-08-16",
-    slot: "morning",
-    guests: 40,
-    package: "Silver",
-    addOns: ["Decor"],
-    status: "confirmed",
-    amount: 36000,
-  },
-  {
-    id: "PH-20260822-007",
-    title: "Reception — Priya & Arjun",
-    date: "2026-08-22",
-    slot: "evening",
-    guests: 140,
-    package: "Platinum",
-    addOns: ["Catering", "Decor"],
-    status: "enquiry",
-    amount: 0,
-  },
-  {
-    id: "PH-20260829-008",
-    title: "Sangeet — Bhatia family",
-    date: "2026-08-29",
-    slot: "evening",
-    guests: 130,
-    package: "Platinum",
-    addOns: ["Catering", "DJ"],
-    status: "confirmed",
-    amount: 130000,
-  },
-  {
-    id: "PH-20260905-009",
-    title: "Corporate offsite — Nexus Ltd",
-    date: "2026-09-05",
-    slot: "full_day",
-    guests: 90,
-    package: "Gold",
-    addOns: ["Catering", "AV"],
-    status: "quote_sent",
-    amount: 110000,
-  },
-  {
-    id: "PH-20260919-010",
-    title: "Birthday — Kapoor family",
-    date: "2026-09-19",
-    slot: "afternoon",
-    guests: 60,
-    package: "Silver",
-    addOns: ["Decor"],
-    status: "enquiry",
-    amount: 0,
-  },
-  {
-    id: "PH-20260926-011",
-    title: "Corporate AGM — Vector Systems",
-    date: "2026-09-26",
-    slot: "full_day",
-    guests: 100,
-    package: "Gold",
-    addOns: ["Projector", "Lunch Buffet"],
-    status: "quote_sent",
-    amount: 95000,
-  },
-  {
-    id: "PH-20261003-012",
-    title: "Reception — Fernandes & D'Souza",
-    date: "2026-10-03",
-    slot: "evening",
-    guests: 110,
-    package: "Platinum",
-    addOns: ["Catering", "Decor", "DJ"],
-    status: "enquiry",
-    amount: 0,
-  },
-];
-
-const PARTY_HALL_ENQUIRIES: PartyHallEnquiry[] = PARTY_HALL_SEED.map(withAdvance);
 
 /**
  * Events still ahead of the hall — anything not called off and not already
@@ -725,10 +262,8 @@ function isUpcomingEvent(e: PartyHallEnquiry): boolean {
 }
 
 /** Soonest upcoming event, or undefined when the hall has nothing booked. */
-function nextPartyHallEvent(): PartyHallEnquiry | undefined {
-  return [...PARTY_HALL_ENQUIRIES]
-    .filter(isUpcomingEvent)
-    .sort((a, b) => a.date.localeCompare(b.date))[0];
+function nextPartyHallEvent(partyHall: PartyHallEnquiry[]): PartyHallEnquiry | undefined {
+  return [...partyHall].filter(isUpcomingEvent).sort((a, b) => a.date.localeCompare(b.date))[0];
 }
 
 /** "30 Jul · Evening" — the shared next-event line. */
@@ -742,29 +277,288 @@ function nextEventLabel(e: PartyHallEnquiry | undefined): string {
   return `${date} · ${SLOT_LABEL[e.slot]}`;
 }
 
-// Simulated async so callers/loaders already await — real DB swap keeps signature.
-export async function getBookings(): Promise<Booking[]> {
-  return BOOKINGS;
-}
-
-export async function getBooking(id: string): Promise<Booking | undefined> {
-  return BOOKINGS.find((b) => b.id === id);
-}
-
-export async function getGuests(): Promise<Guest[]> {
-  return GUESTS;
-}
-
-export async function getGuest(id: string): Promise<Guest | undefined> {
-  return GUESTS.find((g) => g.id === id);
-}
-
+/** Room types are inventory, not booking data — static config, safe to ship. */
 export async function getRoomTypes(): Promise<RoomTypeInfo[]> {
   return ROOM_TYPES;
 }
 
+export function findBooking(data: BookingData, id: string): Booking | undefined {
+  return data.bookings.find((b) => b.id === id);
+}
+
+export function findGuest(data: BookingData, id: string): Guest | undefined {
+  return data.guests.find((g) => g.id === id);
+}
+
+/** What the manual-entry drawer (spec 19) collects. Derived fields are never entered. */
+export interface NewBookingInput {
+  guestName: string;
+  guestPhone: string;
+  guestEmail: string;
+  guestCity: string;
+  roomType: RoomType;
+  /** null leaves the room unassigned, same as an OTA reservation today. */
+  roomNo: string | null;
+  checkIn: string;
+  checkOut: string;
+  source: BookingSource;
+  mealPlan: MealPlan;
+}
+
+function nightsBetween(checkIn: string, checkOut: string): number {
+  const ms =
+    new Date(`${checkOut}T00:00:00Z`).getTime() - new Date(`${checkIn}T00:00:00Z`).getTime();
+  return Math.round(ms / 86_400_000);
+}
+
+/** `G-001`, `G-002`, … — the next free number, one past whatever exists. */
+function nextGuestId(guests: Guest[]): string {
+  const max = guests.reduce((m, g) => {
+    const n = Number(g.id.slice(g.id.lastIndexOf("-") + 1));
+    return Number.isFinite(n) && n > m ? n : m;
+  }, 0);
+  return `G-${String(max + 1).padStart(3, "0")}`;
+}
+
+/** `KRC-YYYYMMDD-nnn` — the next free sequence number for that calendar date. */
+function nextBookingId(existingIds: string[], today: string): string {
+  const prefix = `KRC-${today.replaceAll("-", "")}-`;
+  const max = existingIds
+    .filter((id) => id.startsWith(prefix))
+    .reduce((m, id) => Math.max(m, bookingNumber(id)), 0);
+  return `${prefix}${String(max + 1).padStart(3, "0")}`;
+}
+
+/**
+ * The first real write to `bookings` (spec 19). A pure rule, same shape as
+ * `team.ts`'s `createInvite`: it decides and returns, it never persists — that
+ * is `bookings-data.ts`'s job, same split as invites.
+ *
+ * An existing guest is reused by phone rather than duplicated — the same
+ * person booking twice is one `Guest` row with two `Booking` rows, not two
+ * guests. Room revenue is computed from the room type and night count (the
+ * only figures known at entry); nothing is collected yet, so the whole bill
+ * sits in `collection.pending` until a payment PR (#16) settles it.
+ */
+export function createBooking(
+  state: {
+    guests: Guest[];
+    bookings: Booking[];
+    rooms?: RoomTile[];
+    roomTypeOverrides?: BookingData["roomTypeOverrides"];
+  },
+  input: NewBookingInput,
+  today: string = new Date().toISOString().slice(0, 10),
+): Result<{ guest: Guest; booking: Booking }> {
+  const name = input.guestName.trim();
+  const phone = input.guestPhone.trim();
+  if (!name) return { ok: false, error: "Guest name is required." };
+  if (!phone) return { ok: false, error: "Guest phone is required." };
+  if (!input.checkIn || !input.checkOut) {
+    return { ok: false, error: "Check-in and check-out dates are required." };
+  }
+  if (input.checkOut <= input.checkIn) {
+    return { ok: false, error: "Check-out must be after check-in." };
+  }
+  const roomNumbers = state.rooms ? state.rooms.map((r) => r.no) : ROOM_NUMBERS;
+  if (input.roomNo && !roomNumbers.includes(input.roomNo)) {
+    return { ok: false, error: `Room ${input.roomNo} does not exist.` };
+  }
+
+  const guest: Guest =
+    state.guests.find((g) => g.phone === phone) ??
+    withTier({
+      id: nextGuestId(state.guests),
+      name,
+      phone,
+      email: input.guestEmail.trim(),
+      city: input.guestCity.trim(),
+      stays: 0,
+      lifetimeValue: 0,
+    });
+
+  const nights = nightsBetween(input.checkIn, input.checkOut);
+  const roomTypes = resolveRoomTypes(state.rooms ?? defaultRoomTiles(), state.roomTypeOverrides);
+  const pricePerNight = roomTypes.find((rt) => rt.type === input.roomType)!.pricePerNight;
+  const revenue: BookingRevenue = {
+    room: pricePerNight * nights,
+    earlyCheckIn: 0,
+    lateCheckOut: 0,
+    other: 0,
+    discount: 0,
+    taxPct: GST_PCT,
+  };
+  const collection: BookingCollection = {
+    paidToHotel: 0,
+    otaCollection: 0,
+    otaCommission: 0,
+    complimentary: 0,
+    pending: computeTotalBill(revenue),
+  };
+
+  const booking = withTotal({
+    id: nextBookingId(
+      state.bookings.map((b) => b.id),
+      today,
+    ),
+    guestId: guest.id,
+    roomNo: input.roomNo,
+    roomType: input.roomType,
+    checkIn: input.checkIn,
+    checkOut: input.checkOut,
+    urn: nights,
+    source: input.source,
+    mealPlan: input.mealPlan,
+    revenue,
+    collection,
+    status: "pending_payment",
+    createdAt: new Date().toISOString(),
+  });
+
+  return { ok: true, guest, booking };
+}
+
+export interface AvailabilityQuery {
+  checkIn: string;
+  checkOut: string;
+  rooms: number;
+}
+
+/**
+ * Whether `rooms` more stays can be sold over the whole `[checkIn, checkOut)`
+ * span. Counts every occupying booking that overlaps a given night, not just
+ * ones with a `roomNo` assigned — guest self-service bookings never get one
+ * (roomNo stays null until check-in, per spec #14), so counting only assigned
+ * rooms would undercount and let the bar oversell.
+ */
+export function checkAvailability(
+  data: { bookings: Booking[]; rooms?: RoomTile[] },
+  query: AvailabilityQuery,
+): boolean {
+  if (!query.checkIn || !query.checkOut || query.checkOut <= query.checkIn) return false;
+  if (query.rooms < 1) return false;
+
+  const nights = nightsBetween(query.checkIn, query.checkOut);
+  for (let i = 0; i < nights; i++) {
+    const onDate = new Date(`${query.checkIn}T00:00:00Z`);
+    onDate.setUTCDate(onDate.getUTCDate() + i);
+    const dateStr = onDate.toISOString().slice(0, 10);
+
+    const occupied = data.bookings.filter(
+      (b) => OCCUPYING_STATUSES.has(b.status) && b.checkIn <= dateStr && dateStr < b.checkOut,
+    ).length;
+
+    if ((data.rooms ?? ROOM_UNITS).length - occupied < query.rooms) return false;
+  }
+  return true;
+}
+
+export interface GuestBookingLookup {
+  booking: Booking;
+  guest: Guest;
+  roomTypeName: string;
+}
+
+/**
+ * Spec 15's search: a guest proves ownership with the phone or email they
+ * booked under, not a login — same self-service model as the confirmation
+ * email/WhatsApp they already got at booking time.
+ */
+export function findGuestBooking(
+  data: BookingData,
+  bookingId: string,
+  contact: string,
+): Result<GuestBookingLookup> {
+  const booking = data.bookings.find((b) => b.id === bookingId.trim());
+  if (!booking) return { ok: false, error: "No booking found with that ID." };
+
+  const guest = data.guests.find((g) => g.id === booking.guestId);
+  const needle = contact.trim().toLowerCase();
+  const matches =
+    !!guest && (guest.phone === contact.trim() || guest.email.toLowerCase() === needle);
+  if (!matches) return { ok: false, error: "That phone or email doesn't match this booking." };
+
+  const roomTypeName = ROOM_TYPES.find((rt) => rt.type === booking.roomType)!.name;
+  return { ok: true, booking, guest: guest!, roomTypeName };
+}
+
+/** Statuses a guest can still back out of — a stay that has begun or already ended cannot be. */
+const CANCELLABLE_STATUSES = new Set<BookingStatus>(["confirmed", "pending_payment"]);
+
+/**
+ * Same ownership check as `findGuestBooking`, then flips the one field a
+ * guest is allowed to change themselves. Everything else about the booking
+ * (room, dates, revenue) is unauthorized-guest-facing read-only.
+ */
+export function cancelGuestBooking(
+  data: BookingData,
+  bookingId: string,
+  contact: string,
+): Result<{ booking: Booking }> {
+  const found = findGuestBooking(data, bookingId, contact);
+  if (!found.ok) return found;
+  if (!CANCELLABLE_STATUSES.has(found.booking.status)) {
+    return {
+      ok: false,
+      error: `This booking is already ${found.booking.status.replace("_", " ")}.`,
+    };
+  }
+  return { ok: true, booking: { ...found.booking, status: "cancelled" } };
+}
+
+/**
+ * The Razorpay verify route's write (#16): flips a `pending_payment` booking to
+ * `confirmed` and settles its collection — `paidToHotel` takes the whole bill,
+ * `pending` drops to zero, since a Checkout payment is always the full amount,
+ * never a partial one.
+ *
+ * Idempotent by construction: a webhook retry or a duplicate `handler` fire
+ * with the same `paymentId` on an already-`confirmed` booking returns the
+ * existing row rather than re-settling it, which matters because
+ * `bookings-data.ts` calls this once per resolved signature and Razorpay does
+ * not guarantee its webhook fires exactly once.
+ */
+export function markBookingPaid(
+  data: BookingData,
+  bookingId: string,
+  razorpayOrderId: string,
+  razorpayPaymentId: string,
+): Result<{ booking: Booking }> {
+  const booking = data.bookings.find((b) => b.id === bookingId);
+  if (!booking) return { ok: false, error: "Booking not found." };
+
+  if (booking.status === "confirmed" && booking.razorpayPaymentId === razorpayPaymentId) {
+    return { ok: true, booking };
+  }
+  if (booking.status !== "pending_payment") {
+    return { ok: false, error: `Booking is already ${booking.status.replace("_", " ")}.` };
+  }
+
+  return {
+    ok: true,
+    booking: {
+      ...booking,
+      status: "confirmed",
+      collection: { ...booking.collection, paidToHotel: booking.totalBill, pending: 0 },
+      razorpayOrderId,
+      razorpayPaymentId,
+    },
+  };
+}
+
 /** Statuses that hold a physical room off the market. */
 const OCCUPYING_STATUSES = new Set(["confirmed", "checked_in", "pending_payment"]);
+
+/** A stay that has begun — the guest has arrived, whether in-house or gone. */
+const ARRIVED_STATUSES = new Set<BookingStatus>(["checked_in", "checked_out"]);
+/** Booked but not yet arrived; excludes the void statuses (cancelled/no_show). */
+const AWAITING_ARRIVAL_STATUSES = new Set<BookingStatus>(["confirmed", "pending_payment"]);
+
+/** Compact room-type label for the arrivals queue, distinct from `ROOM_TYPES`. */
+const ROOM_TYPE_SHORT: Record<RoomType, string> = {
+  deluxe: "Deluxe",
+  deluxe_balcony: "Deluxe Balcony",
+};
 
 /**
  * Rooms free to sell right now — read off the floor board, so the sidebar badge
@@ -774,8 +568,10 @@ const OCCUPYING_STATUSES = new Set(["confirmed", "checked_in", "pending_payment"
  * under maintenance is unoccupied but cannot be sold, so it counts toward vacant
  * and not toward this.
  */
-export async function getAvailableRoomCount(): Promise<number> {
-  return countTiles(roomTilesNow(), "available");
+export async function getAvailableRoomCount(
+  tiles: RoomTile[] = defaultRoomTiles(),
+): Promise<number> {
+  return countTiles(tiles, "available");
 }
 
 /**
@@ -784,8 +580,7 @@ export async function getAvailableRoomCount(): Promise<number> {
  * cannot contradict the Rooms screen or itself. Only the party-hall line is
  * still seeded (see below).
  */
-function occupancyNow(): Occupancy {
-  const tiles = roomTilesNow();
+function occupancyNow(tiles: RoomTile[] = defaultRoomTiles()): Occupancy {
   const occupied = countTiles(tiles, "occupied");
   const total = tiles.length;
 
@@ -811,101 +606,94 @@ function occupancyNow(): Occupancy {
 }
 
 /**
- * Everything the admin dashboard renders, in one round-trip. `unassignedRooms`,
- * `occupancy` and `revenue` are derived from the live booking set so the card
- * figures stay truthful; the rest still mirrors `Admin Dashboard.dc.html`. When
- * this swaps to a real DB these become aggregate queries behind the same
- * signature.
+ * Everything the admin dashboard renders, in one round-trip. The stat cards, the
+ * arrivals queue, `unassignedRooms`, `occupancy` and `revenue` are all derived
+ * from the live booking set so the figures stay truthful.
+ *
+ * Two things are still stubbed, because the data to derive them does not exist
+ * yet — not because the design wants them fixed:
+ *
+ *   - the **recent-activity feed**, which needs an event log nothing writes today
+ *     (there is no create/pay/cancel path outside invites) — spec 13's whole job;
+ *   - each arrival's **time of day** and **party size**, which have no field in
+ *     the booking model — they arrive with manual entry in spec 19.
+ *
+ * These are left as marked FIXME stubs rather than plausible-looking mock, so the
+ * screen never quietly presents an invented number as a real one.
  */
-export async function getDashboardData(today = "2026-07-14"): Promise<DashboardData> {
-  const unassignedRooms = BOOKINGS.filter(
+export async function getDashboardData(
+  data: BookingData,
+  today: string = new Date().toISOString().slice(0, 10),
+): Promise<DashboardData> {
+  const unassignedRooms = data.bookings.filter(
     (b) => b.roomNo === null && OCCUPYING_STATUSES.has(b.status),
   ).length;
 
+  // Today's arrivals: everyone whose check-in is today and who has not voided
+  // (cancelled/no_show). `arrived` and `pending` partition it, so total = sum.
+  const arrivalsToday = data.bookings.filter(
+    (b) =>
+      b.checkIn === today &&
+      (ARRIVED_STATUSES.has(b.status) || AWAITING_ARRIVAL_STATUSES.has(b.status)),
+  );
+  const checkInsToday = {
+    total: arrivalsToday.length,
+    arrived: arrivalsToday.filter((b) => ARRIVED_STATUSES.has(b.status)).length,
+    pending: arrivalsToday.filter((b) => AWAITING_ARRIVAL_STATUSES.has(b.status)).length,
+  };
+
+  // Today's departures: `settled` has checked out, `late` is still in-house on
+  // the checkout date. Same partition, so total = settled + late.
+  const departuresToday = data.bookings.filter(
+    (b) => b.checkOut === today && (b.status === "checked_out" || b.status === "checked_in"),
+  );
+  const checkOutsToday = {
+    total: departuresToday.length,
+    settled: departuresToday.filter((b) => b.status === "checked_out").length,
+    late: departuresToday.filter((b) => b.status === "checked_in").length,
+  };
+
+  const awaitingArrival = arrivalsToday.filter((b) => AWAITING_ARRIVAL_STATUSES.has(b.status));
+  const guestById = new Map(data.guests.map((g) => [g.id, g]));
+
+  const arrivals: ArrivalItem[] = arrivalsToday.map((b) => {
+    const name = guestById.get(b.guestId)?.name ?? "—";
+    return {
+      id: b.id,
+      initials: initialsOf(name),
+      name,
+      roomType: ROOM_TYPE_SHORT[b.roomType],
+      nights: b.urn,
+      time: "", // FIXME(spec-19): booking model has no arrival time of day.
+      assignment: b.roomNo ? `Room ${b.roomNo}` : "unassigned",
+      assigned: b.roomNo !== null,
+    };
+  });
+
   return {
-    checkInsToday: { total: 12, arrived: 4, pending: 8 },
-    checkOutsToday: { total: 8, settled: 5, late: 3 },
-    expectedArrivals: { total: 5, nextTime: "2:30 PM", nextLabel: "Sharma +2" },
+    checkInsToday,
+    checkOutsToday,
+    expectedArrivals: {
+      total: awaitingArrival.length,
+      // FIXME(spec-19): no arrival time means no "next"; show who is due, not a
+      // fabricated 2:30 PM. `nextTime` stays blank until manual entry adds it.
+      nextTime: "",
+      nextLabel: awaitingArrival[0] ? (guestById.get(awaitingArrival[0].guestId)?.name ?? "") : "",
+    },
     unassignedRooms,
-    occupancy: occupancyNow(),
-    revenue: revenuePeriods(today),
-    activity: [
-      {
-        id: "act-1",
-        kind: "check_in",
-        title: "Checked in *Priya Nair* to *Deluxe Balcony 204*",
-        meta: "2 min ago · 2 nights · ₹3,400 paid",
-      },
-      {
-        id: "act-2",
-        kind: "enquiry",
-        title: "New *Party Hall* enquiry — 150 guests, tailored quote",
-        meta: "18 min ago · 22 Aug · advance pending",
-      },
-      {
-        id: "act-3",
-        kind: "payment",
-        title: "*₹1,700* UPI payment received — booking *#BK-2047*",
-        meta: "41 min ago · Classic 110",
-      },
-      {
-        id: "act-4",
-        kind: "cancellation",
-        title: "*#BK-2039* cancelled by guest — refund initiated",
-        meta: "1 hr ago · Deluxe Balcony 118",
-      },
-    ],
-    arrivals: [
-      {
-        id: "arr-1",
-        initials: "AS",
-        name: "Anil Sharma",
-        extra: "+2",
-        roomType: "Deluxe Balcony",
-        nights: 2,
-        time: "2:30 PM",
-        assignment: "unassigned",
-        assigned: false,
-      },
-      {
-        id: "arr-2",
-        initials: "MK",
-        name: "Meera Krishnan",
-        roomType: "Classic",
-        nights: 3,
-        time: "3:00 PM",
-        assignment: "Room 112",
-        assigned: true,
-      },
-      {
-        id: "arr-3",
-        initials: "JT",
-        name: "John Thomas",
-        extra: "+1",
-        roomType: "Deluxe Balcony",
-        nights: 1,
-        time: "4:15 PM",
-        assignment: "Room 206",
-        assigned: true,
-      },
-      {
-        id: "arr-4",
-        initials: "SV",
-        name: "Sunita Verma",
-        roomType: "Classic",
-        nights: 4,
-        time: "6:00 PM",
-        assignment: "unassigned",
-        assigned: false,
-      },
-    ],
+    occupancy: occupancyNow(data.rooms),
+    revenue: revenuePeriods(data, today),
+    // FIXME(spec-13): no event log exists to derive this from — nothing writes
+    // check-in/payment/enquiry/cancellation events yet. Empty until spec 13.
+    activity: [],
+    arrivals,
   };
 }
 
 /** Physical rooms held off the market on a date by an occupying booking. */
-function occupiedRoomsOn(onDate: string): Set<string> {
+function occupiedRoomsOn(bookings: Booking[], onDate: string): Set<string> {
   const occupied = new Set<string>();
-  for (const b of BOOKINGS) {
+  for (const b of bookings) {
     if (!b.roomNo || !OCCUPYING_STATUSES.has(b.status)) continue;
     if (b.checkIn <= onDate && onDate < b.checkOut) occupied.add(b.roomNo);
   }
@@ -916,18 +704,18 @@ function occupiedRoomsOn(onDate: string): Set<string> {
  * Everything the admin Bookings screen renders. Summary figures, tab counts
  * and the period-totals footer are all derived from the live booking set (not
  * seeded), so "totals auto" holds and the numbers stay honest across edits.
- * A real DB swap turns these into aggregate queries behind the same signature.
  */
 export async function getBookingsPageData(
+  data: BookingData,
   today: string = new Date().toISOString().slice(0, 10),
 ): Promise<BookingsPageData> {
-  const guestName = new Map(GUESTS.map((g) => [g.id, g.name]));
-  const rows = BOOKINGS.map((booking) => ({
+  const guestName = new Map(data.guests.map((g) => [g.id, g.name]));
+  const rows = [...data.bookings].sort(byBookingNumber).map((booking) => ({
     booking,
     guestName: guestName.get(booking.guestId) ?? "—",
   }));
 
-  const countsByStatus = BOOKINGS.reduce(
+  const countsByStatus = data.bookings.reduce(
     (acc, b) => {
       acc[b.status] += 1;
       return acc;
@@ -942,7 +730,7 @@ export async function getBookingsPageData(
     } as Record<BookingStatus, number>,
   );
 
-  const totals = BOOKINGS.reduce<BookingsPageData["totals"]>(
+  const totals = data.bookings.reduce<BookingsPageData["totals"]>(
     (acc, b) => {
       acc.roomRev += b.revenue.room;
       acc.earlyCheckIn += b.revenue.earlyCheckIn;
@@ -968,20 +756,23 @@ export async function getBookingsPageData(
 
   // Room state comes off the floor board, not this booking set — its room
   // numbers are illustrative and fall outside the real inventory.
-  const tonight = occupancyNow();
-  const totalUrn = BOOKINGS.reduce((sum, b) => sum + b.urn, 0);
-  const totalCollected = BOOKINGS.reduce((sum, b) => sum + computeTotalCollected(b.collection), 0);
+  const tonight = occupancyNow(data.rooms);
+  const totalUrn = data.bookings.reduce((sum, b) => sum + b.urn, 0);
+  const totalCollected = data.bookings.reduce(
+    (sum, b) => sum + computeTotalCollected(b.collection),
+    0,
+  );
 
   const summary: BookingsPageData["summary"] = [
     {
       key: "checkInsToday",
       label: "Today's check-ins",
-      value: String(BOOKINGS.filter((b) => b.checkIn === today).length),
+      value: String(data.bookings.filter((b) => b.checkIn === today).length),
     },
     {
       key: "checkOutsToday",
       label: "Today's check-outs",
-      value: String(BOOKINGS.filter((b) => b.checkOut === today).length),
+      value: String(data.bookings.filter((b) => b.checkOut === today).length),
     },
     {
       key: "occupied",
@@ -1019,7 +810,7 @@ export async function getBookingsPageData(
     },
   ];
 
-  return { today, total: BOOKINGS.length, summary, countsByStatus, rows, totals };
+  return { today, total: data.bookings.length, summary, countsByStatus, rows, totals };
 }
 
 // ── Rooms screen ───────────────────────────────────────────────────────────
@@ -1064,10 +855,6 @@ const ROOM_STATE_SEED: Record<string, { status: RoomStatus; detail: string }> = 
  * rooms from it answers 2 of 14 and every screen quoting it disagreed with the
  * floor board. Everything asking about room state today goes through here.
  */
-function roomTilesNow(): RoomTile[] {
-  return ROOM_UNITS.map(buildRoomTile);
-}
-
 /** Rooms of a type in a given state — the one counting rule behind the tiles. */
 function countTiles(tiles: RoomTile[], status: RoomStatus, type?: RoomType): number {
   return tiles.filter((t) => t.status === status && (!type || t.type === type)).length;
@@ -1084,14 +871,44 @@ function buildRoomTile(unit: RoomUnit): RoomTile {
   };
 }
 
+/** The default 14-room inventory, seeded to mirror the design — the fallback
+ *  every function here uses when `data.rooms` is not supplied. */
+export function defaultRoomTiles(): RoomTile[] {
+  return ROOM_UNITS.map(buildRoomTile);
+}
+
 /**
- * Everything the admin Rooms screen renders. Tile statuses are seeded to mirror
- * the design; the legend counts and each type card's availability are derived
- * from the tiles so they can never drift out of sync. A real DB swap turns the
- * seed into a per-room status query behind the same signature.
+ * Each room type's rate/area/count for display, blending the persisted
+ * overrides (rate, area) with a `count` that is never stored — it is always
+ * however many tiles of that type actually exist on the floor board, so
+ * adding or removing a room can never leave a stale count behind.
  */
-export async function getRoomsPageData(): Promise<RoomsPageData> {
-  const tiles = ROOM_UNITS.map(buildRoomTile);
+export function resolveRoomTypes(
+  tiles: RoomTile[],
+  overrides?: BookingData["roomTypeOverrides"],
+): RoomTypeInfo[] {
+  return ROOM_TYPES.map((rt) => ({
+    ...rt,
+    name: overrides?.[rt.type]?.name ?? rt.name,
+    count: tiles.filter((t) => t.type === rt.type).length,
+    areaSqm: overrides?.[rt.type]?.areaSqm ?? rt.areaSqm,
+    pricePerNight: overrides?.[rt.type]?.pricePerNight ?? rt.pricePerNight,
+  }));
+}
+
+/**
+ * Everything the admin Rooms screen renders. Tile statuses come off the floor
+ * board (`data.rooms`, falling back to the seeded default); the legend counts
+ * and each type card's availability are derived from the tiles so they can
+ * never drift out of sync.
+ *
+ * Only the party-hall line otherwise reads `data` — the floor board is the
+ * source of truth for room state and is deliberately not derived from the
+ * booking set.
+ */
+export async function getRoomsPageData(data: BookingData): Promise<RoomsPageData> {
+  const tiles = data.rooms ?? defaultRoomTiles();
+  const roomTypes = resolveRoomTypes(tiles, data.roomTypeOverrides);
 
   const countByStatus = tiles.reduce(
     (acc, t) => {
@@ -1101,7 +918,7 @@ export async function getRoomsPageData(): Promise<RoomsPageData> {
     { occupied: 0, available: 0, cleaning: 0, maintenance: 0 } as Record<RoomStatus, number>,
   );
 
-  const typeCards: RoomTypeCard[] = ROOM_TYPES.map((rt) => ({
+  const typeCards: RoomTypeCard[] = roomTypes.map((rt) => ({
     type: rt.type,
     name: rt.name,
     count: rt.count,
@@ -1116,14 +933,26 @@ export async function getRoomsPageData(): Promise<RoomsPageData> {
     count: countByStatus[status],
   }));
 
-  const floors: RoomFloor[] = ([2, 1] as const).map((floor) => ({
-    floor,
-    label: `${floor === 2 ? "Second" : "First"} floor · 5 Deluxe + 2 Balcony`,
-    rooms: tiles.filter((t) => t.floor === floor),
-  }));
+  const floorNumbers = [...new Set(tiles.map((t) => t.floor))].sort((a, b) => b - a) as (1 | 2)[];
+  const floors: RoomFloor[] = floorNumbers.map((floor) => {
+    const floorTiles = tiles.filter((t) => t.floor === floor);
+    const mix = roomTypes
+      .map((rt) => ({
+        label: rt.name.split(" ")[0],
+        n: floorTiles.filter((t) => t.type === rt.type).length,
+      }))
+      .filter((m) => m.n > 0)
+      .map((m) => `${m.n} ${m.label}`)
+      .join(" + ");
+    return {
+      floor,
+      label: `${floor === 2 ? "Second" : "First"} floor${mix ? ` · ${mix}` : ""}`,
+      rooms: floorTiles,
+    };
+  });
 
   const partyHall = {
-    nextLabel: nextEventLabel(nextPartyHallEvent()),
+    nextLabel: nextEventLabel(nextPartyHallEvent(data.partyHall)),
     availability: "Available 14–21 Jul",
   };
 
@@ -1216,11 +1045,15 @@ export function occupancyBand(pct: number): OccupancyBand {
 }
 
 /** Party-hall events for a month: design seed first, then live enquiries. */
-function eventsForMonth(year: number, month: number): Map<string, string> {
+function eventsForMonth(
+  partyHall: PartyHallEnquiry[],
+  year: number,
+  month: number,
+): Map<string, string> {
   const prefix = `${year}-${String(month).padStart(2, "0")}`;
   const events = new Map<string, string>();
 
-  for (const e of PARTY_HALL_ENQUIRIES) {
+  for (const e of partyHall) {
     if (!isUpcomingEvent(e) || !e.date.startsWith(prefix)) continue;
     events.set(e.date, `${e.title} · ${e.guests} pax`);
   }
@@ -1234,12 +1067,15 @@ function eventsForMonth(year: number, month: number): Map<string, string> {
 /**
  * The month grid the admin Calendar screen renders. Blanks pad the grid to whole
  * weeks so the first falls on its real weekday and the last row squares off.
- * A real DB swap turns the occupancy seed into a per-date aggregate query.
  */
-export async function getCalendarPageData(year = 2026, month = 7): Promise<CalendarPageData> {
+export async function getCalendarPageData(
+  data: BookingData,
+  year = 2026,
+  month = 7,
+): Promise<CalendarPageData> {
   const total = ROOM_NUMBERS.length;
   const isDisplayMonth = year === 2026 && month === 7;
-  const events = eventsForMonth(year, month);
+  const events = eventsForMonth(data.partyHall, year, month);
 
   // UTC throughout: local-time dates shift the weekday offset west of GMT.
   const firstOfMonth = new Date(Date.UTC(year, month - 1, 1));
@@ -1251,7 +1087,9 @@ export async function getCalendarPageData(year = 2026, month = 7): Promise<Calen
 
   for (let day = 1; day <= daysInMonth; day++) {
     const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    const occupied = isDisplayMonth ? JULY_2026_OCCUPANCY[day] : occupiedRoomsOn(date).size;
+    const occupied = isDisplayMonth
+      ? JULY_2026_OCCUPANCY[day]
+      : occupiedRoomsOn(data.bookings, date).size;
     const pct = Math.round((occupied / total) * 100);
     cells.push({
       kind: "day",
@@ -1389,10 +1227,10 @@ function buildEventItem(e: PartyHallEnquiry): PartyHallEventItem {
 }
 
 /** Days of a month the hall is held, from the live enquiry set. */
-function bookedDaysIn(year: number, month: number): Set<number> {
+function bookedDaysIn(partyHall: PartyHallEnquiry[], year: number, month: number): Set<number> {
   const prefix = `${year}-${String(month).padStart(2, "0")}`;
   const days = new Set<number>();
-  for (const e of PARTY_HALL_ENQUIRIES) {
+  for (const e of partyHall) {
     if (isUpcomingEvent(e) && e.date.startsWith(prefix)) days.add(Number(e.date.slice(8, 10)));
   }
   return days;
@@ -1402,8 +1240,12 @@ function bookedDaysIn(year: number, month: number): Set<number> {
  * The rail's availability mini-calendar. Same UTC/blank-padding approach as the
  * main calendar grid, but a day is simply booked or not — the hall is one room.
  */
-function miniCalendar(year: number, month: number): PartyHallMiniCalendar {
-  const booked = bookedDaysIn(year, month);
+function miniCalendar(
+  partyHall: PartyHallEnquiry[],
+  year: number,
+  month: number,
+): PartyHallMiniCalendar {
+  const booked = bookedDaysIn(partyHall, year, month);
   const firstOfMonth = new Date(Date.UTC(year, month - 1, 1));
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
 
@@ -1437,14 +1279,20 @@ function miniCalendar(year: number, month: number): PartyHallMiniCalendar {
  * new enquiries while the list shows two.
  *
  * `year`/`month` select the rail's availability month (default: the design's
- * August 2026 display month). A real DB swap turns the enquiry set into a query
- * behind the same signature.
+ * August 2026 display month).
  */
-export async function getPartyHallPageData(year = 2026, month = 8): Promise<PartyHallPageData> {
-  const events = [...PARTY_HALL_ENQUIRIES].sort(
+export async function getPartyHallPageData(
+  data: BookingData,
+  year = 2026,
+  month = 8,
+): Promise<PartyHallPageData> {
+  const events = [...data.partyHall].sort(
     (a, b) =>
       PARTY_HALL_STATUS_ORDER.indexOf(a.status) - PARTY_HALL_STATUS_ORDER.indexOf(b.status) ||
-      a.date.localeCompare(b.date),
+      a.date.localeCompare(b.date) ||
+      // Two events can share a status and a date — the hall has slots. Without
+      // this the pair would be ordered by row order, which Postgres does not have.
+      a.id.localeCompare(b.id),
   );
 
   const newEnquiries = events.filter((e) => e.status === "enquiry").length;
@@ -1466,7 +1314,11 @@ export async function getPartyHallPageData(year = 2026, month = 8): Promise<Part
       label: "Advance collected",
       value: formatINRCompact(advanceCollected),
     },
-    { key: "nextEvent", label: "Next event", value: nextEventLabel(nextPartyHallEvent()) },
+    {
+      key: "nextEvent",
+      label: "Next event",
+      value: nextEventLabel(nextPartyHallEvent(data.partyHall)),
+    },
   ];
 
   const pills: PartyHallPill[] = [
@@ -1480,7 +1332,7 @@ export async function getPartyHallPageData(year = 2026, month = 8): Promise<Part
     stats,
     pills,
     events: events.map(buildEventItem),
-    calendar: miniCalendar(year, month),
+    calendar: miniCalendar(data.partyHall, year, month),
     packages: PARTY_HALL_PACKAGES,
     addOnsLine: `Add-ons: catering ₹450/plate · decor · DJ. ${PARTY_HALL_ADVANCE_PCT}% advance to confirm.`,
   };
@@ -1525,14 +1377,12 @@ function longDate(iso: string): string {
  * Note the booking set is a recent slice, not a full history: a guest whose
  * stays predate it shows a last stay of "—" despite a stay count above zero.
  * The design carries that same case (its Deepak Rao has one stay and no date).
- *
- * A real DB swap turns these into aggregate queries behind the same signature.
  */
-export async function getGuestsPageData(): Promise<GuestsPageData> {
+export async function getGuestsPageData(data: BookingData): Promise<GuestsPageData> {
   const inHouse = new Set<string>();
   const lastStayOn = new Map<string, string>();
 
-  for (const b of BOOKINGS) {
+  for (const b of data.bookings) {
     if (!BEGUN_STAY_STATUSES.has(b.status)) continue;
     if (b.status === "checked_in") inHouse.add(b.guestId);
 
@@ -1542,8 +1392,17 @@ export async function getGuestsPageData(): Promise<GuestsPageData> {
     if (!previous || b.checkIn > previous) lastStayOn.set(b.guestId, b.checkIn);
   }
 
-  const guests: GuestListItem[] = [...GUESTS]
-    .sort((a, b) => b.lifetimeValue - a.lifetimeValue || a.name.localeCompare(b.name))
+  const guests: GuestListItem[] = [...data.guests]
+    // Biggest spender first, then by name. `id` last, because two guests can
+    // share a name and the avatar each gets is keyed off this position — so a
+    // tie resolved by row order would reshuffle the badges from one query to
+    // the next.
+    .sort(
+      (a, b) =>
+        b.lifetimeValue - a.lifetimeValue ||
+        a.name.localeCompare(b.name) ||
+        a.id.localeCompare(b.id),
+    )
     .map((guest, i) => {
       const stayed = lastStayOn.get(guest.id);
       const avatar = AVATAR_TOKENS[i % AVATAR_TOKENS.length];
@@ -1689,7 +1548,10 @@ function transactionsFrom(
     });
   }
 
-  return txns.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  // Newest first, and `id` breaks the tie: two payments can share a timestamp,
+  // and `sort` is stable, so without this the list would fall back on the order
+  // the rows happened to arrive in — which, from Postgres, is no order at all.
+  return txns.sort((a, b) => Date.parse(b.at) - Date.parse(a.at) || a.id.localeCompare(b.id));
 }
 
 /** "9:42 am" for a movement today, "Yesterday", else "20 Jul". */
@@ -1742,16 +1604,20 @@ function otaSettlements(bookings: Booking[]): OtaSettlement[] {
     byChannel.set(b.source, acc);
   }
 
-  return [...byChannel.entries()]
-    .map(([source, acc]) => ({
-      source,
-      name: OTA_CHANNELS[source].name,
-      abbr: OTA_CHANNELS[source].abbr,
-      count: acc.count,
-      commissionPct: Math.round((acc.commission / acc.amount) * 100),
-      amount: acc.amount,
-    }))
-    .sort((a, b) => b.amount - a.amount);
+  return (
+    [...byChannel.entries()]
+      .map(([source, acc]) => ({
+        source,
+        name: OTA_CHANNELS[source].name,
+        abbr: OTA_CHANNELS[source].abbr,
+        count: acc.count,
+        commissionPct: Math.round((acc.commission / acc.amount) * 100),
+        amount: acc.amount,
+      }))
+      // Biggest first; the channel name breaks the tie, since two OTAs owing the
+      // same amount must not be ordered by whatever the query returned.
+      .sort((a, b) => b.amount - a.amount || a.name.localeCompare(b.name))
+  );
 }
 
 /**
@@ -1791,18 +1657,21 @@ function monthlyRollup(bookings: Booking[], today: string): PaymentsMonthlyRollu
  * OTA owes, or what a guest still has to pay.
  *
  * `today` anchors the "collected today" KPI and the rollup's month; it defaults
- * to the design's display date so the screen reads as designed. A real DB swap
- * turns these into aggregate queries behind the same signature.
+ * to the live clock (spec 19 — the seed's one dead week is no longer the only
+ * data that can exist once manual entry can add a booking on any date).
  */
-export async function getPaymentsPageData(today = "2026-07-14"): Promise<PaymentsPageData> {
-  const guestName = new Map(GUESTS.map((g) => [g.id, g.name]));
-  const txns = transactionsFrom(BOOKINGS, guestName);
+export async function getPaymentsPageData(
+  data: BookingData,
+  today: string = new Date().toISOString().slice(0, 10),
+): Promise<PaymentsPageData> {
+  const guestName = new Map(data.guests.map((g) => [g.id, g.name]));
+  const txns = transactionsFrom(data.bookings, guestName);
 
   const collectedToday = txns.filter((t) => t.status === "success" && t.at.startsWith(today));
   const razorpaySettled = txns.filter(
     (t) => t.status === "success" && RAZORPAY_METHODS.has(t.method),
   );
-  const ota = otaSettlements(BOOKINGS);
+  const ota = otaSettlements(data.bookings);
   const pendingFromGuests = txns.filter((t) => t.status === "pending" && t.method !== "ota");
 
   const sum = (list: PaymentTransaction[]) => list.reduce((total, t) => total + t.amount, 0);
@@ -1850,14 +1719,11 @@ export async function getPaymentsPageData(today = "2026-07-14"): Promise<Payment
     kpis,
     transactions,
     ota,
-    rollup: monthlyRollup(BOOKINGS, today),
+    rollup: monthlyRollup(data.bookings, today),
   };
 }
 
 // ── Reports ─────────────────────────────────────────────────────────────────
-
-/** Rooms available to sell on any given night — the denominator under RevPAR. */
-const SELLABLE_ROOMS = ROOM_UNITS.length;
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -1920,10 +1786,10 @@ function nightsFrom(bookings: Booking[]): NightFact[] {
  * has earned anything — a confirmed booking is a promise, and the money against
  * it is an advance, which the party-hall screen already reports separately.
  */
-function partyHallRevenueIn(start: string, end: string): number {
-  return PARTY_HALL_ENQUIRIES.filter(
-    (e) => e.status === "completed" && e.date >= start && e.date <= end,
-  ).reduce((sum, e) => sum + e.amount, 0);
+function partyHallRevenueIn(partyHall: PartyHallEnquiry[], start: string, end: string): number {
+  return partyHall
+    .filter((e) => e.status === "completed" && e.date >= start && e.date <= end)
+    .reduce((sum, e) => sum + e.amount, 0);
 }
 
 /** A trailing window: `days` long, ending on (and including) `end`. */
@@ -1974,9 +1840,9 @@ function inWindow(date: string, w: Window): boolean {
 }
 
 /** Total earned in a window: what the rooms billed, plus what the hall billed. */
-function revenueIn(nights: NightFact[], w: Window): number {
+function revenueIn(nights: NightFact[], partyHall: PartyHallEnquiry[], w: Window): number {
   const rooms = nights.filter((n) => inWindow(n.date, w)).reduce((sum, n) => sum + n.bill, 0);
-  return rooms + partyHallRevenueIn(w.start, w.end);
+  return rooms + partyHallRevenueIn(partyHall, w.start, w.end);
 }
 
 /**
@@ -2001,7 +1867,12 @@ function deltaAgainst(current: number, previous: number): { text: string; up: bo
  * week, five 6-day bars for a month (30 divides evenly, so no bar covers a
  * short period and reads artificially low), and 12 monthly bars for a year.
  */
-function barsFor(nights: NightFact[], key: RevenuePeriodKey, today: string): RevenueBar[] {
+function barsFor(
+  nights: NightFact[],
+  partyHall: PartyHallEnquiry[],
+  key: RevenuePeriodKey,
+  today: string,
+): RevenueBar[] {
   const w = windowFor(key, today);
   const buckets: { label: string; start: string; end: string }[] = [];
 
@@ -2047,7 +1918,7 @@ function barsFor(nights: NightFact[], key: RevenuePeriodKey, today: string): Rev
 
     // The hall is sold by us, never by a channel, so it lands on the direct side.
     const direct =
-      sum(rooms.filter((n) => !isOtaSource(n.source))) + partyHallRevenueIn(start, end);
+      sum(rooms.filter((n) => !isOtaSource(n.source))) + partyHallRevenueIn(partyHall, start, end);
     const ota = sum(rooms.filter((n) => isOtaSource(n.source)));
     return {
       label,
@@ -2127,10 +1998,15 @@ function mealPlansFor(nights: NightFact[], w: Window): MealPlanShare[] {
 }
 
 /** Each room type's takings and occupancy, with the party hall alongside. */
-function roomTypesFor(nights: NightFact[], w: Window): RoomTypePerf[] {
+function roomTypesFor(
+  nights: NightFact[],
+  partyHall: PartyHallEnquiry[],
+  w: Window,
+  roomTypes: RoomTypeInfo[],
+): RoomTypePerf[] {
   const inWin = nights.filter((n) => inWindow(n.date, w));
 
-  const rows: RoomTypePerf[] = ROOM_TYPES.map((rt) => {
+  const rows: RoomTypePerf[] = roomTypes.map((rt) => {
     const mine = inWin.filter((n) => n.roomType === rt.type);
     return {
       key: rt.type,
@@ -2142,7 +2018,7 @@ function roomTypesFor(nights: NightFact[], w: Window): RoomTypePerf[] {
     };
   });
 
-  const hall = partyHallRevenueIn(w.start, w.end);
+  const hall = partyHallRevenueIn(partyHall, w.start, w.end);
   rows.push({
     key: "party_hall",
     name: "Party Hall",
@@ -2186,13 +2062,19 @@ const RANGE_KEYS: RevenuePeriodKey[] = ["7d", "30d", "12m"];
  * same two denominators, RevPAR = ADR × occupancy holds by construction rather
  * than by three figures happening to agree.
  */
-function kpisFor(nights: NightFact[], w: Window, key: RevenuePeriodKey): ReportsKpi[] {
+function kpisFor(
+  nights: NightFact[],
+  partyHall: PartyHallEnquiry[],
+  w: Window,
+  key: RevenuePeriodKey,
+  sellableRooms: number,
+): ReportsKpi[] {
   const inWin = nights.filter((n) => inWindow(n.date, w));
   const roomRev = inWin.reduce((sum, n) => sum + n.roomRev, 0);
   const sold = inWin.length;
-  const available = SELLABLE_ROOMS * w.days;
+  const available = sellableRooms * w.days;
 
-  const revenue = revenueIn(nights, w);
+  const revenue = revenueIn(nights, partyHall, w);
   const prev = previousWindow(w);
   const occPct = (sold / available) * 100;
   const prevIn = nights.filter((n) => inWindow(n.date, prev));
@@ -2209,7 +2091,7 @@ function kpisFor(nights: NightFact[], w: Window, key: RevenuePeriodKey): Reports
       "revenue",
       `Revenue · ${RANGE_LABEL[key]}`,
       formatINRCompact(revenue),
-      deltaAgainst(revenue, revenueIn(nights, prev)),
+      deltaAgainst(revenue, revenueIn(nights, partyHall, prev)),
     ),
     build(
       "occupancy",
@@ -2232,7 +2114,7 @@ function kpisFor(nights: NightFact[], w: Window, key: RevenuePeriodKey): Reports
       formatINR(roomRev / available),
       deltaAgainst(
         roomRev / available,
-        prevIn.reduce((sum, n) => sum + n.roomRev, 0) / (SELLABLE_ROOMS * prev.days),
+        prevIn.reduce((sum, n) => sum + n.roomRev, 0) / (sellableRooms * prev.days),
       ),
     ),
   ];
@@ -2248,8 +2130,14 @@ function kpisFor(nights: NightFact[], w: Window, key: RevenuePeriodKey): Reports
  * these numbers are smaller than the design's: the mock draws a full hotel, and
  * our seed holds ten bookings in one week of July.
  */
-export async function getReportsPageData(today = "2026-07-14"): Promise<ReportsPageData> {
-  const nights = nightsFrom(BOOKINGS);
+export async function getReportsPageData(
+  data: BookingData,
+  today: string = new Date().toISOString().slice(0, 10),
+): Promise<ReportsPageData> {
+  const nights = nightsFrom(data.bookings);
+  const tiles = data.rooms ?? defaultRoomTiles();
+  const roomTypes = resolveRoomTypes(tiles, data.roomTypeOverrides);
+  const sellableRooms = tiles.length;
 
   const ranges: ReportsRange[] = RANGE_KEYS.map((key) => {
     const w = windowFor(key, today);
@@ -2257,10 +2145,10 @@ export async function getReportsPageData(today = "2026-07-14"): Promise<ReportsP
       key,
       switchLabel: RANGE_SWITCH[key],
       rangeLabel: RANGE_LABEL[key],
-      kpis: kpisFor(nights, w, key),
-      bars: barsFor(nights, key, today),
+      kpis: kpisFor(nights, data.partyHall, w, key, sellableRooms),
+      bars: barsFor(nights, data.partyHall, key, today),
       sources: sourcesFor(nights, w),
-      roomTypes: roomTypesFor(nights, w),
+      roomTypes: roomTypesFor(nights, data.partyHall, w, roomTypes),
       mealPlans: mealPlansFor(nights, w),
     };
   });
@@ -2279,8 +2167,8 @@ export async function getReportsPageData(today = "2026-07-14"): Promise<ReportsP
  * last 30 days" differently — and did. Deriving both from one place is what
  * stops that.
  */
-function revenuePeriods(today: string): RevenuePeriod[] {
-  const nights = nightsFrom(BOOKINGS);
+function revenuePeriods(data: BookingData, today: string): RevenuePeriod[] {
+  const nights = nightsFrom(data.bookings);
   const switchLabel: Record<RevenuePeriodKey, string> = {
     "7d": "7 days",
     "30d": "30 days",
@@ -2289,8 +2177,8 @@ function revenuePeriods(today: string): RevenuePeriod[] {
 
   return RANGE_KEYS.map((key) => {
     const w = windowFor(key, today);
-    const total = revenueIn(nights, w);
-    const delta = deltaAgainst(total, revenueIn(nights, previousWindow(w)));
+    const total = revenueIn(nights, data.partyHall, w);
+    const delta = deltaAgainst(total, revenueIn(nights, data.partyHall, previousWindow(w)));
 
     return {
       key,
@@ -2298,7 +2186,10 @@ function revenuePeriods(today: string): RevenuePeriod[] {
       rangeLabel: rangeLabelFor(key, w),
       total: formatINRCompact(total),
       delta: delta && `${delta.text} vs prev`,
-      bars: barsFor(nights, key, today).map((b) => ({ label: b.label, value: b.total })),
+      bars: barsFor(nights, data.partyHall, key, today).map((b) => ({
+        label: b.label,
+        value: b.total,
+      })),
     };
   });
 }
@@ -2337,16 +2228,18 @@ const PROPERTY: PropertyProfile = {
  * which pulls in server-only session code; the DB swap unifies the two.
  */
 /**
- * Who can log in, read off the one roster in `lib/team.ts`. PR #11 seeded this
- * list here and noted the duplication with `auth.ts`; PR #12 removed it, because
- * once an invite can add someone, a roster that Settings keeps privately would
- * be a roster that goes stale the first time anyone joins.
+ * Who can log in, read off the one roster. PR #11 seeded this list here and
+ * noted the duplication with `auth.ts`; PR #12 removed it, because once an
+ * invite can add someone, a roster that Settings keeps privately would be a
+ * roster that goes stale the first time anyone joins. #12b moved that roster
+ * into Postgres, so it now arrives as an argument for the same reason the
+ * booking rows do — this file cannot reach the database and must not.
  *
  * Only accepted members appear. Someone invited and still deciding is on the
  * Team & access screen under their invite, not on the list of people with keys.
  */
-function activeTeam(): TeamMember[] {
-  return team
+function activeTeam(roster: TeamAccount[]): TeamMember[] {
+  return roster
     .filter(isActive)
     .map((m) => ({ name: m.name, email: m.email, role: m.role, initials: initialsOf(m.name) }));
 }
@@ -2397,12 +2290,15 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
 ];
 
 /** Tariffs read straight off the inventory, so a rate shown here is the rate charged. */
-function tariffSettings(): RoomTariff[] {
-  return ROOM_TYPES.map((rt) => ({
+function tariffSettings(roomTypes: RoomTypeInfo[]): RoomTariff[] {
+  return roomTypes.map((rt) => ({
     type: rt.type,
     name: rt.name,
     inventoryLabel: `${rt.count} rooms · ${rt.areaSqm} m²`,
     rate: rt.pricePerNight.toLocaleString("en-IN"),
+    count: rt.count,
+    areaSqm: rt.areaSqm,
+    pricePerNight: rt.pricePerNight,
   }));
 }
 
@@ -2452,16 +2348,21 @@ function channelSettings(bookings: Booking[]): ChannelSetting[] {
     .sort((a, b) => b.bookings - a.bookings || a.name.localeCompare(b.name));
 }
 
-export async function getSettingsPageData(): Promise<SettingsPageData> {
-  const bookings = await getBookings();
+export async function getSettingsPageData(
+  data: BookingData,
+  roster: TeamAccount[],
+): Promise<SettingsPageData> {
+  const bookings = data.bookings;
+  const tiles = data.rooms ?? defaultRoomTiles();
+  const roomTypes = resolveRoomTypes(tiles, data.roomTypeOverrides);
 
   return {
     sections: SETTINGS_SECTIONS,
     property: PROPERTY,
-    pricing: { tariffs: tariffSettings(), charges: chargeSettings() },
+    pricing: { tariffs: tariffSettings(roomTypes), charges: chargeSettings(), rooms: tiles },
     payments: paymentSettings(),
     channels: channelSettings(bookings),
-    team: activeTeam(),
+    team: activeTeam(roster),
     notifications: NOTIFICATION_TOGGLES,
   };
 }

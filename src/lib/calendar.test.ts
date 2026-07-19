@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { getCalendarPageData, occupancyBand, ROOM_NUMBERS } from "@/lib/bookings";
+import { fixtures } from "@/lib/__fixtures__/bookings";
 import type { CalendarDay } from "@/types/booking";
 
 const daysOf = (cells: Awaited<ReturnType<typeof getCalendarPageData>>["cells"]) =>
@@ -8,13 +9,13 @@ const daysOf = (cells: Awaited<ReturnType<typeof getCalendarPageData>>["cells"])
 
 describe("getCalendarPageData", () => {
   it("July 2026 opens on a Wednesday — three leading blanks", async () => {
-    const { cells } = await getCalendarPageData(2026, 7);
+    const { cells } = await getCalendarPageData(fixtures, 2026, 7);
     expect(cells.slice(0, 3).every((c) => c.kind === "blank")).toBe(true);
     expect(cells[3]).toMatchObject({ kind: "day", day: 1, date: "2026-07-01" });
   });
 
   it("lays out whole weeks with every day of the month, in order", async () => {
-    const { cells } = await getCalendarPageData(2026, 7);
+    const { cells } = await getCalendarPageData(fixtures, 2026, 7);
     expect(cells.length % 7).toBe(0);
 
     const days = daysOf(cells);
@@ -23,7 +24,7 @@ describe("getCalendarPageData", () => {
   });
 
   it("puts each day in the column its real weekday falls on", async () => {
-    const { cells } = await getCalendarPageData(2026, 7);
+    const { cells } = await getCalendarPageData(fixtures, 2026, 7);
     cells.forEach((cell, i) => {
       if (cell.kind !== "day") return;
       expect(new Date(`${cell.date}T00:00:00Z`).getUTCDay()).toBe(i % 7);
@@ -31,7 +32,7 @@ describe("getCalendarPageData", () => {
   });
 
   it("derives the percent from occupied/14 so the pair can't disagree", async () => {
-    const { cells, totalRooms } = await getCalendarPageData(2026, 7);
+    const { cells, totalRooms } = await getCalendarPageData(fixtures, 2026, 7);
     expect(totalRooms).toBe(ROOM_NUMBERS.length);
 
     for (const d of daysOf(cells)) {
@@ -42,7 +43,7 @@ describe("getCalendarPageData", () => {
   });
 
   it("mirrors the design's occupancy percents for July", async () => {
-    const { cells } = await getCalendarPageData(2026, 7);
+    const { cells } = await getCalendarPageData(fixtures, 2026, 7);
     const pctByDay = new Map(daysOf(cells).map((d) => [d.day, d.pct]));
     // Spot-checks across the ramp, from `Admin Calendar.dc.html`.
     expect(pctByDay.get(1)).toBe(36);
@@ -53,20 +54,20 @@ describe("getCalendarPageData", () => {
   });
 
   it("bands each day per the legend thresholds", async () => {
-    const { cells } = await getCalendarPageData(2026, 7);
+    const { cells } = await getCalendarPageData(fixtures, 2026, 7);
     for (const d of daysOf(cells)) {
       expect(d.band).toBe(occupancyBand(d.pct));
     }
   });
 
   it("legend names all four bands of the ramp, low to full", async () => {
-    const { legend } = await getCalendarPageData(2026, 7);
+    const { legend } = await getCalendarPageData(fixtures, 2026, 7);
     expect(legend.map((l) => l.band)).toEqual(["low", "medium", "high", "full"]);
     expect(legend.map((l) => l.label)).toEqual(["Low (<40%)", "Medium", "High (>70%)", "Full"]);
   });
 
   it("flags party-hall events on their own day and nowhere else", async () => {
-    const { cells } = await getCalendarPageData(2026, 7);
+    const { cells } = await getCalendarPageData(fixtures, 2026, 7);
     const flagged = daysOf(cells).filter((d) => d.event !== null);
     expect(flagged.map((d) => [d.day, d.event])).toEqual([
       [12, "Birthday · 55 pax"],
@@ -76,7 +77,7 @@ describe("getCalendarPageData", () => {
   });
 
   it("picks up live party-hall enquiries in months without a seed", async () => {
-    const { cells } = await getCalendarPageData(2026, 8);
+    const { cells } = await getCalendarPageData(fixtures, 2026, 8);
     const flagged = daysOf(cells).filter((d) => d.event !== null);
     expect(flagged.map((d) => d.day)).toEqual([8, 12, 16, 22, 29]);
     expect(flagged[0].event).toContain("Iyer family");
@@ -84,16 +85,16 @@ describe("getCalendarPageData", () => {
 
   it("does not flag events already settled", async () => {
     // The hall's 21 Jun event is completed — history, not a booking to plan around.
-    const { cells } = await getCalendarPageData(2026, 6);
+    const { cells } = await getCalendarPageData(fixtures, 2026, 6);
     expect(daysOf(cells).filter((d) => d.event !== null)).toEqual([]);
   });
 
   it("labels the month and squares off other month lengths", async () => {
-    const july = await getCalendarPageData(2026, 7);
+    const july = await getCalendarPageData(fixtures, 2026, 7);
     expect(july.monthLabel).toBe("July 2026");
 
     // February 2026 — 28 days, opens Sunday, so it tiles exactly four weeks.
-    const feb = await getCalendarPageData(2026, 2);
+    const feb = await getCalendarPageData(fixtures, 2026, 2);
     expect(feb.monthLabel).toBe("February 2026");
     expect(daysOf(feb.cells).length).toBe(28);
     expect(feb.cells.length).toBe(28);
