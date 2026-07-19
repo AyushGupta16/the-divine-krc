@@ -147,3 +147,29 @@ export const notificationReads = pgTable("notification_reads", {
     .references(() => team.email),
   lastReadAt: timestamp("last_read_at", { withTimezone: true }),
 });
+
+/**
+ * The physical floor board — one row per real room. Replaces the old
+ * compile-time `ROOM_UNITS` list as the source of truth for "which rooms
+ * exist" so the admin can add/remove rooms and edit status without a deploy.
+ */
+export const rooms = pgTable("rooms", {
+  no: text("no").primaryKey(),
+  floor: integer("floor").notNull(),
+  type: text("type").notNull(),
+  status: text("status").notNull().default("available"),
+  /** Occupant + checkout for occupied rooms, else a short state note. */
+  detail: text("detail").notNull().default("Ready"),
+});
+
+/**
+ * Per-room-type settings that are genuinely editable (name, area, rate) — as
+ * opposed to `count`, which is never stored here because it is derived from
+ * `rooms`. See rule 1 at the top of this file.
+ */
+export const roomTypeSettings = pgTable("room_type_settings", {
+  type: text("type").primaryKey(),
+  name: text("name"),
+  areaSqm: integer("area_sqm").notNull(),
+  pricePerNight: integer("price_per_night").notNull(),
+});

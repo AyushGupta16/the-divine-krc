@@ -1,0 +1,1 @@
+ALTER TABLE "room_type_settings" ADD COLUMN "name" text;
