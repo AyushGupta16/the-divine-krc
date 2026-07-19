@@ -13,6 +13,7 @@
 
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import { openInvite, team as roster } from "@/lib/__fixtures__/team";
+import { ROOM_TYPES, ROOM_UNITS } from "@/lib/bookings";
 import { db } from "@/lib/db";
 import * as schema from "@/lib/schema";
 
@@ -57,10 +58,29 @@ async function main() {
   // anyone can redeem, and this seed reaches production until #14.
   const invite = openInvite();
 
+  // The floor board and its per-type overrides — spec 18's `rooms` /
+  // `room_type_settings` tables. `name` starts null: it only exists as an
+  // override once someone edits it in Settings, same as area/rate.
+  const rooms = ROOM_UNITS.map((r) => ({
+    no: r.no,
+    floor: r.floor,
+    type: r.type,
+    status: "available" as const,
+    detail: "Ready",
+  }));
+  const roomTypeSettings = ROOM_TYPES.map((rt) => ({
+    type: rt.type,
+    name: null,
+    areaSqm: rt.areaSqm,
+    pricePerNight: rt.pricePerNight,
+  }));
+
   // Guests before bookings — the FK points that way.
   await conn.insert(schema.guests).values(guests).onConflictDoNothing();
   await conn.insert(schema.bookings).values(bookings).onConflictDoNothing();
   await conn.insert(schema.partyHallEnquiries).values(partyHall).onConflictDoNothing();
+  await conn.insert(schema.rooms).values(rooms).onConflictDoNothing();
+  await conn.insert(schema.roomTypeSettings).values(roomTypeSettings).onConflictDoNothing();
   await conn.insert(schema.team).values(members).onConflictDoNothing();
   await conn
     .insert(schema.invites)
@@ -76,7 +96,8 @@ async function main() {
 
   console.log(
     `seeded: ${guests.length} guests, ${bookings.length} bookings, ` +
-      `${partyHall.length} enquiries, ${members.length} members, 1 open invite`,
+      `${partyHall.length} enquiries, ${rooms.length} rooms, ${roomTypeSettings.length} room types, ` +
+      `${members.length} members, 1 open invite`,
   );
 }
 

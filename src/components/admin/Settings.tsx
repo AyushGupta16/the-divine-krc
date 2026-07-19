@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
 import { Plus, Save, Trash2, Zap } from "lucide-react";
 import { toast } from "sonner";
@@ -175,6 +175,16 @@ function TariffRow({ tariff, onSaved }: { tariff: RoomTariff; onSaved: () => voi
   const [rate, setRate] = useState(String(tariff.pricePerNight));
   const [count, setCount] = useState(String(tariff.count));
   const [busy, setBusy] = useState(false);
+
+  // `tariff` is fresh data after every `onSaved()` invalidate, but this row's
+  // own edits live in local state — a prop change alone doesn't re-run
+  // `useState`. Room count in particular changes from *outside* this row
+  // (the floor-board add/remove actions below), so without this the count
+  // field goes stale the moment another room is added or removed.
+  useEffect(() => setName(tariff.name), [tariff.name]);
+  useEffect(() => setAreaSqm(String(tariff.areaSqm)), [tariff.areaSqm]);
+  useEffect(() => setRate(String(tariff.pricePerNight)), [tariff.pricePerNight]);
+  useEffect(() => setCount(String(tariff.count)), [tariff.count]);
 
   async function saveDetails() {
     const trimmed = name.trim();
