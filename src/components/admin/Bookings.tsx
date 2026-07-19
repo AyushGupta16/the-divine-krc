@@ -354,16 +354,26 @@ function BookingsTable({ rows, totals }: { rows: BookingListItem[]; totals: Book
 export function Bookings({
   data,
   openEntryForm = false,
+  guestFilter,
 }: {
   data: BookingsPageData;
   openEntryForm?: boolean;
+  guestFilter?: string;
 }) {
   const [active, setActive] = useState<TabKey>("all");
   const [entryOpen, setEntryOpen] = useState(openEntryForm);
 
-  const visible = useMemo(
+  const byStatus = useMemo(
     () => (active === "all" ? data.rows : data.rows.filter((r) => r.booking.status === active)),
     [active, data.rows],
+  );
+
+  const visible = useMemo(
+    () =>
+      guestFilter
+        ? byStatus.filter((r) => r.guestName.toLowerCase() === guestFilter.toLowerCase())
+        : byStatus,
+    [byStatus, guestFilter],
   );
 
   // Footer totals track the visible rows so they stay honest as tabs filter.
