@@ -60,6 +60,9 @@ export interface Booking {
   /** Razorpay order/payment ids (#16). Undefined until an order is created; pay-at-hotel never sets them. */
   razorpayOrderId?: string;
   razorpayPaymentId?: string;
+  /** Shared by every room created in one guest-flow checkout (`Book.tsx`'s
+   *  submit loop); undefined for legacy rows and admin manual entries. */
+  batchId?: string;
 }
 
 export type GuestTier = "gold" | "silver" | "new";

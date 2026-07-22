@@ -187,6 +187,7 @@ export function Book() {
     setError(null);
     setBusy(true);
     const guestName = `${guest.firstName} ${guest.lastName}`.trim();
+    const batchId = crypto.randomUUID();
     const created: Booking[] = [];
     for (const line of cartLines) {
       for (let i = 0; i < line.qty; i++) {
@@ -202,6 +203,7 @@ export function Book() {
             checkOut,
             source: "direct",
             mealPlan: "EP",
+            batchId,
           },
         });
         if (!res.ok) {

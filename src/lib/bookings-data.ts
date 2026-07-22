@@ -130,6 +130,7 @@ function toBooking(r: BookingRow): Booking {
     createdAt: r.createdAt.toISOString(),
     razorpayOrderId: r.razorpayOrderId ?? undefined,
     razorpayPaymentId: r.razorpayPaymentId ?? undefined,
+    batchId: r.batchId ?? undefined,
   });
 }
 
@@ -269,6 +270,7 @@ async function insertBooking(guest: Guest, booking: Booking): Promise<void> {
     collectionPending: booking.collection.pending,
     status: booking.status,
     createdAt: new Date(booking.createdAt),
+    batchId: booking.batchId,
   });
 }
 

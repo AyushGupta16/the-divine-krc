@@ -75,6 +75,10 @@ export const bookings = pgTable("bookings", {
   razorpayOrderId: text("razorpay_order_id"),
   /** Set only after `verifyRazorpaySignature` passes. */
   razorpayPaymentId: text("razorpay_payment_id"),
+
+  /** Shared by every room created in one guest-flow checkout; null for legacy
+   *  rows and admin manual entries — see resolveInvoiceParty. */
+  batchId: text("batch_id"),
 });
 
 export const partyHallEnquiries = pgTable("party_hall_enquiries", {
