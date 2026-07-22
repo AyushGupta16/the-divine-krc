@@ -321,18 +321,34 @@ export function buildPartyHallInvoice(
 }
 
 /**
- * Which bookings a room/group invoice for `bookingId` should cover: itself
- * plus any other non-cancelled booking for the same guest with the exact
- * same check-in/check-out (i.e. rooms taken together in one stay). No
- * "reservation group" is ever stored — this is the derivation.
+ * Which bookings a room/group invoice for `bookingId` should cover.
+ *
+ * When `bookingId`'s row has a `batchId` (every room the guest-flow cart
+ * created in one checkout, see `Book.tsx`'s `submit`), the party is exactly
+ * the other non-cancelled bookings sharing that `batchId` — this is the
+ * precise, only-what-was-actually-booked-together signal.
+ *
+ * Legacy rows and admin manual entries never set `batchId`, so for those we
+ * fall back to the old heuristic: any other non-cancelled, also-batchless
+ * booking for the same guest with the exact same check-in/check-out (i.e.
+ * rooms taken together in one stay, guessed after the fact). A batched
+ * booking is never pulled into a batchless party by that fallback.
  */
 export function resolveInvoiceParty(bookingId: string, bookings: Booking[]): Booking[] {
   const target = bookings.find((b) => b.id === bookingId);
   if (!target) return [];
+
+  if (target.batchId) {
+    return bookings
+      .filter((b) => b.status !== "cancelled" && b.batchId === target.batchId)
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }
+
   return bookings
     .filter(
       (b) =>
         b.status !== "cancelled" &&
+        !b.batchId &&
         b.guestId === target.guestId &&
         b.checkIn === target.checkIn &&
         b.checkOut === target.checkOut,
