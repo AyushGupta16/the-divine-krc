@@ -5,7 +5,7 @@ const stats = [
   { v: "14", l: "Boutique Rooms" },
   { v: "15 min", l: "to ExpoMart" },
   { v: "24/7", l: "Concierge" },
-  { v: "4.8★", l: "Guest Rating" },
+  { v: "4.6★", l: "Guest Rating" },
 ];
 
 export function About() {
