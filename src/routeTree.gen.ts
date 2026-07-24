@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as HotelNearPariChowkRouteImport } from './routes/hotel-near-pari-chowk'
 import { Route as HotelNearIndiaExpoMartRouteImport } from './routes/hotel-near-india-expo-mart'
 import { Route as BookingLookupRouteImport } from './routes/booking-lookup'
 import { Route as BookRouteImport } from './routes/book'
@@ -31,6 +32,11 @@ import { Route as AdminBookingsRouteImport } from './routes/admin/bookings'
 import { Route as AdminAcceptInviteRouteImport } from './routes/admin/accept-invite'
 import { Route as AdminSettingsInviteRouteImport } from './routes/admin/settings_.invite'
 
+const HotelNearPariChowkRoute = HotelNearPariChowkRouteImport.update({
+  id: '/hotel-near-pari-chowk',
+  path: '/hotel-near-pari-chowk',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const HotelNearIndiaExpoMartRoute = HotelNearIndiaExpoMartRouteImport.update({
   id: '/hotel-near-india-expo-mart',
   path: '/hotel-near-india-expo-mart',
@@ -143,6 +149,7 @@ export interface FileRoutesByFullPath {
   '/book': typeof BookRoute
   '/booking-lookup': typeof BookingLookupRoute
   '/hotel-near-india-expo-mart': typeof HotelNearIndiaExpoMartRoute
+  '/hotel-near-pari-chowk': typeof HotelNearPariChowkRoute
   '/admin/accept-invite': typeof AdminAcceptInviteRoute
   '/admin/bookings': typeof AdminBookingsRoute
   '/admin/calendar': typeof AdminCalendarRoute
@@ -165,6 +172,7 @@ export interface FileRoutesByTo {
   '/book': typeof BookRoute
   '/booking-lookup': typeof BookingLookupRoute
   '/hotel-near-india-expo-mart': typeof HotelNearIndiaExpoMartRoute
+  '/hotel-near-pari-chowk': typeof HotelNearPariChowkRoute
   '/admin/accept-invite': typeof AdminAcceptInviteRoute
   '/admin/bookings': typeof AdminBookingsRoute
   '/admin/calendar': typeof AdminCalendarRoute
@@ -189,6 +197,7 @@ export interface FileRoutesById {
   '/book': typeof BookRoute
   '/booking-lookup': typeof BookingLookupRoute
   '/hotel-near-india-expo-mart': typeof HotelNearIndiaExpoMartRoute
+  '/hotel-near-pari-chowk': typeof HotelNearPariChowkRoute
   '/admin/accept-invite': typeof AdminAcceptInviteRoute
   '/admin/bookings': typeof AdminBookingsRoute
   '/admin/calendar': typeof AdminCalendarRoute
@@ -214,6 +223,7 @@ export interface FileRouteTypes {
     | '/book'
     | '/booking-lookup'
     | '/hotel-near-india-expo-mart'
+    | '/hotel-near-pari-chowk'
     | '/admin/accept-invite'
     | '/admin/bookings'
     | '/admin/calendar'
@@ -236,6 +246,7 @@ export interface FileRouteTypes {
     | '/book'
     | '/booking-lookup'
     | '/hotel-near-india-expo-mart'
+    | '/hotel-near-pari-chowk'
     | '/admin/accept-invite'
     | '/admin/bookings'
     | '/admin/calendar'
@@ -259,6 +270,7 @@ export interface FileRouteTypes {
     | '/book'
     | '/booking-lookup'
     | '/hotel-near-india-expo-mart'
+    | '/hotel-near-pari-chowk'
     | '/admin/accept-invite'
     | '/admin/bookings'
     | '/admin/calendar'
@@ -283,11 +295,19 @@ export interface RootRouteChildren {
   BookRoute: typeof BookRoute
   BookingLookupRoute: typeof BookingLookupRoute
   HotelNearIndiaExpoMartRoute: typeof HotelNearIndiaExpoMartRoute
+  HotelNearPariChowkRoute: typeof HotelNearPariChowkRoute
   InvoiceInvoiceNoRoute: typeof InvoiceInvoiceNoRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/hotel-near-pari-chowk': {
+      id: '/hotel-near-pari-chowk'
+      path: '/hotel-near-pari-chowk'
+      fullPath: '/hotel-near-pari-chowk'
+      preLoaderRoute: typeof HotelNearPariChowkRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/hotel-near-india-expo-mart': {
       id: '/hotel-near-india-expo-mart'
       path: '/hotel-near-india-expo-mart'
@@ -484,6 +504,7 @@ const rootRouteChildren: RootRouteChildren = {
   BookRoute: BookRoute,
   BookingLookupRoute: BookingLookupRoute,
   HotelNearIndiaExpoMartRoute: HotelNearIndiaExpoMartRoute,
+  HotelNearPariChowkRoute: HotelNearPariChowkRoute,
   InvoiceInvoiceNoRoute: InvoiceInvoiceNoRoute,
 }
 export const routeTree = rootRouteImport
