@@ -25,6 +25,7 @@ import {
   cancelGuestBooking,
   checkAvailability,
   createBooking,
+  defaultRoomTiles,
   findGuestBooking,
   getAvailableRoomCount,
   getBookingsPageData,
@@ -37,6 +38,7 @@ import {
   getRoomsPageData,
   getSettingsPageData,
   markBookingPaid,
+  resolveRoomTypes,
   withAdvance,
   withTier,
   withTotal,
@@ -44,6 +46,7 @@ import {
   type BookingData,
   type GuestBookingLookup,
   type NewBookingInput,
+  type RoomTypeInfo,
 } from "@/lib/bookings";
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import { getSessionMember } from "@/lib/auth";
@@ -556,6 +559,35 @@ export const checkAvailabilityFn = createServerFn({ method: "POST" })
     const current = await load();
     return { available: checkAvailability(current, data) };
   });
+
+/** The subset of `RoomTypeInfo` safe to expose publicly — no live inventory `count`. */
+export type PublicRoomType = Pick<RoomTypeInfo, "type" | "name" | "pricePerNight" | "areaSqm">;
+
+/**
+ * The current room rates/areas for the marketing site's own room cards
+ * (homepage, landmark pages) — public and read-only, same as
+ * `checkAvailabilityFn`. Reuses `resolveRoomTypes` so a rate edited in the
+ * admin Settings screen is reflected everywhere a room price is shown,
+ * instead of pages hand-copying a price that can go stale. Strips `count`
+ * (live per-type room inventory) before returning — not needed by any public
+ * page today, and real-time occupancy is not something to hand an
+ * unauthenticated endpoint.
+ */
+export const getRoomTypesFn = createServerFn({ method: "GET" }).handler(
+  async (): Promise<PublicRoomType[]> => {
+    const current = await load();
+    const roomTypes = resolveRoomTypes(
+      current.rooms ?? defaultRoomTiles(),
+      current.roomTypeOverrides,
+    );
+    return roomTypes.map(({ type, name, pricePerNight, areaSqm }) => ({
+      type,
+      name,
+      pricePerNight,
+      areaSqm,
+    }));
+  },
+);
 
 /**
  * The public `/booking-lookup` search (spec 15): a booking ID plus the phone

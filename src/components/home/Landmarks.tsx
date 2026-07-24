@@ -1,7 +1,12 @@
 import { Reveal } from "./Reveal";
 
 const places = [
-  { t: "India ExpoMart", d: "Global trade & exhibitions", dist: "15 min drive" },
+  {
+    t: "India ExpoMart",
+    d: "Global trade & exhibitions",
+    dist: "15 min drive",
+    href: "/hotel-near-india-expo-mart",
+  },
   { t: "Pari Chowk Metro", d: "Aqua Line · NCR connectivity", dist: "10 min drive" },
   { t: "Gautam Buddha University", d: "Knowledge Park III", dist: "15 min drive" },
   { t: "Sharda University", d: "Knowledge Park II", dist: "15 min drive" },
@@ -36,9 +41,11 @@ export function Landmarks() {
         </div>
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-px bg-stone-200">
-          {places.map((p, i) => (
-            <Reveal key={p.t} delay={i * 50} className="bg-ivory">
-              <div className="p-8 h-full hover:bg-white transition-colors flex flex-col justify-between gap-8 group">
+          {places.map((p, i) => {
+            const cardClassName =
+              "p-8 h-full hover:bg-white transition-colors flex flex-col justify-between gap-8 group";
+            const cardBody = (
+              <>
                 <div className="flex items-start justify-between">
                   <span className="font-display text-gold/40 text-2xl">
                     {String(i + 1).padStart(2, "0")}
@@ -53,9 +60,20 @@ export function Landmarks() {
                     {p.dist}
                   </div>
                 </div>
-              </div>
-            </Reveal>
-          ))}
+              </>
+            );
+            return (
+              <Reveal key={p.t} delay={i * 50} className="bg-ivory">
+                {p.href ? (
+                  <a href={p.href} className={cardClassName}>
+                    {cardBody}
+                  </a>
+                ) : (
+                  <div className={cardClassName}>{cardBody}</div>
+                )}
+              </Reveal>
+            );
+          })}
         </div>
       </div>
     </section>

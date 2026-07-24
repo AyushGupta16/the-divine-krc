@@ -13,37 +13,11 @@ import { Gallery } from "@/components/home/Gallery";
 import { FinalCTA } from "@/components/home/FinalCTA";
 import { Footer } from "@/components/home/Footer";
 import { ScrollDial } from "@/components/home/ScrollDial";
-
-const SITE_URL = "https://thedivinekrc.in";
-const OG_IMAGE = `${SITE_URL}/og-image.jpg`;
-
-const hotelSchema = {
-  "@context": "https://schema.org",
-  "@type": "Hotel",
-  name: "The Divine KRC",
-  description:
-    "A boutique hotel and multi-cuisine restaurant near Pari Chowk, Greater Noida. Premium rooms, signature dining, and warm Indian hospitality.",
-  url: SITE_URL,
-  image: OG_IMAGE,
-  telephone: "+91-87073-68307",
-  email: "thedivinekrc@gmail.com",
-  priceRange: "₹₹",
-  address: {
-    "@type": "PostalAddress",
-    streetAddress: "FH78+HH3, A 023, Kyampur, Sector Omicron I, Near Pari Chowk, Dadha",
-    addressLocality: "Greater Noida",
-    addressRegion: "Uttar Pradesh",
-    postalCode: "201310",
-    addressCountry: "IN",
-  },
-  geo: {
-    "@type": "GeoCoordinates",
-    latitude: "28.463844253163877",
-    longitude: "77.5664181629228",
-  },
-};
+import { getRoomTypesFn } from "@/lib/bookings-data";
+import { SITE_URL, OG_IMAGE, hotelSchema } from "@/lib/seo";
 
 export const Route = createFileRoute("/")({
+  loader: () => getRoomTypesFn(),
   head: () => ({
     meta: [
       { title: "The Divine KRC · Boutique Hotel & Restaurant near Pari Chowk, Greater Noida" },
@@ -76,6 +50,7 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
+  const roomTypes = Route.useLoaderData();
   return (
     <main className="bg-ivory text-obsidian font-sans antialiased selection:bg-gold/30 selection:text-obsidian">
       <Nav />
@@ -83,7 +58,7 @@ function Index() {
       <AvailabilityBar />
       <About />
       <Gallery />
-      <Rooms />
+      <Rooms roomTypes={roomTypes} />
       <Amenities />
       <PartyHall />
       <Dining />

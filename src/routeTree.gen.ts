@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as HotelNearIndiaExpoMartRouteImport } from './routes/hotel-near-india-expo-mart'
 import { Route as BookingLookupRouteImport } from './routes/booking-lookup'
 import { Route as BookRouteImport } from './routes/book'
 import { Route as AdminRouteRouteImport } from './routes/admin/route'
@@ -30,6 +31,11 @@ import { Route as AdminBookingsRouteImport } from './routes/admin/bookings'
 import { Route as AdminAcceptInviteRouteImport } from './routes/admin/accept-invite'
 import { Route as AdminSettingsInviteRouteImport } from './routes/admin/settings_.invite'
 
+const HotelNearIndiaExpoMartRoute = HotelNearIndiaExpoMartRouteImport.update({
+  id: '/hotel-near-india-expo-mart',
+  path: '/hotel-near-india-expo-mart',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BookingLookupRoute = BookingLookupRouteImport.update({
   id: '/booking-lookup',
   path: '/booking-lookup',
@@ -136,6 +142,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRouteRouteWithChildren
   '/book': typeof BookRoute
   '/booking-lookup': typeof BookingLookupRoute
+  '/hotel-near-india-expo-mart': typeof HotelNearIndiaExpoMartRoute
   '/admin/accept-invite': typeof AdminAcceptInviteRoute
   '/admin/bookings': typeof AdminBookingsRoute
   '/admin/calendar': typeof AdminCalendarRoute
@@ -157,6 +164,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/book': typeof BookRoute
   '/booking-lookup': typeof BookingLookupRoute
+  '/hotel-near-india-expo-mart': typeof HotelNearIndiaExpoMartRoute
   '/admin/accept-invite': typeof AdminAcceptInviteRoute
   '/admin/bookings': typeof AdminBookingsRoute
   '/admin/calendar': typeof AdminCalendarRoute
@@ -180,6 +188,7 @@ export interface FileRoutesById {
   '/admin': typeof AdminRouteRouteWithChildren
   '/book': typeof BookRoute
   '/booking-lookup': typeof BookingLookupRoute
+  '/hotel-near-india-expo-mart': typeof HotelNearIndiaExpoMartRoute
   '/admin/accept-invite': typeof AdminAcceptInviteRoute
   '/admin/bookings': typeof AdminBookingsRoute
   '/admin/calendar': typeof AdminCalendarRoute
@@ -204,6 +213,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/book'
     | '/booking-lookup'
+    | '/hotel-near-india-expo-mart'
     | '/admin/accept-invite'
     | '/admin/bookings'
     | '/admin/calendar'
@@ -225,6 +235,7 @@ export interface FileRouteTypes {
     | '/'
     | '/book'
     | '/booking-lookup'
+    | '/hotel-near-india-expo-mart'
     | '/admin/accept-invite'
     | '/admin/bookings'
     | '/admin/calendar'
@@ -247,6 +258,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/book'
     | '/booking-lookup'
+    | '/hotel-near-india-expo-mart'
     | '/admin/accept-invite'
     | '/admin/bookings'
     | '/admin/calendar'
@@ -270,11 +282,19 @@ export interface RootRouteChildren {
   AdminRouteRoute: typeof AdminRouteRouteWithChildren
   BookRoute: typeof BookRoute
   BookingLookupRoute: typeof BookingLookupRoute
+  HotelNearIndiaExpoMartRoute: typeof HotelNearIndiaExpoMartRoute
   InvoiceInvoiceNoRoute: typeof InvoiceInvoiceNoRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/hotel-near-india-expo-mart': {
+      id: '/hotel-near-india-expo-mart'
+      path: '/hotel-near-india-expo-mart'
+      fullPath: '/hotel-near-india-expo-mart'
+      preLoaderRoute: typeof HotelNearIndiaExpoMartRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/booking-lookup': {
       id: '/booking-lookup'
       path: '/booking-lookup'
@@ -463,6 +483,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminRouteRoute: AdminRouteRouteWithChildren,
   BookRoute: BookRoute,
   BookingLookupRoute: BookingLookupRoute,
+  HotelNearIndiaExpoMartRoute: HotelNearIndiaExpoMartRoute,
   InvoiceInvoiceNoRoute: InvoiceInvoiceNoRoute,
 }
 export const routeTree = rootRouteImport

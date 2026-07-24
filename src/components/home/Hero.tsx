@@ -13,8 +13,8 @@ export function Hero() {
         height={1920}
         className="absolute inset-0 size-full object-cover opacity-65 scale-[1.04] motion-safe:animate-[kenburns_18s_ease-in-out_infinite_alternate]"
       />
-      <div className="absolute inset-0 bg-gradient-to-t from-obsidian via-obsidian/70 to-obsidian/30" />
-      <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-obsidian/80 to-transparent" />
+      <div className="absolute inset-0 bg-linear-to-t from-obsidian via-obsidian/70 to-obsidian/30" />
+      <div className="absolute inset-x-0 top-0 h-40 bg-linear-to-b from-obsidian/80 to-transparent" />
 
       <div className="relative z-10 mx-auto max-w-7xl w-full px-6 md:px-10 pb-28 md:pb-40 pt-32">
         <div className="max-w-2xl space-y-6">

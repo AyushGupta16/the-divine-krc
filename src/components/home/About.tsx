@@ -3,7 +3,7 @@ import { Reveal } from "./Reveal";
 
 const stats = [
   { v: "14", l: "Boutique Rooms" },
-  { v: "8 km", l: "to ExpoMart" },
+  { v: "15 min", l: "to ExpoMart" },
   { v: "24/7", l: "Concierge" },
   { v: "4.8★", l: "Guest Rating" },
 ];
