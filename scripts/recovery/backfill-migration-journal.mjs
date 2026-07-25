@@ -47,7 +47,8 @@ const hash = crypto.createHash("sha256").update(query).digest("hex");
 
 const sql = neon(url);
 
-const existing = await sql`select id, hash, created_at from drizzle.__drizzle_migrations order by created_at desc limit 1`;
+const existing =
+  await sql`select id, hash, created_at from drizzle.__drizzle_migrations order by created_at desc limit 1`;
 console.log("Current latest recorded migration row:", existing[0] ?? "(none)");
 
 if (existing[0] && Number(existing[0].created_at) >= when) {
