@@ -101,7 +101,7 @@ export function Footer() {
 
         <div className="pt-8 border-t border-gold/10 flex flex-col md:flex-row justify-between items-center gap-4 text-[10px] uppercase tracking-[0.25em] text-ivory/40">
           <span>© 2026 The Divine KRC · All rights reserved</span>
-          <div className="flex gap-6">
+          <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">
             <a href="#" className="hover:text-gold transition-colors">
               Privacy
             </a>
