@@ -10,17 +10,22 @@ name: Migrate
 # NOT in `netlify.toml`'s build command, deliberately: that runs on every deploy
 # preview, so an unmerged branch would migrate production.
 #
-# Runs on **dev as well as main**, which looks wrong and is not. All four Netlify
-# contexts — production, dev, branch deploys, previews — currently point at the
-# same production Neon branch. So the schema has to lead the code *everywhere*:
-# merge a query to dev without the table and dev's admin console 500s until the
-# next release. Migrating from dev does touch the production database early, and
-# that is safe for exactly one reason — every migration here is additive and
-# backward-compatible, so a table nothing reads yet costs nothing. It is what
-# expand-contract buys.
+# Runs on **dev as well as main**, which looks wrong and is not — but the reason
+# has changed since this comment was first written. Only the *production*
+# Netlify context points at the production Neon branch that `secrets.DATABASE_URL`
+# (below) migrates. Preview and branch deploys point at a separate Neon `dev`
+# branch instead — confirmed the hard way in the incident diagnosed in
+# scripts/recovery/README.md, where that branch's migration state had drifted
+# independently of production's. This workflow does NOT migrate that branch;
+# nothing currently does automatically (see #57). So the "dev as well as main"
+# trigger here migrates *production* early, on merge to dev, before main even
+# sees the commit — that part is still deliberate and still safe for the same
+# reason as before: every migration here is additive and backward-compatible,
+# so a table nothing reads yet costs nothing. It is what expand-contract buys.
 #
-# When previews get their own Neon branch (before #14), revisit this: dev should
-# migrate dev's database, not production's.
+# The preview/branch-deploy Neon `dev` branch getting its own automated
+# migration step (rather than the manual scripts/recovery/ playbook) is tracked
+# in #57 — do that before trusting this comment's "two branches" picture again.
 #
 # `workflow_dispatch` is here so the very first migration can be run by hand from
 # the Actions tab. Chicken-and-egg otherwise: the code that queries the tables

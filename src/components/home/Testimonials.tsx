@@ -1,20 +1,23 @@
 import { Reveal } from "./Reveal";
 
+// Verbatim quotes from real, verified Google Business Profile reviews —
+// reviewer names and text unedited. No location/role is shown unless the
+// reviewer's own Google review carried that label.
 const quotes = [
   {
-    q: "A pocket of calm right in the middle of the city. The room was exquisite and the staff anticipated every need.",
-    n: "Aarav Mehta",
-    r: "Business traveller · Mumbai",
+    q: "Divine KRC Hotel exceeded my expectations! The staff were warm and welcoming, the rooms were clean and cozy, and the food was delicious. The hotel's ambiance was perfect for a relaxing stay. I appreciated the convenient location and excellent service. Highly recommend for a comfortable and enjoyable experience!",
+    n: "Harshit Agrahari",
+    r: "Verified Google review",
   },
   {
-    q: "We hosted our daughter's wedding reception here. The team turned an ordinary banquet into a regal memory.",
-    n: "The Sharma Family",
-    r: "Wedding guests · Delhi",
+    q: "Food and services were good. I was quite happy with my 4 night stay there. I'd recommend this to anyone.",
+    n: "Rohit Imandi",
+    r: "Verified Google review",
   },
   {
-    q: "The closest premium stay to Sharda University with hospitality that genuinely cares. Our go-to in Greater Noida.",
-    n: "Dr. Priya Khanna",
-    r: "Visiting Faculty · Bengaluru",
+    q: "The best place to stay here. The manager and all staff are very humble.",
+    n: "PRINCE VERMA",
+    r: "Verified Google review",
   },
 ];
 

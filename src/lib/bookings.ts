@@ -303,6 +303,8 @@ export interface NewBookingInput {
   checkOut: string;
   source: BookingSource;
   mealPlan: MealPlan;
+  /** Shared by every room created in one guest-flow checkout; see `Booking.batchId`. */
+  batchId?: string;
 }
 
 function nightsBetween(checkIn: string, checkOut: string): number {
@@ -413,6 +415,7 @@ export function createBooking(
     collection,
     status: "pending_payment",
     createdAt: new Date().toISOString(),
+    batchId: input.batchId,
   });
 
   return { ok: true, guest, booking };
