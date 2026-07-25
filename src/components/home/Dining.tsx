@@ -9,7 +9,7 @@ export function Dining() {
           <div className="relative">
             <img
               src={restaurant}
-              alt="The Divine KRC restaurant interior with warm lighting"
+              alt="The Divine KRC — home to our in-house restaurant"
               width={1280}
               height={1280}
               loading="lazy"
