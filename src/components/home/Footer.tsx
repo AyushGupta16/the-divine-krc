@@ -81,18 +81,43 @@ export function Footer() {
             </div>
             <ul className="text-sm space-y-2 text-ivory/70">
               <li>
-                <a href="#" className="hover:text-gold transition-colors">
+                <a
+                  href="https://www.instagram.com/krc_hotels_and_restaurant/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-gold transition-colors"
+                >
                   Instagram
                 </a>
               </li>
               <li>
-                <a href="#" className="hover:text-gold transition-colors">
+                <a
+                  href="https://www.facebook.com/people/The-Divine-Krc-Hotels-And-Restaurant-Omicron-1-greater-noida/61568703404213/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-gold transition-colors"
+                >
                   Facebook
                 </a>
               </li>
               <li>
-                <a href="#" className="hover:text-gold transition-colors">
-                  LinkedIn
+                <a
+                  href="https://www.zomato.com/ncr/the-divine-krc-restaurant-xu-3-greater-noida/photos"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-gold transition-colors"
+                >
+                  Zomato
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://www.swiggy.com/city/noida-1/the-divine-krc-restaurant-greater-noida-rest1249598"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-gold transition-colors"
+                >
+                  Swiggy
                 </a>
               </li>
             </ul>
@@ -102,12 +127,12 @@ export function Footer() {
         <div className="pt-8 border-t border-gold/10 flex flex-col md:flex-row justify-between items-center gap-4 text-[10px] uppercase tracking-[0.25em] text-ivory/40">
           <span>© 2026 The Divine KRC · All rights reserved</span>
           <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">
-            <a href="#" className="hover:text-gold transition-colors">
+            <Link to="/privacy" className="hover:text-gold transition-colors">
               Privacy
-            </a>
-            <a href="#" className="hover:text-gold transition-colors">
+            </Link>
+            <Link to="/terms" className="hover:text-gold transition-colors">
               Terms
-            </a>
+            </Link>
             <a href="#" className="hover:text-gold transition-colors">
               Best Rate Guarantee
             </a>
