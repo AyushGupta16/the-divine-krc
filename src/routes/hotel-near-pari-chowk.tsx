@@ -222,36 +222,55 @@ function HotelNearPariChowk() {
             </h2>
           </Reveal>
           <div className="mx-auto max-w-3xl">
-            <div className="grid sm:grid-cols-2 gap-6 mb-8">
-              {roomTypes.map((r, i) => (
-                <Reveal key={r.type} delay={i * 80}>
-                  <a href="/#rooms" className="group block">
-                    <div className="relative overflow-hidden mb-3 aspect-4/3">
-                      <img
-                        src={ROOM_IMAGES[r.type] ?? DEFAULT_ROOM_IMAGE}
-                        alt={`${r.name} at The Divine KRC`}
-                        loading="lazy"
-                        className="size-full object-cover transition-transform duration-1200 ease-out group-hover:scale-[1.06]"
-                      />
-                      <div className="absolute top-3 left-3 text-[10px] uppercase tracking-[0.25em] text-gold bg-obsidian/70 backdrop-blur-sm px-3 py-1.5">
-                        {r.areaSqm} m²
-                      </div>
-                    </div>
-                    <div className="flex items-end justify-between">
-                      <h3 className="font-display text-xl text-obsidian">{r.name}</h3>
-                      <div className="text-right">
-                        <div className="text-[10px] text-warm-gray uppercase tracking-[0.25em]">
-                          From
+            {roomTypes.length === 0 ? (
+              <p className="text-center text-warm-gray text-sm mb-8">
+                Current rates are momentarily unavailable —{" "}
+                <a
+                  href="https://wa.me/918707368307?text=Hi%2C%20I%27m%20visiting%20Pari%20Chowk%20and%20would%20like%20to%20enquire%20about%20a%20stay."
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gold underline"
+                >
+                  WhatsApp us
+                </a>{" "}
+                or{" "}
+                <a href="/book" className="text-gold underline">
+                  book direct
+                </a>{" "}
+                and we'll confirm rates right away.
+              </p>
+            ) : (
+              <div className="grid sm:grid-cols-2 gap-6 mb-8">
+                {roomTypes.map((r, i) => (
+                  <Reveal key={r.type} delay={i * 80}>
+                    <a href="/#rooms" className="group block">
+                      <div className="relative overflow-hidden mb-3 aspect-4/3">
+                        <img
+                          src={ROOM_IMAGES[r.type] ?? DEFAULT_ROOM_IMAGE}
+                          alt={`${r.name} at The Divine KRC`}
+                          loading="lazy"
+                          className="size-full object-cover transition-transform duration-1200 ease-out group-hover:scale-[1.06]"
+                        />
+                        <div className="absolute top-3 left-3 text-[10px] uppercase tracking-[0.25em] text-gold bg-obsidian/70 backdrop-blur-sm px-3 py-1.5">
+                          {r.areaSqm} m²
                         </div>
-                        <span className="font-display text-lg text-gold">
-                          ₹{r.pricePerNight.toLocaleString("en-IN")}/night
-                        </span>
                       </div>
-                    </div>
-                  </a>
-                </Reveal>
-              ))}
-            </div>
+                      <div className="flex items-end justify-between">
+                        <h3 className="font-display text-xl text-obsidian">{r.name}</h3>
+                        <div className="text-right">
+                          <div className="text-[10px] text-warm-gray uppercase tracking-[0.25em]">
+                            From
+                          </div>
+                          <span className="font-display text-lg text-gold">
+                            ₹{r.pricePerNight.toLocaleString("en-IN")}/night
+                          </span>
+                        </div>
+                      </div>
+                    </a>
+                  </Reveal>
+                ))}
+              </div>
+            )}
             <Reveal>
               <a
                 href="/#rooms"

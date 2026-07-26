@@ -52,46 +52,65 @@ export function Rooms({ roomTypes }: { roomTypes: PublicRoomType[] }) {
           </Reveal>
         </div>
 
-        <div className="grid sm:grid-cols-2 gap-x-6 gap-y-14 max-w-3xl mx-auto">
-          {roomTypes.map((r, i) => (
-            <Reveal key={r.type} delay={i * 80}>
-              <article className="group cursor-pointer">
-                <div className="relative overflow-hidden mb-5 aspect-4/5 bg-white/5">
-                  <img
-                    src={ROOM_IMAGES[r.type] ?? DEFAULT_ROOM_IMAGE}
-                    alt={`${r.name} at The Divine KRC`}
-                    loading="lazy"
-                    className="size-full object-cover transition-transform duration-1200 ease-out group-hover:scale-[1.06]"
-                  />
-                  <div className="absolute inset-0 bg-linear-to-t from-obsidian/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                  <div className="absolute top-3 left-3 text-[10px] uppercase tracking-[0.25em] text-gold bg-obsidian/70 backdrop-blur-sm px-3 py-1.5">
-                    {r.areaSqm} m²
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <h3 className="font-display text-2xl">{r.name}</h3>
-                  <p className="text-[11px] text-ivory/50 uppercase tracking-[0.18em]">
-                    {NOTES[r.type]}
-                  </p>
-                  <div className="flex items-end justify-between pt-3">
-                    <div>
-                      <div className="text-[10px] text-ivory/40 uppercase tracking-[0.25em]">
-                        From
-                      </div>
-                      <div className="font-display text-xl text-gold">
-                        ₹{r.pricePerNight.toLocaleString("en-IN")}
-                        <span className="text-ivory/40 text-xs ml-1">/ night</span>
-                      </div>
+        {roomTypes.length === 0 ? (
+          <p className="text-center text-ivory/70 text-sm max-w-md mx-auto">
+            Current rates are momentarily unavailable —{" "}
+            <a
+              href={WHATSAPP}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-gold underline"
+            >
+              WhatsApp us
+            </a>{" "}
+            or{" "}
+            <a href="/book" className="text-gold underline">
+              book direct
+            </a>{" "}
+            and we'll confirm rates right away.
+          </p>
+        ) : (
+          <div className="grid sm:grid-cols-2 gap-x-6 gap-y-14 max-w-3xl mx-auto">
+            {roomTypes.map((r, i) => (
+              <Reveal key={r.type} delay={i * 80}>
+                <article className="group cursor-pointer">
+                  <div className="relative overflow-hidden mb-5 aspect-4/5 bg-white/5">
+                    <img
+                      src={ROOM_IMAGES[r.type] ?? DEFAULT_ROOM_IMAGE}
+                      alt={`${r.name} at The Divine KRC`}
+                      loading="lazy"
+                      className="size-full object-cover transition-transform duration-1200 ease-out group-hover:scale-[1.06]"
+                    />
+                    <div className="absolute inset-0 bg-linear-to-t from-obsidian/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                    <div className="absolute top-3 left-3 text-[10px] uppercase tracking-[0.25em] text-gold bg-obsidian/70 backdrop-blur-sm px-3 py-1.5">
+                      {r.areaSqm} m²
                     </div>
-                    <span className="text-gold text-[11px] uppercase tracking-[0.22em] border-b border-gold/40 pb-0.5 group-hover:border-gold transition-colors">
-                      Details →
-                    </span>
                   </div>
-                </div>
-              </article>
-            </Reveal>
-          ))}
-        </div>
+                  <div className="space-y-1.5">
+                    <h3 className="font-display text-2xl">{r.name}</h3>
+                    <p className="text-[11px] text-ivory/50 uppercase tracking-[0.18em]">
+                      {NOTES[r.type]}
+                    </p>
+                    <div className="flex items-end justify-between pt-3">
+                      <div>
+                        <div className="text-[10px] text-ivory/40 uppercase tracking-[0.25em]">
+                          From
+                        </div>
+                        <div className="font-display text-xl text-gold">
+                          ₹{r.pricePerNight.toLocaleString("en-IN")}
+                          <span className="text-ivory/40 text-xs ml-1">/ night</span>
+                        </div>
+                      </div>
+                      <span className="text-gold text-[11px] uppercase tracking-[0.22em] border-b border-gold/40 pb-0.5 group-hover:border-gold transition-colors">
+                        Details →
+                      </span>
+                    </div>
+                  </div>
+                </article>
+              </Reveal>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );

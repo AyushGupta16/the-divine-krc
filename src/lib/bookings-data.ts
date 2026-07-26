@@ -575,11 +575,20 @@ export type PublicRoomType = Pick<RoomTypeInfo, "type" | "name" | "pricePerNight
  */
 export const getRoomTypesFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<PublicRoomType[]> => {
-    const current = await load();
-    const roomTypes = resolveRoomTypes(
-      current.rooms ?? defaultRoomTiles(),
-      current.roomTypeOverrides,
-    );
+    // Marketing pages must render even if the DB is unreachable (issue #56 —
+    // PR #55 shipped a 500 on every marketing route from exactly this call
+    // throwing). Fall back to the standard rate card rather than the page.
+    let rooms: RoomTile[];
+    let overrides: BookingData["roomTypeOverrides"];
+    try {
+      const current = await load();
+      rooms = current.rooms ?? defaultRoomTiles();
+      overrides = current.roomTypeOverrides;
+    } catch (err) {
+      console.error("getRoomTypesFn: DB load failed, serving default room tiles", err);
+      rooms = defaultRoomTiles();
+    }
+    const roomTypes = resolveRoomTypes(rooms, overrides);
     return roomTypes.map(({ type, name, pricePerNight, areaSqm }) => ({
       type,
       name,
