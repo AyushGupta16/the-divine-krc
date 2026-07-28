@@ -827,6 +827,67 @@ export const setRoomCountFn = createServerFn({ method: "POST" })
     return resizeRoomType(data.type, data.count);
   });
 
+/**
+ * The Bookings screen's row actions: check-in, check-out, and the
+ * pending/paid payment-status toggle. All three are just `BookingStatus`
+ * transitions, so they share the one write `cancelGuestBookingFn` already
+ * uses — no new column, no new table.
+ */
+export const updateBookingStatusFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { id: string; status: BookingStatus }) => data)
+  .handler(async ({ data }): Promise<Result> => {
+    const auth = await requireBookingWriter();
+    if (!auth.ok) return auth;
+    const current = await load();
+    if (!current.bookings.some((b) => b.id === data.id)) {
+      return { ok: false, error: `Booking ${data.id} does not exist.` };
+    }
+    await updateBookingStatus(data.id, data.status);
+    return { ok: true };
+  });
+
+/**
+ * The Bookings screen's "Mark pending"/"Mark paid" quick actions. Unlike the
+ * plain status change above, this one also moves money: pending records the
+ * outstanding balance the front desk is naming, and paid clears it into
+ * `paidToHotel` — same collection-shape write `verifyRazorpayPaymentFn`
+ * already uses, so the two ways a booking's balance can settle share one path.
+ */
+export const setBookingPaymentStatusFn = createServerFn({ method: "POST" })
+  .inputValidator(
+    (data: { id: string; status: "confirmed" | "pending_payment"; pendingAmount?: number }) => data,
+  )
+  .handler(async ({ data }): Promise<Result> => {
+    const auth = await requireBookingWriter();
+    if (!auth.ok) return auth;
+    const current = await load();
+    const booking = current.bookings.find((b) => b.id === data.id);
+    if (!booking) return { ok: false, error: `Booking ${data.id} does not exist.` };
+
+    if (data.status === "pending_payment") {
+      const amount = data.pendingAmount ?? 0;
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return { ok: false, error: "Enter a pending amount greater than zero." };
+      }
+      await updateBookingPayment({
+        ...booking,
+        status: "pending_payment",
+        collection: { ...booking.collection, pending: amount },
+      });
+    } else {
+      await updateBookingPayment({
+        ...booking,
+        status: "confirmed",
+        collection: {
+          ...booking.collection,
+          paidToHotel: booking.collection.paidToHotel + booking.collection.pending,
+          pending: 0,
+        },
+      });
+    }
+    return { ok: true };
+  });
+
 /** Sidebar badges. Counts only — the shell has no use for the rows themselves. */
 export const sidebarCounts = createServerFn({ method: "GET" }).handler(
   async (): Promise<{ bookings: number; guests: number; rooms: number }> => {
