@@ -852,6 +852,13 @@ export const updateBookingStatusFn = createServerFn({ method: "POST" })
  * outstanding balance the front desk is naming, and paid clears it into
  * `paidToHotel` — same collection-shape write `verifyRazorpayPaymentFn`
  * already uses, so the two ways a booking's balance can settle share one path.
+ *
+ * `status` in `BookingStatus` conflates two independent facts: stay stage
+ * (confirmed/checked_in/checked_out/…) and pre-arrival payment stage
+ * (confirmed vs. pending_payment). Once a guest has checked in or out, that
+ * payment distinction stops applying, so this only flips `status` between
+ * confirmed/pending_payment while the booking is still pre-arrival — a
+ * balance settled or added after check-in/out leaves the stay status alone.
  */
 export const setBookingPaymentStatusFn = createServerFn({ method: "POST" })
   .inputValidator(
@@ -871,13 +878,13 @@ export const setBookingPaymentStatusFn = createServerFn({ method: "POST" })
       }
       await updateBookingPayment({
         ...booking,
-        status: "pending_payment",
+        status: booking.status === "confirmed" ? "pending_payment" : booking.status,
         collection: { ...booking.collection, pending: amount },
       });
     } else {
       await updateBookingPayment({
         ...booking,
-        status: "confirmed",
+        status: booking.status === "pending_payment" ? "confirmed" : booking.status,
         collection: {
           ...booking.collection,
           paidToHotel: booking.collection.paidToHotel + booking.collection.pending,

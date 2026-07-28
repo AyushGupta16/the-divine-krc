@@ -267,6 +267,12 @@ function BookingRow({ item, sr }: { item: BookingListItem; sr: number }) {
     await router.invalidate();
   }
 
+  // Payment (pending/paid) is independent of stay stage (confirmed vs.
+  // checked_in vs. checked_out): status only flips between confirmed and
+  // pending_payment pre-arrival, per setBookingPaymentStatusFn. Once a guest
+  // has checked in/out, settling a balance leaves the stay status alone.
+  const canManagePayment = b.status !== "cancelled" && b.status !== "no_show";
+
   async function markPaid() {
     setChangingStatus(true);
     const res = await setBookingPaymentStatusFn({ data: { id: b.id, status: "confirmed" } });
@@ -275,7 +281,7 @@ function BookingRow({ item, sr }: { item: BookingListItem; sr: number }) {
       toast.error(res.error);
       return;
     }
-    toast.success(`${b.id} → Confirmed, balance cleared.`);
+    toast.success(`${b.id} balance cleared.`);
     await router.invalidate();
   }
 
@@ -294,7 +300,7 @@ function BookingRow({ item, sr }: { item: BookingListItem; sr: number }) {
       toast.error(res.error);
       return;
     }
-    toast.success(`${b.id} → Pending Payment, balance ${formatINR(amount)}.`);
+    toast.success(`${b.id} balance ${formatINR(amount)} pending.`);
     setPendingInputOpen(false);
     setPendingAmount("");
     await router.invalidate();
@@ -380,7 +386,7 @@ function BookingRow({ item, sr }: { item: BookingListItem; sr: number }) {
               Check out
             </button>
           )}
-          {b.status === "pending_payment" && (
+          {canManagePayment && b.collection.pending > 0 && (
             <button
               type="button"
               disabled={changingStatus}
@@ -391,7 +397,8 @@ function BookingRow({ item, sr }: { item: BookingListItem; sr: number }) {
               Mark paid
             </button>
           )}
-          {b.status === "confirmed" &&
+          {canManagePayment &&
+            b.collection.pending === 0 &&
             (pendingInputOpen ? (
               <form
                 className="flex items-center gap-1.25"
