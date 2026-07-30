@@ -20,14 +20,19 @@ describe("dashboard occupancy", () => {
     expect(o.deluxe.occupied + o.deluxeBalcony.occupied).toBe(o.occupied);
   });
 
-  it("still renders the design's figures", async () => {
-    const { occupancy: o } = await getDashboardData(fixtures);
+  it("counts occupied rooms from actual checked-in stays, not a seeded figure", async () => {
+    // Slice 2: occupancy is booking-driven. Of the fixture set, only
+    // KRC-20260714-001 is both checked_in and assigned to a room that
+    // exists on the real 14-room board (room 102) as of 2026-07-15 — its
+    // sibling checked_in booking (roomNo "112") uses an illustrative number
+    // outside the real inventory and is correctly excluded.
+    const { occupancy: o } = await getDashboardData(fixtures, "2026-07-15");
 
-    expect(o.occupied).toBe(9);
-    expect(o.pct).toBe(64);
-    expect(o.vacant).toBe(5);
-    expect(o.deluxe).toEqual({ occupied: 6, total: 10 });
-    expect(o.deluxeBalcony).toEqual({ occupied: 3, total: 4 });
+    expect(o.occupied).toBe(1);
+    expect(o.pct).toBe(7);
+    expect(o.vacant).toBe(13);
+    expect(o.deluxe).toEqual({ occupied: 1, total: 10 });
+    expect(o.deluxeBalcony).toEqual({ occupied: 0, total: 4 });
   });
 });
 
@@ -68,8 +73,8 @@ describe("dashboard stat cards derive from the booking set", () => {
 
 describe("room state agrees across screens", () => {
   it("counts the same occupied rooms on the dashboard, the board and bookings", async () => {
-    const { occupancy } = await getDashboardData(fixtures);
-    const rooms = await getRoomsPageData(fixtures);
+    const { occupancy } = await getDashboardData(fixtures, "2026-07-15");
+    const rooms = await getRoomsPageData(fixtures, "2026-07-15");
     const { summary } = await getBookingsPageData(fixtures, "2026-07-15");
 
     const board = rooms.legend.find((l) => l.status === "occupied")!.count;
@@ -80,7 +85,7 @@ describe("room state agrees across screens", () => {
   });
 
   it("badges the sidebar with the sellable count the Rooms screen shows", async () => {
-    const badge = await getAvailableRoomCount();
+    const badge = await getAvailableRoomCount(fixtures);
     const rooms = await getRoomsPageData(fixtures);
 
     const available = rooms.legend.find((l) => l.status === "available")!.count;

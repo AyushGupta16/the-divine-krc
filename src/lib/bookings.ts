@@ -564,6 +564,182 @@ const ROOM_TYPE_SHORT: Record<RoomType, string> = {
 };
 
 /**
+ * Slice 2's architecture change: the booking ledger, not the floor board, is
+ * the source of truth for "which rooms are occupied." A room is physically
+ * occupied right now only when a `checked_in` booking is assigned to it and
+ * tonight falls inside its stay — booked-but-not-arrived and
+ * arrived-but-unassigned both correctly fail to count (the latter can't even
+ * arise once `checkInEligibilityError` below is enforced).
+ *
+ * This is deliberately narrower than `OCCUPYING_STATUSES` (used by
+ * `checkAvailability` and the assignment-conflict check below): those ask
+ * "is this room spoken for over a date range," which a `confirmed`
+ * pre-arrival booking already answers yes to. This asks "is a guest in the
+ * room tonight," which only `checked_in` can.
+ */
+function physicallyOccupiedRoomNumbers(bookings: Booking[], today: string): Set<string> {
+  const rooms = new Set<string>();
+  for (const b of bookings) {
+    if (b.roomNo && b.status === "checked_in" && b.checkIn <= today && today < b.checkOut) {
+      rooms.add(b.roomNo);
+    }
+  }
+  return rooms;
+}
+
+/** "2026-07-15" → "15 Jul". */
+function shortRoomDate(iso: string): string {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  });
+}
+
+/**
+ * The floor board as it actually stands right now — the read-time overlay
+ * that makes the booking ledger and the board into one source of truth
+ * instead of two that can silently disagree.
+ *
+ * `available`/`cleaning`/`maintenance` are opinions staff set manually (via
+ * `updateRoomStatusFn`) and pass through untouched. `occupied` is never one
+ * of those opinions anymore: it is computed fresh from
+ * `physicallyOccupiedRoomNumbers` on every read, so it can't drift, and a
+ * stored `occupied` left over from before this change (or from seed data)
+ * self-heals to `available` here — a display-time correction only; nothing
+ * in this function writes to `rooms`. A real checked-in guest overrides a
+ * stale `cleaning` label (physical reality outranks housekeeping opinion);
+ * `maintenance` is never overridden here because `checkInEligibilityError`
+ * and `assignableRoomError` refuse to let a booking reach a maintenance room
+ * in the first place.
+ */
+function liveRoomTiles(
+  tiles: RoomTile[],
+  bookings: Booking[],
+  guests: Guest[],
+  today: string,
+): RoomTile[] {
+  const occupantByRoom = new Map<string, Booking>();
+  for (const b of bookings) {
+    if (b.roomNo && b.status === "checked_in" && b.checkIn <= today && today < b.checkOut) {
+      occupantByRoom.set(b.roomNo, b);
+    }
+  }
+  const guestName = new Map(guests.map((g) => [g.id, g.name]));
+
+  return tiles.map((t) => {
+    const occupant = occupantByRoom.get(t.no);
+    if (occupant) {
+      const name = guestName.get(occupant.guestId) ?? "Guest";
+      return {
+        ...t,
+        status: "occupied",
+        detail: `${name} · out ${shortRoomDate(occupant.checkOut)}`,
+      };
+    }
+    if (t.status === "occupied") return { ...t, status: "available", detail: "Ready" };
+    return t;
+  });
+}
+
+/** Half-open date-range overlap: `[aIn, aOut)` vs. `[bIn, bOut)`. */
+function rangesOverlap(aIn: string, aOut: string, bIn: string, bOut: string): boolean {
+  return aIn < bOut && bIn < aOut;
+}
+
+/**
+ * Whether `roomNo` can be assigned to `booking` — used by both the
+ * assignment server fn and, for the room a booking already holds, by
+ * `checkInEligibilityError`. `maintenance` is a hard stop (the room is
+ * physically unusable — a checked-in guest must never silently override
+ * it); `cleaning` is not (assigning into a room that's about to be turned
+ * over is normal front-desk practice). Conflicts are checked against
+ * `OCCUPYING_STATUSES`, not just `checked_in` — a future `confirmed`
+ * booking already holding the room for an overlapping stay must also block,
+ * or assignment could double-book a room nobody has checked into yet.
+ */
+function assignableRoomError(
+  data: { bookings: Booking[]; rooms?: RoomTile[] },
+  booking: Booking,
+  roomNo: string,
+): string | undefined {
+  const room = (data.rooms ?? defaultRoomTiles()).find((r) => r.no === roomNo);
+  if (!room) return `Room ${roomNo} does not exist.`;
+  if (room.type !== booking.roomType) {
+    return `Room ${roomNo} is a ${ROOM_TYPE_SHORT[room.type]} room, not ${ROOM_TYPE_SHORT[booking.roomType]}.`;
+  }
+  if (room.status === "maintenance") {
+    return `Room ${roomNo} is under maintenance and can't be assigned.`;
+  }
+  const conflict = data.bookings.find(
+    (b) =>
+      b.id !== booking.id &&
+      b.roomNo === roomNo &&
+      OCCUPYING_STATUSES.has(b.status) &&
+      rangesOverlap(booking.checkIn, booking.checkOut, b.checkIn, b.checkOut),
+  );
+  if (conflict) {
+    return `Room ${roomNo} is already held by booking ${conflict.id} for overlapping dates.`;
+  }
+  return undefined;
+}
+
+/**
+ * Slice 2: assign, reassign, or unassign (`roomNo: null`) the physical room
+ * for a booking. A pure rule, same shape as `cancelGuestBooking` — it
+ * decides and returns, `bookings-data.ts` persists.
+ *
+ * A `checked_in` booking cannot be unassigned outright (a guest can't be
+ * checked in to no room — the same invariant `checkInEligibilityError`
+ * enforces going the other direction) but CAN be reassigned straight to a
+ * different valid room in one step: occupancy is derived from `roomNo` +
+ * status, so moving it frees the old room and occupies the new one with
+ * nothing else to reconcile.
+ */
+export function assignBookingRoom(
+  data: BookingData,
+  bookingId: string,
+  roomNo: string | null,
+): Result<{ booking: Booking }> {
+  const booking = data.bookings.find((b) => b.id === bookingId);
+  if (!booking) return { ok: false, error: "Booking not found." };
+
+  if (roomNo === null) {
+    if (booking.status === "checked_in") {
+      return {
+        ok: false,
+        error: "Check the guest out, or assign a different room, before unassigning this one.",
+      };
+    }
+    return { ok: true, booking: { ...booking, roomNo: null } };
+  }
+
+  const error = assignableRoomError(data, booking, roomNo);
+  if (error) return { ok: false, error };
+  return { ok: true, booking: { ...booking, roomNo } };
+}
+
+/**
+ * The check-in invariant: a booking cannot become `checked_in` without a
+ * room already assigned (removes the "checked-in but unassigned" ambiguity
+ * at the source, rather than guessing how occupancy should count it), and
+ * not into a room currently flagged `maintenance` — that flag can be set
+ * *after* the room was assigned, so it's re-checked here, not only at
+ * assignment time.
+ */
+export function checkInEligibilityError(
+  data: { rooms?: RoomTile[] },
+  booking: Booking,
+): string | undefined {
+  if (!booking.roomNo) return "Assign a room before checking in.";
+  const room = (data.rooms ?? defaultRoomTiles()).find((r) => r.no === booking.roomNo);
+  if (room?.status === "maintenance") {
+    return `Room ${booking.roomNo} is under maintenance — reassign before checking in.`;
+  }
+  return undefined;
+}
+
+/**
  * Rooms free to sell right now — read off the floor board, so the sidebar badge
  * quotes the same figure as the Rooms screen it links to.
  *
@@ -572,8 +748,10 @@ const ROOM_TYPE_SHORT: Record<RoomType, string> = {
  * and not toward this.
  */
 export async function getAvailableRoomCount(
-  tiles: RoomTile[] = defaultRoomTiles(),
+  data: BookingData,
+  today: string = new Date().toISOString().slice(0, 10),
 ): Promise<number> {
+  const tiles = liveRoomTiles(data.rooms ?? defaultRoomTiles(), data.bookings, data.guests, today);
   return countTiles(tiles, "available");
 }
 
@@ -582,6 +760,9 @@ export async function getAvailableRoomCount(
  * per-type splits and the vacant count all fall out of the tiles, so the card
  * cannot contradict the Rooms screen or itself. Only the party-hall line is
  * still seeded (see below).
+ *
+ * The tiles passed in are expected to already be `liveRoomTiles`'s output —
+ * this function itself has no opinion on where "occupied" comes from.
  */
 function occupancyNow(tiles: RoomTile[] = defaultRoomTiles()): Occupancy {
   const occupied = countTiles(tiles, "occupied");
@@ -684,7 +865,9 @@ export async function getDashboardData(
       nextLabel: awaitingArrival[0] ? (guestById.get(awaitingArrival[0].guestId)?.name ?? "") : "",
     },
     unassignedRooms,
-    occupancy: occupancyNow(data.rooms),
+    occupancy: occupancyNow(
+      liveRoomTiles(data.rooms ?? defaultRoomTiles(), data.bookings, data.guests, today),
+    ),
     revenue: revenuePeriods(data, today),
     // FIXME(spec-13): no event log exists to derive this from — nothing writes
     // check-in/payment/enquiry/cancellation events yet. Empty until spec 13.
@@ -757,9 +940,15 @@ export async function getBookingsPageData(
     },
   );
 
-  // Room state comes off the floor board, not this booking set — its room
-  // numbers are illustrative and fall outside the real inventory.
-  const tonight = occupancyNow(data.rooms);
+  // "Occupied" is booking-driven (Slice 2): a room only counts once a
+  // checked_in booking is assigned to it for tonight — see `liveRoomTiles`.
+  const liveTiles = liveRoomTiles(
+    data.rooms ?? defaultRoomTiles(),
+    data.bookings,
+    data.guests,
+    today,
+  );
+  const tonight = occupancyNow(liveTiles);
   const totalUrn = data.bookings.reduce((sum, b) => sum + b.urn, 0);
   const totalCollected = data.bookings.reduce(
     (sum, b) => sum + computeTotalCollected(b.collection),
@@ -813,7 +1002,15 @@ export async function getBookingsPageData(
     },
   ];
 
-  return { today, total: data.bookings.length, summary, countsByStatus, rows, totals };
+  return {
+    today,
+    total: data.bookings.length,
+    summary,
+    countsByStatus,
+    rows,
+    totals,
+    rooms: liveTiles,
+  };
 }
 
 // ── Rooms screen ───────────────────────────────────────────────────────────
@@ -829,34 +1026,22 @@ const ROOM_STATUS_LABEL: Record<RoomStatus, string> = {
 const ROOM_STATUS_ORDER: RoomStatus[] = ["occupied", "available", "cleaning", "maintenance"];
 
 /**
- * Per-room state overriding the default "available". The booking seed uses
- * historical/illustrative room numbers that don't map onto the live 14-room
- * inventory, so — as with the dashboard's activity feed — the floor board is
- * seeded to mirror `Admin Room Management.dc.html`; the legend and type-card
- * availability are then *derived* from these tiles so the counts stay honest.
+ * Per-room state overriding the default "available" — housekeeping opinions
+ * only (`maintenance`/`cleaning`), set the same way staff would via
+ * `updateRoomStatusFn`. `occupied` is never seeded here (Slice 2): it is
+ * computed live from the booking ledger by `liveRoomTiles`, so a room's
+ * "occupied" fact always traces back to an actual checked-in booking rather
+ * than an invented board entry that could silently disagree with it.
  */
 const ROOM_STATE_SEED: Record<string, { status: RoomStatus; detail: string }> = {
-  "101": { status: "occupied", detail: "Rao · out 15 Jul" },
-  "102": { status: "occupied", detail: "Verma · out 18 Jul" },
-  "104": { status: "occupied", detail: "Joseph · out 16 Jul" },
   "105": { status: "maintenance", detail: "AC repair" },
-  "106": { status: "occupied", detail: "Khan · out 15 Jul" },
-  "107": { status: "occupied", detail: "Thomas · out 16 Jul" },
-  "201": { status: "occupied", detail: "Nair · out 15 Jul" },
-  "202": { status: "occupied", detail: "Sharma · out 15 Jul" },
-  "204": { status: "occupied", detail: "Das · out 16 Jul" },
   "205": { status: "cleaning", detail: "Turnover" },
-  "206": { status: "occupied", detail: "Reddy · out 17 Jul" },
 };
 
 /**
- * The state of all 14 physical rooms right now — the single source of truth for
- * "which rooms are occupied tonight".
- *
- * It cannot be derived from `BOOKINGS`: that seed seats guests in illustrative
- * room numbers ("108", "112") outside the real inventory, so counting occupied
- * rooms from it answers 2 of 14 and every screen quoting it disagreed with the
- * floor board. Everything asking about room state today goes through here.
+ * The state of all 14 physical rooms right now, before the booking ledger's
+ * live `occupied` overlay (`liveRoomTiles`) is applied. Everything asking
+ * about room state today goes through here first.
  */
 /** Rooms of a type in a given state — the one counting rule behind the tiles. */
 function countTiles(tiles: RoomTile[], status: RoomStatus, type?: RoomType): number {
@@ -900,17 +1085,20 @@ export function resolveRoomTypes(
 }
 
 /**
- * Everything the admin Rooms screen renders. Tile statuses come off the floor
- * board (`data.rooms`, falling back to the seeded default); the legend counts
- * and each type card's availability are derived from the tiles so they can
- * never drift out of sync.
- *
- * Only the party-hall line otherwise reads `data` — the floor board is the
- * source of truth for room state and is deliberately not derived from the
- * booking set.
+ * Everything the admin Rooms screen renders. Tile statuses start from the
+ * floor board (`data.rooms`, falling back to the seeded default) but
+ * `occupied` is overlaid live from the booking ledger via `liveRoomTiles`
+ * (Slice 2) — `available`/`cleaning`/`maintenance` stay manual opinions, but
+ * a room with a checked-in guest in it always shows occupied here, the same
+ * as the dashboard and Bookings screen. The legend counts and each type
+ * card's availability are then derived from those tiles so they can never
+ * drift out of sync with each other.
  */
-export async function getRoomsPageData(data: BookingData): Promise<RoomsPageData> {
-  const tiles = data.rooms ?? defaultRoomTiles();
+export async function getRoomsPageData(
+  data: BookingData,
+  today: string = new Date().toISOString().slice(0, 10),
+): Promise<RoomsPageData> {
+  const tiles = liveRoomTiles(data.rooms ?? defaultRoomTiles(), data.bookings, data.guests, today);
   const roomTypes = resolveRoomTypes(tiles, data.roomTypeOverrides);
 
   const countByStatus = tiles.reduce(

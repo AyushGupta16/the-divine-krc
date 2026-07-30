@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assignBookingRoom,
   checkAvailability,
+  checkInEligibilityError,
   createBooking,
   getBookingsPageData,
   markBookingPaid,
@@ -10,6 +12,7 @@ import {
 } from "@/lib/bookings";
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import { computeTotalBill, computeTotalCollected } from "@/lib/booking-math";
+import type { RoomTile } from "@/types/booking";
 
 const NEW_BOOKING: NewBookingInput = {
   guestName: "Kavya Iyer",
@@ -248,5 +251,169 @@ describe("checkAvailability", () => {
     expect(
       checkAvailability(state, { checkIn: "2026-09-10", checkOut: "2026-09-12", rooms: 1 }),
     ).toBe(true);
+  });
+});
+
+describe("assignBookingRoom", () => {
+  const rooms: RoomTile[] = [
+    { no: "101", floor: 1, type: "deluxe", status: "available", detail: "Ready" },
+    { no: "102", floor: 1, type: "deluxe", status: "maintenance", detail: "AC repair" },
+    { no: "103", floor: 1, type: "deluxe", status: "available", detail: "Ready" },
+    { no: "201", floor: 2, type: "deluxe_balcony", status: "available", detail: "Ready" },
+  ];
+
+  /** A confirmed deluxe booking, unassigned, over the given dates, with a
+   *  distinct id — `createBooking` numbers off `state.bookings`, which each
+   *  call here starts empty, so ids must be forced apart explicitly. */
+  function makeBooking(id: string, checkIn: string, checkOut: string) {
+    const res = createBooking(
+      { guests: fixtures.guests, bookings: [], rooms },
+      { ...NEW_BOOKING, roomNo: null, checkIn, checkOut, guestPhone: `+91 90000 ${id}` },
+      "2026-08-01",
+    );
+    if (!res.ok) throw new Error("setup failed");
+    return { ...res.booking, id: `KRC-TEST-${id}` };
+  }
+
+  it("rejects an unknown booking id", () => {
+    const state = { guests: fixtures.guests, bookings: [], rooms, partyHall: fixtures.partyHall };
+    expect(assignBookingRoom(state, "KRC-nope", "101").ok).toBe(false);
+  });
+
+  it("rejects a room that doesn't exist", () => {
+    const booking = makeBooking("00001", "2026-09-01", "2026-09-03");
+    const state = {
+      guests: fixtures.guests,
+      bookings: [booking],
+      rooms,
+      partyHall: fixtures.partyHall,
+    };
+    const res = assignBookingRoom(state, booking.id, "999");
+    expect(res.ok).toBe(false);
+  });
+
+  it("rejects a room of the wrong type", () => {
+    const booking = makeBooking("00002", "2026-09-01", "2026-09-03");
+    const state = {
+      guests: fixtures.guests,
+      bookings: [booking],
+      rooms,
+      partyHall: fixtures.partyHall,
+    };
+    const res = assignBookingRoom(state, booking.id, "201");
+    expect(res.ok).toBe(false);
+  });
+
+  it("rejects a room under maintenance — a hard stop, unlike cleaning", () => {
+    const booking = makeBooking("00003", "2026-09-01", "2026-09-03");
+    const state = {
+      guests: fixtures.guests,
+      bookings: [booking],
+      rooms,
+      partyHall: fixtures.partyHall,
+    };
+    const res = assignBookingRoom(state, booking.id, "102");
+    expect(res.ok).toBe(false);
+  });
+
+  it("rejects a room already held by an overlapping occupying-status booking", () => {
+    const holder = { ...makeBooking("00004", "2026-09-02", "2026-09-05"), roomNo: "101" };
+    const booking = makeBooking("00005", "2026-09-01", "2026-09-03");
+    const state = {
+      guests: fixtures.guests,
+      bookings: [holder, booking],
+      rooms,
+      partyHall: fixtures.partyHall,
+    };
+    const res = assignBookingRoom(state, booking.id, "101");
+    expect(res.ok).toBe(false);
+  });
+
+  it("allows a room already held by a non-overlapping booking", () => {
+    const holder = { ...makeBooking("00006", "2026-09-05", "2026-09-07"), roomNo: "101" };
+    const booking = makeBooking("00007", "2026-09-01", "2026-09-03");
+    const state = {
+      guests: fixtures.guests,
+      bookings: [holder, booking],
+      rooms,
+      partyHall: fixtures.partyHall,
+    };
+    const res = assignBookingRoom(state, booking.id, "101");
+    expect(res.ok).toBe(true);
+  });
+
+  it("allows unassigning a booking that hasn't checked in", () => {
+    const booking = { ...makeBooking("00008", "2026-09-01", "2026-09-03"), roomNo: "101" };
+    const state = {
+      guests: fixtures.guests,
+      bookings: [booking],
+      rooms,
+      partyHall: fixtures.partyHall,
+    };
+    const res = assignBookingRoom(state, booking.id, null);
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.booking.roomNo).toBeNull();
+  });
+
+  it("refuses to unassign a checked-in booking's room", () => {
+    const booking = {
+      ...makeBooking("00009", "2026-09-01", "2026-09-03"),
+      roomNo: "101",
+      status: "checked_in" as const,
+    };
+    const state = {
+      guests: fixtures.guests,
+      bookings: [booking],
+      rooms,
+      partyHall: fixtures.partyHall,
+    };
+    const res = assignBookingRoom(state, booking.id, null);
+    expect(res.ok).toBe(false);
+  });
+
+  it("allows reassigning a checked-in booking straight to a different free room", () => {
+    const booking = {
+      ...makeBooking("00010", "2026-09-01", "2026-09-03"),
+      roomNo: "101",
+      status: "checked_in" as const,
+    };
+    const state = {
+      guests: fixtures.guests,
+      bookings: [booking],
+      rooms,
+      partyHall: fixtures.partyHall,
+    };
+    const res = assignBookingRoom(state, booking.id, "103");
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.booking.roomNo).toBe("103");
+  });
+});
+
+describe("checkInEligibilityError", () => {
+  const rooms: RoomTile[] = [
+    { no: "101", floor: 1, type: "deluxe", status: "available", detail: "Ready" },
+    { no: "102", floor: 1, type: "deluxe", status: "maintenance", detail: "AC repair" },
+  ];
+
+  function makeBooking(roomNo: string | null) {
+    const res = createBooking(
+      { guests: fixtures.guests, bookings: [], rooms },
+      { ...NEW_BOOKING, roomNo: null, guestPhone: "+91 90000 55501" },
+      "2026-08-01",
+    );
+    if (!res.ok) throw new Error("setup failed");
+    return { ...res.booking, roomNo };
+  }
+
+  it("blocks check-in with no room assigned", () => {
+    expect(checkInEligibilityError({ rooms }, makeBooking(null))).toBeTruthy();
+  });
+
+  it("blocks check-in into a room under maintenance", () => {
+    expect(checkInEligibilityError({ rooms }, makeBooking("102"))).toBeTruthy();
+  });
+
+  it("allows check-in once a non-maintenance room is assigned", () => {
+    expect(checkInEligibilityError({ rooms }, makeBooking("101"))).toBeUndefined();
   });
 });

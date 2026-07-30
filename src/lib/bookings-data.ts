@@ -22,8 +22,10 @@ import { createServerFn } from "@tanstack/react-start";
 import { eq } from "drizzle-orm";
 
 import {
+  assignBookingRoom,
   cancelGuestBooking,
   checkAvailability,
+  checkInEligibilityError,
   createBooking,
   defaultRoomTiles,
   findGuestBooking,
@@ -290,6 +292,21 @@ async function updateBookingStatus(bookingId: string, status: BookingStatus): Pr
     return;
   }
   await conn.update(schema.bookings).set({ status }).where(eq(schema.bookings.id, bookingId));
+}
+
+/**
+ * Slice 2's room-assignment write. Same fixtures-mutation convenience as the
+ * other row-store helpers when there is no database.
+ */
+async function updateBookingRoom(bookingId: string, roomNo: string | null): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    const booking = fixtures.bookings.find((b) => b.id === bookingId);
+    if (booking) booking.roomNo = roomNo;
+    return;
+  }
+  await conn.update(schema.bookings).set({ roomNo }).where(eq(schema.bookings.id, bookingId));
 }
 
 /**
@@ -575,11 +592,20 @@ export type PublicRoomType = Pick<RoomTypeInfo, "type" | "name" | "pricePerNight
  */
 export const getRoomTypesFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<PublicRoomType[]> => {
-    const current = await load();
-    const roomTypes = resolveRoomTypes(
-      current.rooms ?? defaultRoomTiles(),
-      current.roomTypeOverrides,
-    );
+    // Marketing pages must render even if the DB is unreachable (issue #56 —
+    // PR #55 shipped a 500 on every marketing route from exactly this call
+    // throwing). Fall back to the standard rate card rather than the page.
+    let rooms: RoomTile[];
+    let overrides: BookingData["roomTypeOverrides"];
+    try {
+      const current = await load();
+      rooms = current.rooms ?? defaultRoomTiles();
+      overrides = current.roomTypeOverrides;
+    } catch (err) {
+      console.error("getRoomTypesFn: DB load failed, serving default room tiles", err);
+      rooms = defaultRoomTiles();
+    }
+    const roomTypes = resolveRoomTypes(rooms, overrides);
     return roomTypes.map(({ type, name, pricePerNight, areaSqm }) => ({
       type,
       name,
@@ -729,6 +755,15 @@ export const updateRoomStatusFn = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<Result> => {
     const auth = await requireRoomWriter();
     if (!auth.ok) return auth;
+    // "occupied" is derived from the booking ledger (Slice 2), never a
+    // manual opinion — see `liveRoomTiles`. The UI no longer offers it, and
+    // this rejects it server-side too, not just by omission in the picker.
+    if (data.status === "occupied") {
+      return {
+        ok: false,
+        error: "Room status is derived from bookings and can't be set manually.",
+      };
+    }
     const current = await load();
     if (!(current.rooms ?? []).some((r) => r.no === data.no)) {
       return { ok: false, error: `Room ${data.no} does not exist.` };
@@ -818,6 +853,104 @@ export const setRoomCountFn = createServerFn({ method: "POST" })
     return resizeRoomType(data.type, data.count);
   });
 
+/**
+ * The Bookings screen's row actions: check-in, check-out, and the
+ * pending/paid payment-status toggle. All three are just `BookingStatus`
+ * transitions, so they share the one write `cancelGuestBookingFn` already
+ * uses — no new column, no new table.
+ *
+ * Slice 2: a transition to `checked_in` is re-validated against
+ * `checkInEligibilityError` — a booking cannot check in without a room
+ * already assigned, nor into a room currently flagged `maintenance`. This
+ * runs here (not only at assignment time) because a room can be flagged
+ * maintenance after it was assigned but before the guest actually arrives.
+ */
+export const updateBookingStatusFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { id: string; status: BookingStatus }) => data)
+  .handler(async ({ data }): Promise<Result> => {
+    const auth = await requireBookingWriter();
+    if (!auth.ok) return auth;
+    const current = await load();
+    const booking = current.bookings.find((b) => b.id === data.id);
+    if (!booking) {
+      return { ok: false, error: `Booking ${data.id} does not exist.` };
+    }
+    if (data.status === "checked_in") {
+      const error = checkInEligibilityError(current, booking);
+      if (error) return { ok: false, error };
+    }
+    await updateBookingStatus(data.id, data.status);
+    return { ok: true };
+  });
+
+/**
+ * Slice 2's room assignment: assign, reassign, or unassign the physical room
+ * on a booking, from the Bookings table's Room column or the dashboard's
+ * "Assign →" affordance. Guarded the same as every other booking mutation —
+ * `assignBookingRoom` in `bookings.ts` holds the actual rule (type match,
+ * maintenance hard-stop, overlap conflicts, the checked-in-unassign block).
+ */
+export const updateBookingRoomFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { id: string; roomNo: string | null }) => data)
+  .handler(async ({ data }): Promise<Result> => {
+    const auth = await requireBookingWriter();
+    if (!auth.ok) return auth;
+    const current = await load();
+    const res = assignBookingRoom(current, data.id, data.roomNo);
+    if (!res.ok) return res;
+    await updateBookingRoom(data.id, data.roomNo);
+    return { ok: true };
+  });
+
+/**
+ * The Bookings screen's "Mark pending"/"Mark paid" quick actions. Unlike the
+ * plain status change above, this one also moves money: pending records the
+ * outstanding balance the front desk is naming, and paid clears it into
+ * `paidToHotel` — same collection-shape write `verifyRazorpayPaymentFn`
+ * already uses, so the two ways a booking's balance can settle share one path.
+ *
+ * `status` in `BookingStatus` conflates two independent facts: stay stage
+ * (confirmed/checked_in/checked_out/…) and pre-arrival payment stage
+ * (confirmed vs. pending_payment). Once a guest has checked in or out, that
+ * payment distinction stops applying, so this only flips `status` between
+ * confirmed/pending_payment while the booking is still pre-arrival — a
+ * balance settled or added after check-in/out leaves the stay status alone.
+ */
+export const setBookingPaymentStatusFn = createServerFn({ method: "POST" })
+  .inputValidator(
+    (data: { id: string; status: "confirmed" | "pending_payment"; pendingAmount?: number }) => data,
+  )
+  .handler(async ({ data }): Promise<Result> => {
+    const auth = await requireBookingWriter();
+    if (!auth.ok) return auth;
+    const current = await load();
+    const booking = current.bookings.find((b) => b.id === data.id);
+    if (!booking) return { ok: false, error: `Booking ${data.id} does not exist.` };
+
+    if (data.status === "pending_payment") {
+      const amount = data.pendingAmount ?? 0;
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return { ok: false, error: "Enter a pending amount greater than zero." };
+      }
+      await updateBookingPayment({
+        ...booking,
+        status: booking.status === "confirmed" ? "pending_payment" : booking.status,
+        collection: { ...booking.collection, pending: amount },
+      });
+    } else {
+      await updateBookingPayment({
+        ...booking,
+        status: booking.status === "pending_payment" ? "confirmed" : booking.status,
+        collection: {
+          ...booking.collection,
+          paidToHotel: booking.collection.paidToHotel + booking.collection.pending,
+          pending: 0,
+        },
+      });
+    }
+    return { ok: true };
+  });
+
 /** Sidebar badges. Counts only — the shell has no use for the rows themselves. */
 export const sidebarCounts = createServerFn({ method: "GET" }).handler(
   async (): Promise<{ bookings: number; guests: number; rooms: number }> => {
@@ -825,8 +958,7 @@ export const sidebarCounts = createServerFn({ method: "GET" }).handler(
     return {
       bookings: data.bookings.length,
       guests: data.guests.length,
-      // Off the floor board, not the booking set — see `getAvailableRoomCount`.
-      rooms: await getAvailableRoomCount(data.rooms),
+      rooms: await getAvailableRoomCount(data),
     };
   },
 );

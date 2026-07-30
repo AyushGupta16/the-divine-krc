@@ -102,7 +102,11 @@ function StatCards({ data }: { data: DashboardData }) {
         valueClassName="text-[#b4553f]"
       >
         Needs allocation{" "}
-        <Link to="/admin/rooms" className="font-semibold text-[#b4553f] hover:underline">
+        <Link
+          to="/admin/bookings"
+          search={{ unassigned: "1" }}
+          className="font-semibold text-[#b4553f] hover:underline"
+        >
           Assign →
         </Link>
       </StatCard>
