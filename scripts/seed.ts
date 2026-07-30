@@ -18,6 +18,18 @@ import { db } from "@/lib/db";
 import * as schema from "@/lib/schema";
 
 async function main() {
+  // Opt-in, not a blocklist: guessing the wrong prod host string is worse than
+  // requiring an explicit flag. Netlify's production context must never set
+  // ALLOW_SEED, so a stray `npm run db:seed` there fails closed instead of
+  // reseeding real guest data.
+  if (process.env.ALLOW_SEED !== "true") {
+    console.error(
+      "Refusing to seed: ALLOW_SEED=true is not set. This guards production — " +
+        "set ALLOW_SEED=true only when DATABASE_URL points at a dev/throwaway database.",
+    );
+    process.exit(1);
+  }
+
   const conn = db();
   if (!conn) {
     console.error("DATABASE_URL is not set — nothing to seed.");
