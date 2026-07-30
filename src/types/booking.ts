@@ -255,6 +255,10 @@ export interface BookingsPageData {
   countsByStatus: Record<BookingStatus, number>;
   rows: BookingListItem[];
   totals: BookingsTotals;
+  /** The live floor board (Slice 2) — lets the Room column offer only rooms
+   *  that actually exist, so the assignment dropdown never proposes one the
+   *  server would reject. */
+  rooms: RoomTile[];
 }
 
 // ── Admin rooms (PR #5) ──────────────────────────────────────────────────

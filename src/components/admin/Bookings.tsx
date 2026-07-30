@@ -4,6 +4,7 @@ import { Download, FileText, LogIn, LogOut, Loader2, Plus, Wallet } from "lucide
 import { toast } from "sonner";
 
 import type {
+  Booking,
   BookingListItem,
   BookingSource,
   BookingsPageData,
@@ -11,11 +12,16 @@ import type {
   BookingStatus,
   BookingsTotals,
   MealPlan,
+  RoomTile,
   RoomType,
 } from "@/types/booking";
 import { formatINR } from "@/lib/booking-math";
 import { adminIssueInvoiceFn } from "@/lib/invoices-data";
-import { setBookingPaymentStatusFn, updateBookingStatusFn } from "@/lib/bookings-data";
+import {
+  setBookingPaymentStatusFn,
+  updateBookingRoomFn,
+  updateBookingStatusFn,
+} from "@/lib/bookings-data";
 import { BookingEntryForm } from "@/components/admin/BookingEntryForm";
 import {
   Table,
@@ -239,7 +245,52 @@ function StatusSelect({
   );
 }
 
-function BookingRow({ item, sr }: { item: BookingListItem; sr: number }) {
+/**
+ * Slice 2's room-assignment control. Options are the live floor board's
+ * rooms matching this booking's type, minus anything flagged `maintenance`
+ * (a hard stop the server also enforces — this just keeps the front desk
+ * from picking one that's guaranteed to bounce). The booking's own current
+ * room always appears even if it no longer qualifies (e.g. flagged
+ * maintenance after assignment), so the picker never silently hides what's
+ * actually assigned. Overlap conflicts aren't pre-filtered here — the server
+ * is the one source of truth for those and reports them as a toast.
+ */
+function RoomSelect({
+  booking,
+  rooms,
+  disabled,
+  onChange,
+}: {
+  booking: Booking;
+  rooms: RoomTile[];
+  disabled: boolean;
+  onChange: (roomNo: string | null) => void;
+}) {
+  const assignable = rooms.filter((r) => r.type === booking.roomType && r.status !== "maintenance");
+  const options =
+    booking.roomNo && !assignable.some((r) => r.no === booking.roomNo)
+      ? [...assignable, ...rooms.filter((r) => r.no === booking.roomNo)]
+      : assignable;
+
+  return (
+    <select
+      value={booking.roomNo ?? ""}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value || null)}
+      aria-label={`Room for booking ${booking.id}`}
+      className="w-19 rounded border border-[#eae4d6] bg-white px-1.5 py-0.75 text-[12px] outline-none focus:border-gold disabled:cursor-wait disabled:opacity-60"
+    >
+      <option value="">Unassigned</option>
+      {options.map((r) => (
+        <option key={r.no} value={r.no}>
+          {r.no}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function BookingRow({ item, sr, rooms }: { item: BookingListItem; sr: number; rooms: RoomTile[] }) {
   const { booking: b, guestName } = item;
   const meal: MealPlan = b.mealPlan;
   const [issuing, setIssuing] = useState(false);
@@ -266,6 +317,22 @@ function BookingRow({ item, sr }: { item: BookingListItem; sr: number }) {
     toast.success(`${b.id} → ${STATUS_META[status].label}.`);
     await router.invalidate();
   }
+
+  async function assignRoom(roomNo: string | null) {
+    setChangingStatus(true);
+    const res = await updateBookingRoomFn({ data: { id: b.id, roomNo } });
+    setChangingStatus(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    toast.success(roomNo ? `${b.id} assigned to room ${roomNo}.` : `${b.id} unassigned.`);
+    await router.invalidate();
+  }
+
+  // Slice 2's invariant: check-in requires a room already assigned.
+  const canCheckIn = b.status === "confirmed" || b.status === "pending_payment";
+  const checkInBlockedByRoom = canCheckIn && !b.roomNo;
 
   // Payment (pending/paid) is independent of stay stage (confirmed vs.
   // checked_in vs. checked_out): status only flips between confirmed and
@@ -311,7 +378,9 @@ function BookingRow({ item, sr }: { item: BookingListItem; sr: number }) {
       <TableCell className={cn(cell, STICKY_CELL.sr, "text-[#a49d8d]")}>{sr}</TableCell>
       <TableCell className={cn(cell, STICKY_CELL.id, "text-[11.5px] font-bold")}>{b.id}</TableCell>
       <TableCell className={cn(cell, STICKY_CELL.guest, "font-semibold")}>{guestName}</TableCell>
-      <TableCell className={cell}>{b.roomNo ?? "—"}</TableCell>
+      <TableCell className={cell}>
+        <RoomSelect booking={b} rooms={rooms} disabled={changingStatus} onChange={assignRoom} />
+      </TableCell>
       <TableCell className={cn(cell, "text-warm-gray")}>{ROOM_TYPE_LABEL[b.roomType]}</TableCell>
       <TableCell className={cn(cell, "text-warm-gray")}>{shortDate(b.checkIn)}</TableCell>
       <TableCell className={cn(cell, "text-warm-gray")}>{shortDate(b.checkOut)}</TableCell>
@@ -364,17 +433,26 @@ function BookingRow({ item, sr }: { item: BookingListItem; sr: number }) {
       </TableCell>
       <TableCell className={cell}>
         <div className="flex items-center gap-2.5">
-          {(b.status === "confirmed" || b.status === "pending_payment") && (
-            <button
-              type="button"
-              disabled={changingStatus}
-              onClick={() => setStatus("checked_in")}
-              className="flex items-center gap-1.25 text-[11px] font-bold uppercase tracking-[0.06em] text-[#3a6ea5] hover:opacity-75 disabled:opacity-50"
-            >
-              <LogIn className="size-3" />
-              Check in
-            </button>
-          )}
+          {canCheckIn &&
+            (checkInBlockedByRoom ? (
+              <span
+                className="flex items-center gap-1.25 text-[11px] font-semibold uppercase tracking-[0.06em] text-[#a49d8d]"
+                title="Assign a room before checking in."
+              >
+                <LogIn className="size-3" />
+                Assign room first
+              </span>
+            ) : (
+              <button
+                type="button"
+                disabled={changingStatus}
+                onClick={() => setStatus("checked_in")}
+                className="flex items-center gap-1.25 text-[11px] font-bold uppercase tracking-[0.06em] text-[#3a6ea5] hover:opacity-75 disabled:opacity-50"
+              >
+                <LogIn className="size-3" />
+                Check in
+              </button>
+            ))}
           {b.status === "checked_in" && (
             <button
               type="button"
@@ -494,7 +572,15 @@ function TotalsRow({ totals }: { totals: BookingsTotals }) {
   );
 }
 
-function BookingsTable({ rows, totals }: { rows: BookingListItem[]; totals: BookingsTotals }) {
+function BookingsTable({
+  rows,
+  totals,
+  rooms,
+}: {
+  rows: BookingListItem[];
+  totals: BookingsTotals;
+  rooms: RoomTile[];
+}) {
   return (
     <div className="overflow-x-auto rounded-lg border border-[#eae4d6] bg-white">
       <Table className="min-w-430 border-separate border-spacing-0">
@@ -545,7 +631,9 @@ function BookingsTable({ rows, totals }: { rows: BookingListItem[]; totals: Book
               </TableCell>
             </TableRow>
           ) : (
-            rows.map((item, i) => <BookingRow key={item.booking.id} item={item} sr={i + 1} />)
+            rows.map((item, i) => (
+              <BookingRow key={item.booking.id} item={item} sr={i + 1} rooms={rooms} />
+            ))
           )}
         </TableBody>
         {rows.length > 0 && (
@@ -560,14 +648,25 @@ function BookingsTable({ rows, totals }: { rows: BookingListItem[]; totals: Book
 
 // ── Page ──────────────────────────────────────────────────────────────────
 
+// Mirrors `OCCUPYING_STATUSES` in `lib/bookings.ts` — the dashboard's
+// "Unassigned rooms" stat counts exactly these, so the scoped view it links
+// to must filter the same set or the count and the rows it lands on disagree.
+const UNASSIGNED_SCOPE_STATUSES = new Set<BookingStatus>([
+  "confirmed",
+  "checked_in",
+  "pending_payment",
+]);
+
 export function Bookings({
   data,
   openEntryForm = false,
   guestFilter,
+  unassignedOnly = false,
 }: {
   data: BookingsPageData;
   openEntryForm?: boolean;
   guestFilter?: string;
+  unassignedOnly?: boolean;
 }) {
   const [active, setActive] = useState<TabKey>("all");
   const [entryOpen, setEntryOpen] = useState(openEntryForm);
@@ -577,12 +676,22 @@ export function Bookings({
     [active, data.rows],
   );
 
-  const visible = useMemo(
+  const byGuest = useMemo(
     () =>
       guestFilter
         ? byStatus.filter((r) => r.guestName.toLowerCase() === guestFilter.toLowerCase())
         : byStatus,
     [byStatus, guestFilter],
+  );
+
+  const visible = useMemo(
+    () =>
+      unassignedOnly
+        ? byGuest.filter(
+            (r) => r.booking.roomNo === null && UNASSIGNED_SCOPE_STATUSES.has(r.booking.status),
+          )
+        : byGuest,
+    [byGuest, unassignedOnly],
   );
 
   // Footer totals track the visible rows so they stay honest as tabs filter.
@@ -646,6 +755,12 @@ export function Bookings({
 
       <BookingEntryForm open={entryOpen} onOpenChange={setEntryOpen} />
 
+      {unassignedOnly && (
+        <p className="rounded-md border border-[#eae4d6] bg-[#faf7ef] px-3.5 py-2.5 text-[12px] font-semibold text-warm-gray">
+          Showing only bookings without a room assigned.
+        </p>
+      )}
+
       <SummaryCards summary={data.summary} />
 
       <StatusTabs
@@ -655,7 +770,7 @@ export function Bookings({
         onSelect={setActive}
       />
 
-      <BookingsTable rows={visible} totals={totals} />
+      <BookingsTable rows={visible} totals={totals} rooms={data.rooms} />
 
       <p className="text-[12px] text-[#7a746a]">
         Showing {visible.length} of {data.total} · scroll the table sideways for revenue &amp;
