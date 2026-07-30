@@ -156,7 +156,11 @@ function FloorBoard({ floor, onSelect }: { floor: RoomFloor; onSelect: (room: Ro
   );
 }
 
-const STATUS_ORDER: RoomStatus[] = ["available", "occupied", "cleaning", "maintenance"];
+// "occupied" isn't selectable here (Slice 2): it's derived live from the
+// booking ledger (a checked-in guest in the room), never a manual opinion —
+// see `liveRoomTiles`. Staff can still set the three genuine housekeeping
+// states.
+const STATUS_ORDER: RoomStatus[] = ["available", "cleaning", "maintenance"];
 
 /** Room-tile popup: set the status of one physical room. */
 function RoomStatusDialog({ room, onClose }: { room: RoomTile | null; onClose: () => void }) {

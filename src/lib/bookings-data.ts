@@ -22,8 +22,10 @@ import { createServerFn } from "@tanstack/react-start";
 import { eq } from "drizzle-orm";
 
 import {
+  assignBookingRoom,
   cancelGuestBooking,
   checkAvailability,
+  checkInEligibilityError,
   createBooking,
   defaultRoomTiles,
   findGuestBooking,
@@ -290,6 +292,21 @@ async function updateBookingStatus(bookingId: string, status: BookingStatus): Pr
     return;
   }
   await conn.update(schema.bookings).set({ status }).where(eq(schema.bookings.id, bookingId));
+}
+
+/**
+ * Slice 2's room-assignment write. Same fixtures-mutation convenience as the
+ * other row-store helpers when there is no database.
+ */
+async function updateBookingRoom(bookingId: string, roomNo: string | null): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    const booking = fixtures.bookings.find((b) => b.id === bookingId);
+    if (booking) booking.roomNo = roomNo;
+    return;
+  }
+  await conn.update(schema.bookings).set({ roomNo }).where(eq(schema.bookings.id, bookingId));
 }
 
 /**
@@ -738,6 +755,15 @@ export const updateRoomStatusFn = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<Result> => {
     const auth = await requireRoomWriter();
     if (!auth.ok) return auth;
+    // "occupied" is derived from the booking ledger (Slice 2), never a
+    // manual opinion — see `liveRoomTiles`. The UI no longer offers it, and
+    // this rejects it server-side too, not just by omission in the picker.
+    if (data.status === "occupied") {
+      return {
+        ok: false,
+        error: "Room status is derived from bookings and can't be set manually.",
+      };
+    }
     const current = await load();
     if (!(current.rooms ?? []).some((r) => r.no === data.no)) {
       return { ok: false, error: `Room ${data.no} does not exist.` };
@@ -832,6 +858,12 @@ export const setRoomCountFn = createServerFn({ method: "POST" })
  * pending/paid payment-status toggle. All three are just `BookingStatus`
  * transitions, so they share the one write `cancelGuestBookingFn` already
  * uses — no new column, no new table.
+ *
+ * Slice 2: a transition to `checked_in` is re-validated against
+ * `checkInEligibilityError` — a booking cannot check in without a room
+ * already assigned, nor into a room currently flagged `maintenance`. This
+ * runs here (not only at assignment time) because a room can be flagged
+ * maintenance after it was assigned but before the guest actually arrives.
  */
 export const updateBookingStatusFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string; status: BookingStatus }) => data)
@@ -839,10 +871,34 @@ export const updateBookingStatusFn = createServerFn({ method: "POST" })
     const auth = await requireBookingWriter();
     if (!auth.ok) return auth;
     const current = await load();
-    if (!current.bookings.some((b) => b.id === data.id)) {
+    const booking = current.bookings.find((b) => b.id === data.id);
+    if (!booking) {
       return { ok: false, error: `Booking ${data.id} does not exist.` };
     }
+    if (data.status === "checked_in") {
+      const error = checkInEligibilityError(current, booking);
+      if (error) return { ok: false, error };
+    }
     await updateBookingStatus(data.id, data.status);
+    return { ok: true };
+  });
+
+/**
+ * Slice 2's room assignment: assign, reassign, or unassign the physical room
+ * on a booking, from the Bookings table's Room column or the dashboard's
+ * "Assign →" affordance. Guarded the same as every other booking mutation —
+ * `assignBookingRoom` in `bookings.ts` holds the actual rule (type match,
+ * maintenance hard-stop, overlap conflicts, the checked-in-unassign block).
+ */
+export const updateBookingRoomFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { id: string; roomNo: string | null }) => data)
+  .handler(async ({ data }): Promise<Result> => {
+    const auth = await requireBookingWriter();
+    if (!auth.ok) return auth;
+    const current = await load();
+    const res = assignBookingRoom(current, data.id, data.roomNo);
+    if (!res.ok) return res;
+    await updateBookingRoom(data.id, data.roomNo);
     return { ok: true };
   });
 
@@ -902,8 +958,7 @@ export const sidebarCounts = createServerFn({ method: "GET" }).handler(
     return {
       bookings: data.bookings.length,
       guests: data.guests.length,
-      // Off the floor board, not the booking set — see `getAvailableRoomCount`.
-      rooms: await getAvailableRoomCount(data.rooms),
+      rooms: await getAvailableRoomCount(data),
     };
   },
 );
