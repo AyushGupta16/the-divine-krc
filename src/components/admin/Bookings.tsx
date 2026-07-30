@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
-import { Download, FileText, Loader2, Plus } from "lucide-react";
+import { useRouter } from "@tanstack/react-router";
+import { Download, FileText, LogIn, LogOut, Loader2, Plus, Wallet } from "lucide-react";
+import { toast } from "sonner";
 
 import type {
   BookingListItem,
@@ -13,6 +15,7 @@ import type {
 } from "@/types/booking";
 import { formatINR } from "@/lib/booking-math";
 import { adminIssueInvoiceFn } from "@/lib/invoices-data";
+import { setBookingPaymentStatusFn, updateBookingStatusFn } from "@/lib/bookings-data";
 import { BookingEntryForm } from "@/components/admin/BookingEntryForm";
 import {
   Table,
@@ -185,16 +188,54 @@ const colHead =
 const cell = "whitespace-nowrap px-2 py-3 align-middle text-[12px]";
 const num = "text-right tabular-nums";
 
-function StatusBadge({ status }: { status: BookingStatus }) {
+/**
+ * Pinned columns while the table scrolls sideways to the revenue/collection
+ * bands. Left offsets (Sr: 0, Booking ID: 40px, Guest: 184px) are
+ * approximated from each column's min-width rather than measured, since the
+ * data is fixed-format (Sr is 1-2 digits, `KRC-YYYYMMDD-NNN` is constant
+ * width) — close enough for a sticky offset, no ResizeObserver needed.
+ *
+ * Below `sm` only Guest stays pinned (at left: 0) — pinning all three ate the
+ * full width of a phone screen and left no room for anything else. Sr and
+ * Booking ID become sticky from `sm` up, at which point Guest's offset shifts
+ * to make room for them.
+ */
+const STICKY_HEAD: Record<"sr" | "id" | "guest", string> = {
+  sr: "sm:sticky sm:left-0 sm:z-20 sm:bg-[#faf7ef] min-w-10",
+  id: "sm:sticky sm:left-[40px] sm:z-20 sm:bg-[#faf7ef] min-w-36",
+  guest: "sticky left-0 sm:left-[184px] z-20 bg-[#faf7ef] min-w-36",
+};
+const STICKY_CELL: Record<"sr" | "id" | "guest", string> = {
+  sr: "sm:sticky sm:left-0 sm:z-10 sm:bg-white sm:group-hover:bg-[#faf7ef] min-w-10",
+  id: "sm:sticky sm:left-[40px] sm:z-10 sm:bg-white sm:group-hover:bg-[#faf7ef] min-w-36",
+  guest: "sticky left-0 sm:left-[184px] z-10 bg-white group-hover:bg-[#faf7ef] min-w-36",
+};
+
+function StatusSelect({
+  status,
+  disabled,
+  onChange,
+}: {
+  status: BookingStatus;
+  disabled: boolean;
+  onChange: (status: BookingStatus) => void;
+}) {
   const { label, color, bg } = STATUS_META[status];
   return (
-    <span
-      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.25 py-0.75 text-[10.5px] font-bold tracking-[0.02em]"
+    <select
+      value={status}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value as BookingStatus)}
+      aria-label={`Status for booking (currently ${label})`}
+      className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border-0 px-2.25 py-0.75 text-[10.5px] font-bold tracking-[0.02em] outline-none disabled:cursor-wait disabled:opacity-60"
       style={{ background: bg, color }}
     >
-      <span className="size-1.5 rounded-full" style={{ background: color }} />
-      {label}
-    </span>
+      {STATUS_ORDER.map((s) => (
+        <option key={s} value={s}>
+          {STATUS_META[s].label}
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -202,6 +243,10 @@ function BookingRow({ item, sr }: { item: BookingListItem; sr: number }) {
   const { booking: b, guestName } = item;
   const meal: MealPlan = b.mealPlan;
   const [issuing, setIssuing] = useState(false);
+  const [changingStatus, setChangingStatus] = useState(false);
+  const [pendingInputOpen, setPendingInputOpen] = useState(false);
+  const [pendingAmount, setPendingAmount] = useState("");
+  const router = useRouter();
 
   async function openInvoice() {
     setIssuing(true);
@@ -210,11 +255,62 @@ function BookingRow({ item, sr }: { item: BookingListItem; sr: number }) {
     if (res.ok) window.open(`/invoice/${res.invoiceNo}`, "_blank", "noopener,noreferrer");
   }
 
+  async function setStatus(status: BookingStatus) {
+    setChangingStatus(true);
+    const res = await updateBookingStatusFn({ data: { id: b.id, status } });
+    setChangingStatus(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    toast.success(`${b.id} → ${STATUS_META[status].label}.`);
+    await router.invalidate();
+  }
+
+  // Payment (pending/paid) is independent of stay stage (confirmed vs.
+  // checked_in vs. checked_out): status only flips between confirmed and
+  // pending_payment pre-arrival, per setBookingPaymentStatusFn. Once a guest
+  // has checked in/out, settling a balance leaves the stay status alone.
+  const canManagePayment = b.status !== "cancelled" && b.status !== "no_show";
+
+  async function markPaid() {
+    setChangingStatus(true);
+    const res = await setBookingPaymentStatusFn({ data: { id: b.id, status: "confirmed" } });
+    setChangingStatus(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    toast.success(`${b.id} balance cleared.`);
+    await router.invalidate();
+  }
+
+  async function submitPending() {
+    const amount = Number(pendingAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error("Enter a pending amount greater than zero.");
+      return;
+    }
+    setChangingStatus(true);
+    const res = await setBookingPaymentStatusFn({
+      data: { id: b.id, status: "pending_payment", pendingAmount: amount },
+    });
+    setChangingStatus(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    toast.success(`${b.id} balance ${formatINR(amount)} pending.`);
+    setPendingInputOpen(false);
+    setPendingAmount("");
+    await router.invalidate();
+  }
+
   return (
-    <TableRow className="border-[#f2ede2] hover:bg-[#faf7ef]">
-      <TableCell className={cn(cell, "text-[#a49d8d]")}>{sr}</TableCell>
-      <TableCell className={cn(cell, "text-[11.5px] font-bold")}>{b.id}</TableCell>
-      <TableCell className={cn(cell, "font-semibold")}>{guestName}</TableCell>
+    <TableRow className="group border-[#f2ede2] hover:bg-[#faf7ef]">
+      <TableCell className={cn(cell, STICKY_CELL.sr, "text-[#a49d8d]")}>{sr}</TableCell>
+      <TableCell className={cn(cell, STICKY_CELL.id, "text-[11.5px] font-bold")}>{b.id}</TableCell>
+      <TableCell className={cn(cell, STICKY_CELL.guest, "font-semibold")}>{guestName}</TableCell>
       <TableCell className={cell}>{b.roomNo ?? "—"}</TableCell>
       <TableCell className={cn(cell, "text-warm-gray")}>{ROOM_TYPE_LABEL[b.roomType]}</TableCell>
       <TableCell className={cn(cell, "text-warm-gray")}>{shortDate(b.checkIn)}</TableCell>
@@ -253,7 +349,7 @@ function BookingRow({ item, sr }: { item: BookingListItem; sr: number }) {
         {inr(b.collection.pending)}
       </TableCell>
       <TableCell className={cell}>
-        <StatusBadge status={b.status} />
+        <StatusSelect status={b.status} disabled={changingStatus} onChange={setStatus} />
       </TableCell>
       <TableCell className={cell}>
         <button
@@ -265,6 +361,94 @@ function BookingRow({ item, sr }: { item: BookingListItem; sr: number }) {
           {issuing ? <Loader2 className="size-3 animate-spin" /> : <FileText className="size-3" />}
           Invoice
         </button>
+      </TableCell>
+      <TableCell className={cell}>
+        <div className="flex items-center gap-2.5">
+          {(b.status === "confirmed" || b.status === "pending_payment") && (
+            <button
+              type="button"
+              disabled={changingStatus}
+              onClick={() => setStatus("checked_in")}
+              className="flex items-center gap-1.25 text-[11px] font-bold uppercase tracking-[0.06em] text-[#3a6ea5] hover:opacity-75 disabled:opacity-50"
+            >
+              <LogIn className="size-3" />
+              Check in
+            </button>
+          )}
+          {b.status === "checked_in" && (
+            <button
+              type="button"
+              disabled={changingStatus}
+              onClick={() => setStatus("checked_out")}
+              className="flex items-center gap-1.25 text-[11px] font-bold uppercase tracking-[0.06em] text-[#7c5cbf] hover:opacity-75 disabled:opacity-50"
+            >
+              <LogOut className="size-3" />
+              Check out
+            </button>
+          )}
+          {canManagePayment && b.collection.pending > 0 && (
+            <button
+              type="button"
+              disabled={changingStatus}
+              onClick={markPaid}
+              className="flex items-center gap-1.25 text-[11px] font-bold uppercase tracking-[0.06em] text-[#5a8a5a] hover:opacity-75 disabled:opacity-50"
+            >
+              <Wallet className="size-3" />
+              Mark paid
+            </button>
+          )}
+          {canManagePayment &&
+            b.collection.pending === 0 &&
+            (pendingInputOpen ? (
+              <form
+                className="flex items-center gap-1.25"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void submitPending();
+                }}
+              >
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  autoFocus
+                  disabled={changingStatus}
+                  value={pendingAmount}
+                  onChange={(e) => setPendingAmount(e.target.value)}
+                  placeholder="Balance ₹"
+                  className="w-20 rounded border border-[#eae4d6] px-1.5 py-0.5 text-[11px] outline-none focus:border-gold"
+                />
+                <button
+                  type="submit"
+                  disabled={changingStatus}
+                  className="text-[11px] font-bold uppercase tracking-[0.06em] text-[#a8863f] hover:opacity-75 disabled:opacity-50"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  disabled={changingStatus}
+                  onClick={() => {
+                    setPendingInputOpen(false);
+                    setPendingAmount("");
+                  }}
+                  className="text-[11px] font-bold uppercase tracking-[0.06em] text-[#a49d8d] hover:opacity-75"
+                >
+                  Cancel
+                </button>
+              </form>
+            ) : (
+              <button
+                type="button"
+                disabled={changingStatus}
+                onClick={() => setPendingInputOpen(true)}
+                className="flex items-center gap-1.25 text-[11px] font-bold uppercase tracking-[0.06em] text-[#a8863f] hover:opacity-75 disabled:opacity-50"
+              >
+                <Wallet className="size-3" />
+                Mark pending
+              </button>
+            ))}
+        </div>
       </TableCell>
     </TableRow>
   );
@@ -305,6 +489,7 @@ function TotalsRow({ totals }: { totals: BookingsTotals }) {
       </TableCell>
       <TableCell className={cell} />
       <TableCell className={cell} />
+      <TableCell className={cell} />
     </TableRow>
   );
 }
@@ -325,13 +510,13 @@ function BookingsTable({ rows, totals }: { rows: BookingListItem[]; totals: Book
             <TableHead colSpan={3} className={cn(bandHead, "border-l border-[#c5a05940]")}>
               Collection (₹)
             </TableHead>
-            <TableHead colSpan={2} className={cn(bandHead, "border-l border-[#c5a05940]")} />
+            <TableHead colSpan={3} className={cn(bandHead, "border-l border-[#c5a05940]")} />
           </TableRow>
           {/* column heads */}
           <TableRow className="border-b border-[#eae4d6] bg-[#faf7ef] hover:bg-[#faf7ef]">
-            <TableHead className={colHead}>Sr</TableHead>
-            <TableHead className={colHead}>Booking ID</TableHead>
-            <TableHead className={colHead}>Guest</TableHead>
+            <TableHead className={cn(colHead, STICKY_HEAD.sr)}>Sr</TableHead>
+            <TableHead className={cn(colHead, STICKY_HEAD.id)}>Booking ID</TableHead>
+            <TableHead className={cn(colHead, STICKY_HEAD.guest)}>Guest</TableHead>
             <TableHead className={colHead}>Room</TableHead>
             <TableHead className={colHead}>Type</TableHead>
             <TableHead className={colHead}>Check-in</TableHead>
@@ -349,12 +534,13 @@ function BookingsTable({ rows, totals }: { rows: BookingListItem[]; totals: Book
             <TableHead className={cn(colHead, "text-right")}>Pending</TableHead>
             <TableHead className={colHead}>Status</TableHead>
             <TableHead className={colHead}>Invoice</TableHead>
+            <TableHead className={colHead}>Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {rows.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={19} className="px-4 py-10 text-center text-[13px] text-[#a49d8d]">
+              <TableCell colSpan={20} className="px-4 py-10 text-center text-[13px] text-[#a49d8d]">
                 No bookings match this filter.
               </TableCell>
             </TableRow>
