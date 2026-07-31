@@ -417,12 +417,12 @@ export function Book({ roomTypes: liveRoomTypes }: { roomTypes: PublicRoomType[]
 function StepRail({ step }: { step: number }) {
   return (
     <div className="border-b border-gold/10 bg-obsidian">
-      <div className="mx-auto flex max-w-3xl items-center justify-center gap-3 px-6 py-4">
+      <div className="mx-auto flex max-w-3xl items-center justify-center gap-1.5 px-4 py-4 sm:gap-3 sm:px-6">
         {STEPS.map((label, i) => (
-          <div key={label} className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
+          <div key={label} className="flex items-center gap-1.5 sm:gap-3">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <span
-                className={`flex size-6 items-center justify-center rounded-full text-[11px] font-semibold ${
+                className={`flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${
                   i < step
                     ? "bg-gold text-obsidian"
                     : i === step
@@ -433,14 +433,14 @@ function StepRail({ step }: { step: number }) {
                 {i < step ? <Check className="size-3.5" /> : i + 1}
               </span>
               <span
-                className={`text-[11px] uppercase tracking-[0.16em] ${
+                className={`hidden text-[11px] uppercase tracking-[0.16em] sm:inline ${
                   i <= step ? "text-ivory" : "text-ivory/40"
                 }`}
               >
                 {label}
               </span>
             </div>
-            {i < STEPS.length - 1 && <span className="h-px w-8 bg-ivory/15" />}
+            {i < STEPS.length - 1 && <span className="h-px w-4 shrink-0 bg-ivory/15 sm:w-8" />}
           </div>
         ))}
       </div>
