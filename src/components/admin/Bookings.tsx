@@ -1,6 +1,15 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
-import { Download, FileText, LogIn, LogOut, Loader2, Plus, Wallet } from "lucide-react";
+import {
+  Download,
+  FileText,
+  LogIn,
+  LogOut,
+  Loader2,
+  MessageSquareText,
+  Plus,
+  Wallet,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import type {
@@ -11,6 +20,7 @@ import type {
   BookingsSummaryKey,
   BookingStatus,
   BookingsTotals,
+  GuestPreference,
   MealPlan,
   RoomTile,
   RoomType,
@@ -32,7 +42,59 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+
+const PREFERENCE_LABEL: Record<GuestPreference, string> = {
+  high_floor: "High floor",
+  low_floor: "Low floor",
+  adjacent_rooms: "Adjacent / connecting rooms",
+  quiet_room: "Quiet room / away from road",
+  dietary: "Special dietary needs",
+  smoking_room: "Smoking room",
+};
+
+/**
+ * Row = signal, detail = content. The list only ever shows a dot; the
+ * preferences-as-tags + note live here, opened on demand, so the already-dense
+ * 20-column table doesn't grow another wide column for a field most rows
+ * won't have.
+ */
+function RequestFlag({ request }: { request: Booking["specialRequest"] }) {
+  if (!request) return null;
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="View guest requests"
+          className="flex size-4.5 items-center justify-center rounded-full bg-gold/15 text-gold hover:bg-gold/25"
+        >
+          <MessageSquareText className="size-2.75" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 text-[12.5px]" align="start">
+        {request.preferences.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {request.preferences.map((p) => (
+              <span
+                key={p}
+                className="rounded-full bg-gold/10 px-2.5 py-1 text-[11px] font-semibold text-obsidian"
+              >
+                {PREFERENCE_LABEL[p]}
+              </span>
+            ))}
+          </div>
+        )}
+        {request.note && (
+          <p className={cn("text-warm-gray", request.preferences.length > 0 && "mt-2.5")}>
+            {request.note}
+          </p>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 // ── Display maps ──────────────────────────────────────────────────────────
 
@@ -377,7 +439,12 @@ function BookingRow({ item, sr, rooms }: { item: BookingListItem; sr: number; ro
     <TableRow className="group border-[#f2ede2] hover:bg-[#faf7ef]">
       <TableCell className={cn(cell, STICKY_CELL.sr, "text-[#a49d8d]")}>{sr}</TableCell>
       <TableCell className={cn(cell, STICKY_CELL.id, "text-[11.5px] font-bold")}>{b.id}</TableCell>
-      <TableCell className={cn(cell, STICKY_CELL.guest, "font-semibold")}>{guestName}</TableCell>
+      <TableCell className={cn(cell, STICKY_CELL.guest, "font-semibold")}>
+        <span className="flex items-center gap-1.5">
+          {guestName}
+          <RequestFlag request={b.specialRequest} />
+        </span>
+      </TableCell>
       <TableCell className={cell}>
         <RoomSelect booking={b} rooms={rooms} disabled={changingStatus} onChange={assignRoom} />
       </TableCell>

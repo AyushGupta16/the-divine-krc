@@ -67,6 +67,7 @@ import type {
   CalendarPageData,
   DashboardData,
   Guest,
+  GuestRequest,
   GuestsPageData,
   MealPlan,
   PartyHallEnquiry,
@@ -136,6 +137,7 @@ function toBooking(r: BookingRow): Booking {
     razorpayOrderId: r.razorpayOrderId ?? undefined,
     razorpayPaymentId: r.razorpayPaymentId ?? undefined,
     batchId: r.batchId ?? undefined,
+    specialRequest: (r.specialRequest ?? undefined) as GuestRequest | undefined,
   });
 }
 
@@ -276,6 +278,7 @@ async function insertBooking(guest: Guest, booking: Booking): Promise<void> {
     status: booking.status,
     createdAt: new Date(booking.createdAt),
     batchId: booking.batchId,
+    specialRequest: booking.specialRequest ?? null,
   });
 }
 

@@ -68,6 +68,24 @@ describe("deriveNotifications", () => {
     );
     expect(items[0].title).toContain("—,");
   });
+
+  it("flags a booking with a request in the title", () => {
+    const withRequest = {
+      ...booking("KRC-1", "2026-07-15T09:00:00.000Z"),
+      specialRequest: { preferences: ["quiet_room" as const] },
+    };
+    const items = deriveNotifications([withRequest], GUEST_NAME, null);
+    expect(items[0].title).toContain("has requests");
+  });
+
+  it("does not flag a booking with no request", () => {
+    const items = deriveNotifications(
+      [booking("KRC-1", "2026-07-15T09:00:00.000Z")],
+      GUEST_NAME,
+      null,
+    );
+    expect(items[0].title).not.toContain("has requests");
+  });
 });
 
 describe("groupByDay", () => {

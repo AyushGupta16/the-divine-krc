@@ -16,14 +16,17 @@
 import { useState } from "react";
 import { format, parseISO, addDays } from "date-fns";
 import { Check, Home, Info, Loader2, Lock, Zap } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
-import type { PayMethod, RoomType } from "@/types/booking";
-import { GST_PCT, ROOM_TYPES } from "@/lib/bookings";
+import type { GuestPreference, MealPlan, PayMethod, RoomType } from "@/types/booking";
+import { GUEST_PREFERENCES } from "@/types/booking";
+import { GST_PCT, ROOM_TYPES, type RoomTypeInfo } from "@/lib/bookings";
 import { computeTotalBill, formatINR, urn } from "@/lib/booking-math";
 import {
   createGuestBookingFn,
   createRazorpayOrderFn,
   verifyRazorpayPaymentFn,
+  type PublicRoomType,
 } from "@/lib/bookings-data";
 import { issueInvoiceForBookingFn } from "@/lib/invoices-data";
 import type { Booking } from "@/types/booking";
@@ -98,6 +101,33 @@ const ROOM_IMAGES: Record<RoomType, string> = {
   deluxe_balcony: roomBalcony,
 };
 
+const MEAL_PLAN_OPTIONS: { value: MealPlan; fullForm: string; description: string }[] = [
+  { value: "EP", fullForm: "European Plan", description: "No meal" },
+  { value: "CP", fullForm: "Continental Plan", description: "Breakfast" },
+  { value: "MAP", fullForm: "Modified American Plan", description: "Breakfast + one other meal" },
+  { value: "AP", fullForm: "American Plan", description: "All three meals" },
+];
+
+const PREFERENCE_LABEL: Record<GuestPreference, string> = {
+  high_floor: "High floor",
+  low_floor: "Low floor",
+  adjacent_rooms: "Adjacent / connecting rooms",
+  quiet_room: "Quiet room / away from road",
+  dietary: "Special dietary needs",
+  smoking_room: "Smoking room",
+};
+
+const PREFERENCE_HINT: Record<GuestPreference, string> = {
+  high_floor: "Higher floors where available — can't be guaranteed on every date.",
+  low_floor: "Ground/lower floors — easier access, subject to availability.",
+  adjacent_rooms: "Rooms next to each other or connecting, for parties booking 2+ rooms.",
+  quiet_room: "Away from the road-facing side, where the floor plan allows.",
+  dietary: "Add specifics (e.g. Jain, vegan, allergies) in the note below.",
+  smoking_room: "Designated smoking rooms only — limited count, first-come basis.",
+};
+
+const REQUEST_NOTE_MAX = 500;
+
 const FIELD =
   "h-auto rounded-[5px] border-[#e5ddcb] bg-white px-3.25 py-2.75 text-[13.5px] shadow-none " +
   "placeholder:text-[#b3aa96] focus-visible:border-gold focus-visible:ring-0";
@@ -132,7 +162,7 @@ interface CartLine {
   qty: number;
 }
 
-export function Book() {
+export function Book({ roomTypes: liveRoomTypes }: { roomTypes: PublicRoomType[] }) {
   const [step, setStep] = useState(0);
   const [cart, setCart] = useState<Record<RoomType, number>>(EMPTY_CART);
   const [guests, setGuests] = useState(2);
@@ -140,19 +170,34 @@ export function Book() {
   const [checkOut, setCheckOut] = useState(tomorrowIso());
   const [arrivalTime, setArrivalTime] = useState("14:00");
   const [guest, setGuest] = useState(EMPTY_GUEST);
+  const [mealPlan, setMealPlan] = useState<MealPlan>("EP");
+  const [preferences, setPreferences] = useState<GuestPreference[]>([]);
   const [payMethod, setPayMethod] = useState<PayMethod>("razorpay");
   const [checkoutMethod, setCheckoutMethod] = useState<CheckoutMethod | null>(null);
   const [bookings, setBookings] = useState<Booking[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const nights = urn(checkIn, checkOut);
-  const cartLines: CartLine[] = ROOM_TYPES.filter((rt) => cart[rt.type] > 0).map((rt) => ({
-    type: rt.type,
-    name: rt.name,
-    pricePerNight: rt.pricePerNight,
-    qty: cart[rt.type],
+  // `count` isn't part of the public loader (no live inventory to an
+  // unauthenticated endpoint — see `PublicRoomType`), so it still comes from
+  // the static list; name/rate/area come from whatever Settings has live,
+  // same source `getRoomTypesFn` already gives the homepage. A guest must
+  // never be quoted a price the front desk has already changed.
+  const liveByType = new Map(liveRoomTypes.map((rt) => [rt.type, rt]));
+  const roomTypes = ROOM_TYPES.map((rt) => ({
+    ...rt,
+    ...liveByType.get(rt.type),
   }));
+
+  const nights = urn(checkIn, checkOut);
+  const cartLines: CartLine[] = roomTypes
+    .filter((rt) => cart[rt.type] > 0)
+    .map((rt) => ({
+      type: rt.type,
+      name: rt.name,
+      pricePerNight: rt.pricePerNight,
+      qty: cart[rt.type],
+    }));
   const roomCount = cartLines.reduce((sum, l) => sum + l.qty, 0);
   const subtotal = cartLines.reduce((sum, l) => sum + l.pricePerNight * nights * l.qty, 0);
   const total =
@@ -176,6 +221,8 @@ export function Book() {
     setCart(EMPTY_CART);
     setGuests(2);
     setGuest(EMPTY_GUEST);
+    setMealPlan("EP");
+    setPreferences([]);
     setPayMethod("razorpay");
     setCheckoutMethod(null);
     setBookings(null);
@@ -202,8 +249,10 @@ export function Book() {
             checkIn,
             checkOut,
             source: "direct",
-            mealPlan: "EP",
+            mealPlan,
             batchId,
+            requestPreferences: preferences,
+            requestNote: guest.specialRequests.trim() || undefined,
           },
         });
         if (!res.ok) {
@@ -292,6 +341,7 @@ export function Book() {
 
         {step === 0 && (
           <RoomsStep
+            roomTypes={roomTypes}
             guests={guests}
             setGuests={setGuests}
             checkIn={checkIn}
@@ -312,6 +362,10 @@ export function Book() {
           <DetailsStep
             guest={guest}
             setGuest={setGuest}
+            mealPlan={mealPlan}
+            setMealPlan={setMealPlan}
+            preferences={preferences}
+            setPreferences={setPreferences}
             cartLines={cartLines}
             checkIn={checkIn}
             checkOut={checkOut}
@@ -395,6 +449,7 @@ function StepRail({ step }: { step: number }) {
 }
 
 function RoomsStep({
+  roomTypes,
   guests,
   setGuests,
   checkIn,
@@ -409,6 +464,7 @@ function RoomsStep({
   roomCount,
   onContinue,
 }: {
+  roomTypes: RoomTypeInfo[];
   guests: number;
   setGuests: (n: number) => void;
   checkIn: string;
@@ -543,7 +599,7 @@ function RoomsStep({
       <p className="mb-4 text-xs uppercase tracking-[0.18em] text-gold">Available for your dates</p>
 
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-        {ROOM_TYPES.map((rt) => (
+        {roomTypes.map((rt) => (
           <div
             key={rt.type}
             className="overflow-hidden rounded-[6px] border border-gold/15 bg-white"
@@ -694,6 +750,10 @@ function Summary({
 function DetailsStep({
   guest,
   setGuest,
+  mealPlan,
+  setMealPlan,
+  preferences,
+  setPreferences,
   cartLines,
   checkIn,
   checkOut,
@@ -705,6 +765,10 @@ function DetailsStep({
 }: {
   guest: typeof EMPTY_GUEST;
   setGuest: (v: typeof EMPTY_GUEST) => void;
+  mealPlan: MealPlan;
+  setMealPlan: (v: MealPlan) => void;
+  preferences: GuestPreference[];
+  setPreferences: (v: GuestPreference[]) => void;
   cartLines: CartLine[];
   checkIn: string;
   checkOut: string;
@@ -720,73 +784,160 @@ function DetailsStep({
     setGuest({ ...guest, [key]: value });
   }
 
+  const SECTION_TITLE = "font-display text-lg text-obsidian";
+
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10 sm:flex-row">
       <div className="flex-1">
-        <h2 className="font-display text-2xl text-obsidian">Guest details</h2>
-        <div className="mt-6 flex flex-col gap-3.5">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={LABEL} htmlFor="gb-first">
-                First name
-              </label>
-              <Input
-                id="gb-first"
-                className={FIELD}
-                value={guest.firstName}
-                onChange={(e) => set("firstName", e.target.value)}
-              />
+        <h2 className="font-display text-2xl text-obsidian">Booking details</h2>
+        <div className="mt-6 flex flex-col gap-8">
+          <section>
+            <h3 className={SECTION_TITLE}>Guest details</h3>
+            <div className="mt-4 flex flex-col gap-3.5">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={LABEL} htmlFor="gb-first">
+                    First name
+                  </label>
+                  <Input
+                    id="gb-first"
+                    className={FIELD}
+                    value={guest.firstName}
+                    onChange={(e) => set("firstName", e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className={LABEL} htmlFor="gb-last">
+                    Last name
+                  </label>
+                  <Input
+                    id="gb-last"
+                    className={FIELD}
+                    value={guest.lastName}
+                    onChange={(e) => set("lastName", e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={LABEL} htmlFor="gb-phone">
+                    Phone
+                  </label>
+                  <Input
+                    id="gb-phone"
+                    className={FIELD}
+                    value={guest.phone}
+                    onChange={(e) => set("phone", e.target.value)}
+                    placeholder="+91 …"
+                  />
+                </div>
+                <div>
+                  <label className={LABEL} htmlFor="gb-email">
+                    Email
+                  </label>
+                  <Input
+                    id="gb-email"
+                    type="email"
+                    className={FIELD}
+                    value={guest.email}
+                    onChange={(e) => set("email", e.target.value)}
+                  />
+                </div>
+              </div>
             </div>
-            <div>
-              <label className={LABEL} htmlFor="gb-last">
-                Last name
-              </label>
-              <Input
-                id="gb-last"
-                className={FIELD}
-                value={guest.lastName}
-                onChange={(e) => set("lastName", e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={LABEL} htmlFor="gb-phone">
-                Phone
-              </label>
-              <Input
-                id="gb-phone"
-                className={FIELD}
-                value={guest.phone}
-                onChange={(e) => set("phone", e.target.value)}
-                placeholder="+91 …"
-              />
-            </div>
-            <div>
-              <label className={LABEL} htmlFor="gb-email">
-                Email
-              </label>
-              <Input
-                id="gb-email"
-                type="email"
-                className={FIELD}
-                value={guest.email}
-                onChange={(e) => set("email", e.target.value)}
-              />
-            </div>
-          </div>
-          <div>
-            <label className={LABEL} htmlFor="gb-requests">
-              Special requests (optional)
-            </label>
-            <textarea
-              id="gb-requests"
-              rows={3}
-              className={`${FIELD} w-full`}
-              value={guest.specialRequests}
-              onChange={(e) => set("specialRequests", e.target.value)}
-            />
-          </div>
+          </section>
+
+          <TooltipProvider delayDuration={200}>
+            <section>
+              <h3 className={SECTION_TITLE}>Meal plan</h3>
+              <div className="mt-4 grid grid-cols-1 gap-2.25 sm:grid-cols-2">
+                {MEAL_PLAN_OPTIONS.map((opt) => (
+                  <label
+                    key={opt.value}
+                    className={`flex cursor-pointer items-center gap-2.5 rounded-[5px] border px-3.25 py-2.5 text-[13px] transition-colors ${
+                      mealPlan === opt.value ? "border-gold bg-gold/5" : "border-[#e5ddcb] bg-white"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="meal-plan"
+                      value={opt.value}
+                      checked={mealPlan === opt.value}
+                      onChange={() => setMealPlan(opt.value)}
+                      className="accent-gold"
+                    />
+                    <span className="font-bold text-obsidian">{opt.value}</span>
+                    <span className="text-warm-gray">— {opt.description}</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info
+                          className="ml-auto size-3.5 shrink-0 text-[#b3aa96] hover:text-gold"
+                          aria-label={`What is ${opt.value}?`}
+                        />
+                      </TooltipTrigger>
+                      <TooltipContent side="top">{opt.fullForm}</TooltipContent>
+                    </Tooltip>
+                  </label>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <h3 className={SECTION_TITLE}>Special requests</h3>
+              <p className="mt-1 text-[11.5px] text-warm-gray">
+                We&apos;ll do our best — subject to availability, not guaranteed.
+              </p>
+              <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {GUEST_PREFERENCES.map((pref) => (
+                  <label
+                    key={pref}
+                    className="flex cursor-pointer items-center gap-2 text-[13px] text-obsidian"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={preferences.includes(pref)}
+                      onChange={(e) =>
+                        setPreferences(
+                          e.target.checked
+                            ? [...preferences, pref]
+                            : preferences.filter((p) => p !== pref),
+                        )
+                      }
+                      className="accent-gold"
+                    />
+                    <span>{PREFERENCE_LABEL[pref]}</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info
+                          className="size-3.25 shrink-0 text-[#b3aa96] hover:text-gold"
+                          aria-label={`About ${PREFERENCE_LABEL[pref]}`}
+                        />
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-56">
+                        {PREFERENCE_HINT[pref]}
+                      </TooltipContent>
+                    </Tooltip>
+                  </label>
+                ))}
+              </div>
+              <div className="mt-4">
+                <label className={LABEL} htmlFor="gb-requests">
+                  Anything else? (optional, best effort)
+                </label>
+                <textarea
+                  id="gb-requests"
+                  rows={3}
+                  maxLength={REQUEST_NOTE_MAX}
+                  className={`${FIELD} w-full`}
+                  value={guest.specialRequests}
+                  onChange={(e) => set("specialRequests", e.target.value)}
+                />
+                <p className="mt-1 text-right text-[10.5px] text-[#a49d8d]">
+                  {guest.specialRequests.length}/{REQUEST_NOTE_MAX}
+                </p>
+              </div>
+            </section>
+          </TooltipProvider>
         </div>
         <div className="mt-6 flex gap-3">
           <button

@@ -12,6 +12,26 @@ export type BookingSource =
 
 export type MealPlan = "EP" | "CP" | "MAP" | "AP";
 
+/** The exact, owner-confirmed, fulfillable preference set (#67) — no options
+ *  beyond this list are offered anywhere in the guest flow. */
+export type GuestPreference =
+  "high_floor" | "low_floor" | "adjacent_rooms" | "quiet_room" | "dietary" | "smoking_room";
+
+export const GUEST_PREFERENCES: GuestPreference[] = [
+  "high_floor",
+  "low_floor",
+  "adjacent_rooms",
+  "quiet_room",
+  "dietary",
+  "smoking_room",
+];
+
+/** Best-effort, free — never affects price or invoice. */
+export interface GuestRequest {
+  preferences: GuestPreference[];
+  note?: string;
+}
+
 export type BookingStatus =
   "confirmed" | "checked_in" | "checked_out" | "pending_payment" | "cancelled" | "no_show";
 
@@ -63,6 +83,11 @@ export interface Booking {
   /** Shared by every room created in one guest-flow checkout (`Book.tsx`'s
    *  submit loop); undefined for legacy rows and admin manual entries. */
   batchId?: string;
+  /** Best-effort preferences + freeform note (#66/#67). Undefined — never an
+   *  empty object — when the guest selected/wrote nothing; the admin "has
+   *  requests" flag and the has-requests notification both key off presence
+   *  of this field, not its contents, so it must never be set to `{}`. */
+  specialRequest?: GuestRequest;
 }
 
 export type GuestTier = "gold" | "silver" | "new";

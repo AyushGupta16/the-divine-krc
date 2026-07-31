@@ -148,6 +148,68 @@ describe("createBooking", () => {
     ).toBe(false);
     expect(createBooking(fixtures, { ...NEW_BOOKING, roomNo: "999" }).ok).toBe(false);
   });
+
+  it("persists a non-default meal plan instead of always defaulting to EP", () => {
+    const res = createBooking(fixtures, { ...NEW_BOOKING, mealPlan: "AP" }, "2026-08-01");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.booking.mealPlan).toBe("AP");
+  });
+
+  it("stores preferences + note together as one specialRequest object", () => {
+    const res = createBooking(
+      fixtures,
+      {
+        ...NEW_BOOKING,
+        requestPreferences: ["high_floor", "quiet_room"],
+        requestNote: "arriving ~11pm",
+      },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.booking.specialRequest).toEqual({
+      preferences: ["high_floor", "quiet_room"],
+      note: "arriving ~11pm",
+    });
+  });
+
+  it("stores undefined, not an empty object, when nothing was selected or written", () => {
+    const res = createBooking(fixtures, NEW_BOOKING, "2026-08-01");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.booking.specialRequest).toBeUndefined();
+  });
+
+  it("drops unknown/invalid preference keys instead of trusting client input", () => {
+    const res = createBooking(
+      fixtures,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- exercising the untrusted-input path deliberately
+      { ...NEW_BOOKING, requestPreferences: ["quiet_room", "sea_view" as any] },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.booking.specialRequest).toEqual({ preferences: ["quiet_room"] });
+  });
+
+  it("rejects a request note over 500 characters instead of truncating it", () => {
+    const res = createBooking(
+      fixtures,
+      { ...NEW_BOOKING, requestNote: "x".repeat(501) },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(false);
+  });
+
+  it("accepts a request note at exactly the 500-character limit", () => {
+    const res = createBooking(
+      fixtures,
+      { ...NEW_BOOKING, requestNote: "x".repeat(500) },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(true);
+  });
 });
 
 describe("markBookingPaid", () => {
