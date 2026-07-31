@@ -104,7 +104,7 @@ const ROOM_IMAGES: Record<RoomType, string> = {
 const MEAL_PLAN_OPTIONS: { value: MealPlan; fullForm: string; description: string }[] = [
   { value: "EP", fullForm: "European Plan", description: "No meal" },
   { value: "CP", fullForm: "Continental Plan", description: "Breakfast" },
-  { value: "MAP", fullForm: "Modified American Plan", description: "Breakfast + one other meal" },
+  { value: "MAP", fullForm: "Modified American Plan", description: "Breakfast + 1 more meal" },
   { value: "AP", fullForm: "American Plan", description: "All three meals" },
 ];
 
@@ -787,7 +787,7 @@ function DetailsStep({
   const SECTION_TITLE = "font-display text-lg text-obsidian";
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10 sm:flex-row">
+    <div className="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10 sm:flex-row sm:items-start">
       <div className="flex-1">
         <h2 className="font-display text-2xl text-obsidian">Booking details</h2>
         <div className="mt-6 flex flex-col gap-8">
@@ -854,7 +854,7 @@ function DetailsStep({
                 {MEAL_PLAN_OPTIONS.map((opt) => (
                   <label
                     key={opt.value}
-                    className={`flex cursor-pointer items-center gap-2.5 rounded-[5px] border px-3.25 py-2.5 text-[13px] transition-colors ${
+                    className={`flex cursor-pointer items-start gap-2.5 rounded-[5px] border px-3.25 py-2.5 text-[13px] transition-colors ${
                       mealPlan === opt.value ? "border-gold bg-gold/5" : "border-[#e5ddcb] bg-white"
                     }`}
                   >
@@ -864,14 +864,16 @@ function DetailsStep({
                       value={opt.value}
                       checked={mealPlan === opt.value}
                       onChange={() => setMealPlan(opt.value)}
-                      className="accent-gold"
+                      className="mt-0.5 shrink-0 accent-gold"
                     />
-                    <span className="font-bold text-obsidian">{opt.value}</span>
-                    <span className="text-warm-gray">— {opt.description}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="font-bold text-obsidian">{opt.value}</span>{" "}
+                      <span className="text-warm-gray">— {opt.description}</span>
+                    </span>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Info
-                          className="ml-auto size-3.5 shrink-0 text-[#b3aa96] hover:text-gold"
+                          className="mt-0.5 size-3.5 shrink-0 text-[#b3aa96] hover:text-gold"
                           aria-label={`What is ${opt.value}?`}
                         />
                       </TooltipTrigger>
@@ -1003,7 +1005,7 @@ function PaymentStep({
   onSubmit: () => void;
 }) {
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10 sm:flex-row">
+    <div className="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10 sm:flex-row sm:items-start">
       <div className="flex-1">
         <h2 className="font-display text-2xl text-obsidian">Payment</h2>
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
