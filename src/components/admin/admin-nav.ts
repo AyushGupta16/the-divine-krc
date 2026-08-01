@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 
 /** Keys for dynamic count badges resolved by the shell. */
-export type CountKey = "bookings" | "partyHall";
+export type CountKey = "bookings" | "partyHall" | "rooms" | "guests";
 
 export interface NavItem {
   label: string;
@@ -23,6 +23,11 @@ export interface NavItem {
   exact?: boolean;
   /** When set, the shell renders a count badge from its `counts` map. */
   countKey?: CountKey;
+  /**
+   * "gold" (default) means the count needs the owner's attention today.
+   * "muted" is informational status only — no action implied.
+   */
+  badgeTone?: "gold" | "muted";
 }
 
 export interface NavGroup {
@@ -46,8 +51,14 @@ export const ADMIN_NAV: NavGroup[] = [
     label: "Operations",
     items: [
       { label: "Bookings", to: "/admin/bookings", icon: BookMarked, countKey: "bookings" },
-      { label: "Guests", to: "/admin/guests", icon: Users },
-      { label: "Rooms", to: "/admin/rooms", icon: BedDouble },
+      { label: "Guests", to: "/admin/guests", icon: Users, countKey: "guests" },
+      {
+        label: "Rooms",
+        to: "/admin/rooms",
+        icon: BedDouble,
+        countKey: "rooms",
+        badgeTone: "muted",
+      },
       { label: "Party Hall", to: "/admin/party-hall", icon: PartyPopper, countKey: "partyHall" },
     ],
   },

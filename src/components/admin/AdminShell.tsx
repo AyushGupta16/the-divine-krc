@@ -95,7 +95,14 @@ function NavRow({
       <Icon className="size-4.25 shrink-0" />
       {!collapsed && <span className="truncate">{item.label}</span>}
       {!collapsed && typeof count === "number" && count > 0 && (
-        <span className="ml-auto rounded-full bg-gold px-1.75 py-px text-[10.5px] font-bold text-obsidian">
+        <span
+          className={cn(
+            "ml-auto rounded-full px-1.75 py-px text-[10.5px] font-bold",
+            item.badgeTone === "muted"
+              ? "border border-ivory/25 text-ivory/70"
+              : "bg-gold text-obsidian",
+          )}
+        >
           {count}
         </span>
       )}

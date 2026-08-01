@@ -29,6 +29,7 @@ import {
   createBooking,
   defaultRoomTiles,
   findGuestBooking,
+  getAvailableRoomCount,
   getBookingsPageData,
   getCalendarPageData,
   getDashboardData,
@@ -966,18 +967,32 @@ export const setBookingPaymentStatusFn = createServerFn({ method: "POST" })
 
 /**
  * Sidebar badges. "Gold badge = N items waiting on you" — so Bookings counts
- * bookings needing attention (no room assigned, or payment still pending),
- * not the total reservation count. Party Hall counts enquiries not yet quoted.
+ * bookings needing attention (no room assigned, or payment still pending) and
+ * Guests counts guests whose first stay starts today, both genuine
+ * attention-worthy events. Party Hall counts enquiries not yet quoted, same
+ * gold treatment. Rooms is informational only (muted badge, see admin-nav.ts)
+ * and shows tonight's available count, not a queue.
  */
 export const sidebarCounts = createServerFn({ method: "GET" }).handler(
-  async (): Promise<{ bookings: number; partyHall: number }> => {
+  async (): Promise<{ bookings: number; partyHall: number; rooms: number; guests: number }> => {
     const data = await load();
+    const today = new Date().toISOString().slice(0, 10);
+
+    const firstStayOn = new Map<string, string>();
+    for (const b of data.bookings) {
+      const earliest = firstStayOn.get(b.guestId);
+      if (!earliest || b.checkIn < earliest) firstStayOn.set(b.guestId, b.checkIn);
+    }
+    const newGuestsToday = data.guests.filter((g) => firstStayOn.get(g.id) === today).length;
+
     return {
       bookings: data.bookings.filter(
         (b) =>
           (b.roomNo === null && OCCUPYING_STATUSES.has(b.status)) || b.status === "pending_payment",
       ).length,
       partyHall: data.partyHall.filter((e) => e.status === "enquiry").length,
+      rooms: await getAvailableRoomCount(data, today),
+      guests: newGuestsToday,
     };
   },
 );

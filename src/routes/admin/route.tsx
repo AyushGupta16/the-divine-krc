@@ -31,7 +31,7 @@ export const Route = createFileRoute("/admin")({
     // Only the gated console needs the sidebar badge counts or notifications.
     if (!context.adminUser) {
       return {
-        counts: { bookings: 0, partyHall: 0 },
+        counts: { bookings: 0, partyHall: 0, rooms: 0, guests: 0 },
         notifications: { groups: [], unread: 0 },
       };
     }
