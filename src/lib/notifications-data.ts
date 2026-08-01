@@ -28,7 +28,7 @@ import { getSessionMember } from "@/lib/auth";
 import { db, missingDbInProduction } from "@/lib/db";
 import * as schema from "@/lib/schema";
 import { normalizeEmail, type Result } from "@/lib/team";
-import type { RoomType } from "@/types/booking";
+import type { GuestRequest, RoomType } from "@/types/booking";
 
 let memory: Map<string, string> | undefined;
 
@@ -60,6 +60,7 @@ async function loadBookingEvents(): Promise<{
         roomType: b.roomType,
         urn: b.urn,
         createdAt: b.createdAt,
+        specialRequest: b.specialRequest,
       })),
       guestName: new Map(fixtures.guests.map((g) => [g.id, g.name])),
     };
@@ -72,6 +73,7 @@ async function loadBookingEvents(): Promise<{
         roomType: schema.bookings.roomType,
         urn: schema.bookings.urn,
         createdAt: schema.bookings.createdAt,
+        specialRequest: schema.bookings.specialRequest,
       })
       .from(schema.bookings)
       .orderBy(schema.bookings.id),
@@ -82,6 +84,7 @@ async function loadBookingEvents(): Promise<{
       ...b,
       roomType: b.roomType as RoomType,
       createdAt: b.createdAt.toISOString(),
+      specialRequest: (b.specialRequest ?? undefined) as GuestRequest | undefined,
     })),
     guestName: new Map(guestRows.map((g) => [g.id, g.name])),
   };

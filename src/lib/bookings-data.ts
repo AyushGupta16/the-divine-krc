@@ -67,6 +67,7 @@ import type {
   CalendarPageData,
   DashboardData,
   Guest,
+  GuestRequest,
   GuestsPageData,
   MealPlan,
   PartyHallEnquiry,
@@ -136,6 +137,7 @@ function toBooking(r: BookingRow): Booking {
     razorpayOrderId: r.razorpayOrderId ?? undefined,
     razorpayPaymentId: r.razorpayPaymentId ?? undefined,
     batchId: r.batchId ?? undefined,
+    specialRequest: (r.specialRequest ?? undefined) as GuestRequest | undefined,
   });
 }
 
@@ -276,6 +278,7 @@ async function insertBooking(guest: Guest, booking: Booking): Promise<void> {
     status: booking.status,
     createdAt: new Date(booking.createdAt),
     batchId: booking.batchId,
+    specialRequest: booking.specialRequest ?? null,
   });
 }
 
@@ -577,18 +580,27 @@ export const checkAvailabilityFn = createServerFn({ method: "POST" })
     return { available: checkAvailability(current, data) };
   });
 
-/** The subset of `RoomTypeInfo` safe to expose publicly — no live inventory `count`. */
-export type PublicRoomType = Pick<RoomTypeInfo, "type" | "name" | "pricePerNight" | "areaSqm">;
+/**
+ * The subset of `RoomTypeInfo` safe to expose publicly. `count` here is the
+ * floor board's total tiles of that type (`resolveRoomTypes`'s
+ * `tiles.filter(...).length`) — total inventory, not who's occupied — so it
+ * carries no live-occupancy signal; withholding it bought no privacy, only a
+ * guest-facing "X left" hardcoded at build time and never updated when a
+ * room type's tile count changes in the admin Rooms screen.
+ */
+export type PublicRoomType = Pick<
+  RoomTypeInfo,
+  "type" | "name" | "pricePerNight" | "areaSqm" | "count"
+>;
 
 /**
- * The current room rates/areas for the marketing site's own room cards
- * (homepage, landmark pages) — public and read-only, same as
- * `checkAvailabilityFn`. Reuses `resolveRoomTypes` so a rate edited in the
- * admin Settings screen is reflected everywhere a room price is shown,
- * instead of pages hand-copying a price that can go stale. Strips `count`
- * (live per-type room inventory) before returning — not needed by any public
- * page today, and real-time occupancy is not something to hand an
- * unauthenticated endpoint.
+ * The current room rates/areas/counts for the marketing site's room cards
+ * (homepage, landmark pages) and the guest booking flow's per-type quantity
+ * cap — public and read-only, same as `checkAvailabilityFn`. Reuses
+ * `resolveRoomTypes` so a rate edited in the admin Settings screen, or a room
+ * added/removed in the admin Rooms screen, is reflected everywhere a room
+ * price or count is shown, instead of a page hand-copying a number that can
+ * go stale.
  */
 export const getRoomTypesFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<PublicRoomType[]> => {
@@ -606,11 +618,12 @@ export const getRoomTypesFn = createServerFn({ method: "GET" }).handler(
       rooms = defaultRoomTiles();
     }
     const roomTypes = resolveRoomTypes(rooms, overrides);
-    return roomTypes.map(({ type, name, pricePerNight, areaSqm }) => ({
+    return roomTypes.map(({ type, name, pricePerNight, areaSqm, count }) => ({
       type,
       name,
       pricePerNight,
       areaSqm,
+      count,
     }));
   },
 );

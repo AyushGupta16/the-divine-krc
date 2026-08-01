@@ -79,6 +79,16 @@ export const bookings = pgTable("bookings", {
   /** Shared by every room created in one guest-flow checkout; null for legacy
    *  rows and admin manual entries — see resolveInvoiceParty. */
   batchId: text("batch_id"),
+
+  /** Best-effort guest preferences + freeform note (spec #66/#67), e.g.
+   *  `{"preferences":["high_floor","quiet_room"],"note":"arriving ~11pm"}`.
+   *  Null — never an empty object — when the guest selected/wrote nothing;
+   *  the admin flag reads `IS NOT NULL`, not the JSON's contents, so this
+   *  column must never hold `{}` for "no request". */
+  specialRequest: jsonb("special_request").$type<{
+    preferences: string[];
+    note?: string;
+  }>(),
 });
 
 export const partyHallEnquiries = pgTable("party_hall_enquiries", {

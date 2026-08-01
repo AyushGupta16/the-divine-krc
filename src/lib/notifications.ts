@@ -37,7 +37,10 @@ function roomTypeName(type: Booking["roomType"]): string {
 }
 
 /** Only the fields a "booking" notification needs — not a full `Booking`. */
-export type BookingEvent = Pick<Booking, "id" | "guestId" | "roomType" | "urn" | "createdAt">;
+export type BookingEvent = Pick<
+  Booking,
+  "id" | "guestId" | "roomType" | "urn" | "createdAt" | "specialRequest"
+>;
 
 /**
  * One "booking" item per booking, newest first. `lastReadAt === null` means
@@ -53,7 +56,10 @@ export function deriveNotifications(
     .map((b) => ({
       id: b.id,
       type: "booking" as const,
-      title: `New booking — ${guestName.get(b.guestId) ?? "—"}, ${roomTypeName(b.roomType)}`,
+      // Presence-only check — never parse `specialRequest`'s contents for
+      // emptiness. The write path collapses "nothing selected" to `undefined`/
+      // `NULL` specifically so this flag never has to look inside the JSON.
+      title: `New booking — ${guestName.get(b.guestId) ?? "—"}, ${roomTypeName(b.roomType)}${b.specialRequest ? " · has requests" : ""}`,
       subtitle: `${b.urn} night${b.urn === 1 ? "" : "s"} · ${b.id}`,
       timestamp: b.createdAt,
       href: "/admin/bookings",

@@ -28,6 +28,8 @@ import type {
   DashboardData,
   Guest,
   GuestListItem,
+  GuestPreference,
+  GuestRequest,
   GuestsPageData,
   GuestStat,
   GuestTier,
@@ -78,6 +80,7 @@ import type {
   TeamMember,
   ToggleSetting,
 } from "@/types/booking";
+import { GUEST_PREFERENCES } from "@/types/booking";
 import {
   computeTotalBill,
   computeTotalCollected,
@@ -305,7 +308,14 @@ export interface NewBookingInput {
   mealPlan: MealPlan;
   /** Shared by every room created in one guest-flow checkout; see `Booking.batchId`. */
   batchId?: string;
+  /** Best-effort preferences + freeform note (#66/#67) — untrusted client input,
+   *  validated in `createBooking` (whitelist + length), never trusted as-is. */
+  requestPreferences?: GuestPreference[];
+  requestNote?: string;
 }
+
+const GUEST_PREFERENCE_SET = new Set<string>(GUEST_PREFERENCES);
+const REQUEST_NOTE_MAX = 500;
 
 function nightsBetween(checkIn: string, checkOut: string): number {
   const ms =
@@ -367,6 +377,22 @@ export function createBooking(
     return { ok: false, error: `Room ${input.roomNo} does not exist.` };
   }
 
+  // Untrusted client input (createGuestBookingFn is unauthenticated) — whitelist
+  // the preference keys rather than trusting whatever the client sent, and
+  // reject an over-limit note outright rather than silently truncating it,
+  // which would lose the end of a real request.
+  const requestPreferences = (input.requestPreferences ?? []).filter((p) =>
+    GUEST_PREFERENCE_SET.has(p),
+  );
+  const requestNote = (input.requestNote ?? "").trim();
+  if (requestNote.length > REQUEST_NOTE_MAX) {
+    return { ok: false, error: `Request note must be ${REQUEST_NOTE_MAX} characters or fewer.` };
+  }
+  const specialRequest: GuestRequest | undefined =
+    requestPreferences.length > 0 || requestNote
+      ? { preferences: requestPreferences, ...(requestNote ? { note: requestNote } : {}) }
+      : undefined;
+
   const guest: Guest =
     state.guests.find((g) => g.phone === phone) ??
     withTier({
@@ -416,6 +442,7 @@ export function createBooking(
     status: "pending_payment",
     createdAt: new Date().toISOString(),
     batchId: input.batchId,
+    specialRequest,
   });
 
   return { ok: true, guest, booking };
