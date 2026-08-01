@@ -338,7 +338,7 @@ export function Book({ roomTypes: liveRoomTypes }: { roomTypes: PublicRoomType[]
     <div className="min-h-screen bg-ivory">
       <Nav alwaysSolid />
       <div className="pt-[74px]">
-        {step < 3 && <StepRail step={step} />}
+        {step < 3 && <StepRail step={step} onStepClick={setStep} />}
 
         {step === 0 && (
           <RoomsStep
@@ -415,35 +415,54 @@ export function Book({ roomTypes: liveRoomTypes }: { roomTypes: PublicRoomType[]
   );
 }
 
-function StepRail({ step }: { step: number }) {
+/**
+ * Steps already completed (`i < step`) are clickable — a guest revisiting
+ * Rooms to add another bed shouldn't have to hit Back twice. The current and
+ * future steps are never clickable: skipping ahead would reach Payment (or
+ * Confirmed) without the server-side checks earlier steps exist to satisfy —
+ * `roomCount > 0` gates Details/Payment, and only `submit()`'s real write
+ * path ever reaches Confirmed. This is UI convenience, not a trust boundary;
+ * nothing here substitutes for those checks.
+ */
+function StepRail({ step, onStepClick }: { step: number; onStepClick: (i: number) => void }) {
   return (
     <div className="border-b border-gold/10 bg-obsidian">
       <div className="mx-auto flex max-w-3xl items-center justify-center gap-1.5 px-4 py-4 sm:gap-3 sm:px-6">
-        {STEPS.map((label, i) => (
-          <div key={label} className="flex items-center gap-1.5 sm:gap-3">
-            <div className="flex items-center gap-1.5 sm:gap-2">
-              <span
-                className={`flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${
-                  i < step
-                    ? "bg-gold text-obsidian"
-                    : i === step
-                      ? "border border-gold text-gold"
-                      : "border border-ivory/20 text-ivory/40"
+        {STEPS.map((label, i) => {
+          const done = i < step;
+          const Tag = done ? "button" : "div";
+          return (
+            <div key={label} className="flex items-center gap-1.5 sm:gap-3">
+              <Tag
+                {...(done ? { type: "button", onClick: () => onStepClick(i) } : {})}
+                className={`flex items-center gap-1.5 sm:gap-2 ${
+                  done ? "cursor-pointer opacity-100 hover:opacity-80" : "cursor-default"
                 }`}
+                aria-label={done ? `Back to ${label}` : undefined}
               >
-                {i < step ? <Check className="size-3.5" /> : i + 1}
-              </span>
-              <span
-                className={`hidden text-[11px] uppercase tracking-[0.16em] sm:inline ${
-                  i <= step ? "text-ivory" : "text-ivory/40"
-                }`}
-              >
-                {label}
-              </span>
+                <span
+                  className={`flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${
+                    i < step
+                      ? "bg-gold text-obsidian"
+                      : i === step
+                        ? "border border-gold text-gold"
+                        : "border border-ivory/20 text-ivory/40"
+                  }`}
+                >
+                  {i < step ? <Check className="size-3.5" /> : i + 1}
+                </span>
+                <span
+                  className={`hidden text-[11px] uppercase tracking-[0.16em] sm:inline ${
+                    i <= step ? "text-ivory" : "text-ivory/40"
+                  }`}
+                >
+                  {label}
+                </span>
+              </Tag>
+              {i < STEPS.length - 1 && <span className="h-px w-4 shrink-0 bg-ivory/15 sm:w-8" />}
             </div>
-            {i < STEPS.length - 1 && <span className="h-px w-4 shrink-0 bg-ivory/15 sm:w-8" />}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
