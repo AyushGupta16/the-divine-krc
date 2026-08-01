@@ -13,6 +13,7 @@ import {
 import { toast } from "sonner";
 
 import type {
+  AddOnServiceKey,
   Booking,
   BookingListItem,
   BookingSource,
@@ -21,12 +22,14 @@ import type {
   BookingsTotals,
   GuestPreference,
   MealPlan,
+  RequestedServices,
   RoomTile,
   RoomType,
 } from "@/types/booking";
 import { formatINR } from "@/lib/booking-math";
 import { adminIssueInvoiceFn } from "@/lib/invoices-data";
 import {
+  resolveRequestedServiceFn,
   setBookingPaymentStatusFn,
   updateBookingRoomFn,
   updateBookingStatusFn,
@@ -91,6 +94,131 @@ function RequestFlag({ request }: { request: Booking["specialRequest"] }) {
             {request.note}
           </p>
         )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+const SERVICE_LABEL: Record<AddOnServiceKey, string> = {
+  earlyCheckIn: "Early check-in",
+  lateCheckOut: "Late check-out",
+  extraMattress: "Extra mattress",
+};
+
+const SERVICE_KEYS: AddOnServiceKey[] = ["earlyCheckIn", "lateCheckOut", "extraMattress"];
+
+const STATUS_LABEL: Record<"pending" | "applied" | "declined", string> = {
+  pending: "Pending",
+  applied: "Applied",
+  declined: "Declined",
+};
+
+/**
+ * Slice B's requested-service control. Same popover shell as `RequestFlag`,
+ * but built for a state machine rather than a static note: pending entries
+ * get Apply/Decline, resolved ones show their outcome (never cleared — the
+ * "was this ever honoured" trail matters), and any service with no entry at
+ * all gets an ad-hoc "Add" for a walk-in the guest never flagged. The
+ * trigger only turns gold — the same "needs attention" signal as the sidebar
+ * badges — while something is still pending; once nothing is, it drops back
+ * to a quiet neutral icon so resolved history doesn't nag the daily view.
+ */
+function RequestedServicesFlag({
+  bookingId,
+  requested,
+  onChanged,
+}: {
+  bookingId: string;
+  requested: RequestedServices | undefined;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState<AddOnServiceKey | null>(null);
+  const [mattressQty, setMattressQty] = useState("1");
+  const hasPending = SERVICE_KEYS.some((k) => requested?.[k]?.status === "pending");
+
+  async function resolve(service: AddOnServiceKey, action: "applied" | "declined") {
+    setBusy(service);
+    const qty = service === "extraMattress" ? Number(mattressQty) : undefined;
+    const res = await resolveRequestedServiceFn({
+      data: { id: bookingId, service, action, mattressQty: qty },
+    });
+    setBusy(null);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    toast.success(`${SERVICE_LABEL[service]} ${action} on ${bookingId}.`);
+    onChanged();
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="Manage add-on services"
+          className={cn(
+            "flex size-4.5 items-center justify-center rounded-full",
+            hasPending
+              ? "bg-gold/15 text-gold hover:bg-gold/25"
+              : "border border-[#d9d0bd] text-[#a49d8d] hover:text-[#7a746a]",
+          )}
+        >
+          <Plus className="size-2.75" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 text-[12.5px]" align="start">
+        <div className="flex flex-col gap-2.5">
+          {SERVICE_KEYS.map((key) => {
+            const entry = requested?.[key];
+            return (
+              <div key={key} className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-obsidian">{SERVICE_LABEL[key]}</span>
+                {!entry || entry.status === "pending" ? (
+                  <div className="flex items-center gap-2">
+                    {key === "extraMattress" && !entry && (
+                      <input
+                        type="number"
+                        min="1"
+                        max="3"
+                        value={mattressQty}
+                        onChange={(e) => setMattressQty(e.target.value)}
+                        className="w-10 rounded border border-[#eae4d6] px-1 py-0.5 text-[11px]"
+                        aria-label="Mattress quantity"
+                      />
+                    )}
+                    <button
+                      type="button"
+                      disabled={busy === key}
+                      onClick={() => void resolve(key, "applied")}
+                      className="text-[11px] font-bold uppercase tracking-[0.06em] text-[#5a8a5a] hover:opacity-75 disabled:opacity-50"
+                    >
+                      {entry ? "Apply" : "Add"}
+                    </button>
+                    {entry && (
+                      <button
+                        type="button"
+                        disabled={busy === key}
+                        onClick={() => void resolve(key, "declined")}
+                        className="text-[11px] font-bold uppercase tracking-[0.06em] text-[#a49d8d] hover:opacity-75 disabled:opacity-50"
+                      >
+                        Decline
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <span
+                    className="text-[11px] font-semibold"
+                    style={{ color: entry.status === "applied" ? "#5a8a5a" : "#a49d8d" }}
+                  >
+                    {STATUS_LABEL[entry.status]}
+                    {key === "extraMattress" && "qty" in entry ? ` ×${entry.qty}` : ""}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </PopoverContent>
     </Popover>
   );
@@ -419,6 +547,11 @@ function BookingRow({ item, sr, rooms }: { item: BookingListItem; sr: number; ro
         <span className="flex items-center gap-1.5">
           {guestName}
           <RequestFlag request={b.specialRequest} />
+          <RequestedServicesFlag
+            bookingId={b.id}
+            requested={b.requestedServices}
+            onChanged={() => void router.invalidate()}
+          />
         </span>
       </TableCell>
       <TableCell className={cell}>

@@ -16,6 +16,8 @@
 // only where the rows come from — never how they are read.
 
 import type {
+  AddOnRateSetting,
+  AddOnServiceKey,
   ArrivalItem,
   Booking,
   BookingCollection,
@@ -74,6 +76,7 @@ import type {
   PaymentSettings,
   PricingSettings,
   PropertyProfile,
+  RequestedServices,
   RoomTariff,
   SettingsPageData,
   SettingsSection,
@@ -108,6 +111,15 @@ export interface BookingData {
   roomTypeOverrides?: Partial<
     Record<RoomType, { name?: string; areaSqm: number; pricePerNight: number }>
   >;
+  /** Owner-set rates for the three Slice B add-ons. Missing keys fall back to
+   *  the defaults below — same "override over default" shape as `roomTypeOverrides`. */
+  addOnRateOverrides?: Partial<Record<AddOnServiceKey, number>>;
+}
+
+export interface AddOnRates {
+  earlyCheckIn: number;
+  lateCheckOut: number;
+  extraMattress: number;
 }
 
 export interface RoomTypeInfo {
@@ -176,9 +188,13 @@ export const ROOM_NUMBERS: string[] = ROOM_UNITS.map((r) => r.no);
  */
 export const GST_PCT = 12;
 
-/** Standard charges for a stay that starts early or ends late (design: Settings). */
+/** Default add-on rates (Slice B) — what a fresh install bills until the
+ *  owner sets a real rate in Settings. Applying a charge always snapshots
+ *  whatever `resolveAddOnRates` resolves to at that moment, never these
+ *  constants directly, so an owner-set rate takes over the instant it's saved. */
 export const EARLY_CHECKIN_FEE = 400;
 export const LATE_CHECKOUT_FEE = 500;
+export const EXTRA_MATTRESS_FEE = 300;
 
 /**
  * Loyalty standing, by stays alone: four stays earns Gold, a second stay earns
@@ -312,10 +328,18 @@ export interface NewBookingInput {
    *  validated in `createBooking` (whitelist + length), never trusted as-is. */
   requestPreferences?: GuestPreference[];
   requestNote?: string;
+  /** Slice B: a request only, never an auto-charge — see `createBooking`. */
+  requestEarlyCheckIn?: boolean;
+  requestLateCheckOut?: boolean;
+  /** 0 (or omitted) means no mattress requested. */
+  requestExtraMattressQty?: number;
 }
 
 const GUEST_PREFERENCE_SET = new Set<string>(GUEST_PREFERENCES);
 const REQUEST_NOTE_MAX = 500;
+/** A guest can request at most this many extra mattresses at booking time;
+ *  more than that is a front-desk conversation, not a checkbox. */
+const MAX_MATTRESS_QTY = 3;
 
 function nightsBetween(checkIn: string, checkOut: string): number {
   const ms =
@@ -393,6 +417,32 @@ export function createBooking(
       ? { preferences: requestPreferences, ...(requestNote ? { note: requestNote } : {}) }
       : undefined;
 
+  // Slice B: a checkbox/qty here only records a request — it never posts a
+  // charge. The admin resolves each pending entry (applied/declined) at
+  // their discretion, e.g. once they know the guest genuinely showed up
+  // early. See `resolveRequestedService`.
+  const mattressQty = Math.trunc(input.requestExtraMattressQty ?? 0);
+  if (mattressQty < 0 || mattressQty > MAX_MATTRESS_QTY) {
+    return {
+      ok: false,
+      error: `Extra mattress quantity must be between 0 and ${MAX_MATTRESS_QTY}.`,
+    };
+  }
+  const requestedServices: RequestedServices | undefined =
+    input.requestEarlyCheckIn || input.requestLateCheckOut || mattressQty > 0
+      ? {
+          ...(input.requestEarlyCheckIn
+            ? { earlyCheckIn: { requested: true, status: "pending" as const } }
+            : {}),
+          ...(input.requestLateCheckOut
+            ? { lateCheckOut: { requested: true, status: "pending" as const } }
+            : {}),
+          ...(mattressQty > 0
+            ? { extraMattress: { requested: true, status: "pending" as const, qty: mattressQty } }
+            : {}),
+        }
+      : undefined;
+
   const guest: Guest =
     state.guests.find((g) => g.phone === phone) ??
     withTier({
@@ -443,9 +493,68 @@ export function createBooking(
     createdAt: new Date().toISOString(),
     batchId: input.batchId,
     specialRequest,
+    requestedServices,
   });
 
   return { ok: true, guest, booking };
+}
+
+/**
+ * Slice B's admin resolution of a Slice-B service request: apply (post the
+ * charge, snapshotting the current Settings rate) or decline (no charge,
+ * kept on record). Also covers the walk-in path — an admin can apply a
+ * charge the guest never requested, which creates the entry as already
+ * `applied` since there was no request to resolve.
+ *
+ * A pure rule, same shape as `assignBookingRoom`: it decides and returns the
+ * booking's new `revenue`/`requestedServices`; `bookings-data.ts` persists it.
+ */
+export function resolveRequestedService(
+  state: { addOnRateOverrides?: BookingData["addOnRateOverrides"] },
+  booking: Booking,
+  service: AddOnServiceKey,
+  action: "applied" | "declined",
+  /** Mattress count for a walk-in add with no prior guest request; ignored
+   *  otherwise (a pending request's own `qty` is what gets charged). */
+  mattressQty = 1,
+): Result<{ revenue: BookingRevenue; requestedServices: RequestedServices; note?: string }> {
+  const existing = booking.requestedServices?.[service];
+  if (existing && existing.status !== "pending") {
+    return { ok: false, error: `${service} has already been ${existing.status}.` };
+  }
+  if (service === "extraMattress" && !existing) {
+    if (!Number.isInteger(mattressQty) || mattressQty < 1 || mattressQty > MAX_MATTRESS_QTY) {
+      return {
+        ok: false,
+        error: `Extra mattress quantity must be between 1 and ${MAX_MATTRESS_QTY}.`,
+      };
+    }
+  }
+
+  const rates = resolveAddOnRates(state.addOnRateOverrides);
+  const revenue = { ...booking.revenue };
+  let note = booking.revenueOtherNote;
+  const qty = existing && "qty" in existing ? existing.qty : mattressQty;
+
+  if (action === "applied") {
+    if (service === "earlyCheckIn") revenue.earlyCheckIn = rates.earlyCheckIn;
+    else if (service === "lateCheckOut") revenue.lateCheckOut = rates.lateCheckOut;
+    else {
+      revenue.other += rates.extraMattress * qty;
+      const label = `Extra mattress ×${qty}`;
+      note = note ? `${note}, ${label}` : label;
+    }
+  }
+
+  const requestedServices: RequestedServices = {
+    ...booking.requestedServices,
+    [service]:
+      service === "extraMattress"
+        ? { requested: existing?.requested ?? false, status: action, qty }
+        : { requested: existing?.requested ?? false, status: action },
+  };
+
+  return { ok: true, revenue, requestedServices, note };
 }
 
 export interface AvailabilityQuery {
@@ -1118,6 +1227,20 @@ export function resolveRoomTypes(
     areaSqm: overrides?.[rt.type]?.areaSqm ?? rt.areaSqm,
     pricePerNight: overrides?.[rt.type]?.pricePerNight ?? rt.pricePerNight,
   }));
+}
+
+/**
+ * The three Slice B add-on rates, blending persisted overrides over the
+ * defaults above — same "override over default" shape as `resolveRoomTypes`,
+ * so a rate shown in Settings, quoted to a guest, and snapshotted onto a
+ * booking can never disagree.
+ */
+export function resolveAddOnRates(overrides?: BookingData["addOnRateOverrides"]): AddOnRates {
+  return {
+    earlyCheckIn: overrides?.earlyCheckIn ?? EARLY_CHECKIN_FEE,
+    lateCheckOut: overrides?.lateCheckOut ?? LATE_CHECKOUT_FEE,
+    extraMattress: overrides?.extraMattress ?? EXTRA_MATTRESS_FEE,
+  };
 }
 
 /**
@@ -2529,14 +2652,28 @@ function tariffSettings(roomTypes: RoomTypeInfo[]): RoomTariff[] {
   }));
 }
 
-/** The four rates on top of the tariff, each quoted from the constant that applies it. */
+/** The two rates still read-only in this panel — GST and the party-hall
+ *  advance are out of Slice B's scope. */
 function chargeSettings(): ChargeSetting[] {
   return [
-    { key: "earlyCheckIn", label: "Early check-in fee", value: formatINR(EARLY_CHECKIN_FEE) },
-    { key: "lateCheckOut", label: "Late check-out fee", value: formatINR(LATE_CHECKOUT_FEE) },
     { key: "gst", label: "GST rate", value: `${GST_PCT}%` },
     { key: "partyHallAdvance", label: "Party hall advance", value: `${PARTY_HALL_ADVANCE_PCT}%` },
   ];
+}
+
+const ADD_ON_LABEL: Record<AddOnServiceKey, string> = {
+  earlyCheckIn: "Early check-in fee",
+  lateCheckOut: "Late check-out fee",
+  extraMattress: "Extra mattress fee",
+};
+
+/** Slice B's three editable add-on rates, in the same blur-to-save shape a tariff uses. */
+function addOnRateSettings(rates: AddOnRates): AddOnRateSetting[] {
+  return (Object.keys(ADD_ON_LABEL) as AddOnServiceKey[]).map((key) => ({
+    key,
+    label: ADD_ON_LABEL[key],
+    price: rates[key],
+  }));
 }
 
 function paymentSettings(): PaymentSettings {
@@ -2586,7 +2723,12 @@ export async function getSettingsPageData(
   return {
     sections: SETTINGS_SECTIONS,
     property: PROPERTY,
-    pricing: { tariffs: tariffSettings(roomTypes), charges: chargeSettings(), rooms: tiles },
+    pricing: {
+      tariffs: tariffSettings(roomTypes),
+      charges: chargeSettings(),
+      addOnRates: addOnRateSettings(resolveAddOnRates(data.addOnRateOverrides)),
+      rooms: tiles,
+    },
     payments: paymentSettings(),
     channels: channelSettings(bookings),
     team: activeTeam(roster),

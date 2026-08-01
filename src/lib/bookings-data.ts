@@ -41,10 +41,13 @@ import {
   OCCUPYING_STATUSES,
   getSettingsPageData,
   markBookingPaid,
+  resolveAddOnRates,
+  resolveRequestedService,
   resolveRoomTypes,
   withAdvance,
   withTier,
   withTotal,
+  type AddOnRates,
   type AvailabilityQuery,
   type BookingData,
   type GuestBookingLookup,
@@ -59,6 +62,7 @@ import { loadRoster } from "@/lib/roster";
 import * as schema from "@/lib/schema";
 import { can, type Result } from "@/lib/team";
 import type {
+  AddOnServiceKey,
   Booking,
   BookingCollection,
   BookingRevenue,
@@ -77,6 +81,7 @@ import type {
   PartyHallStatus,
   PaymentsPageData,
   ReportsPageData,
+  RequestedServices,
   RoomsPageData,
   RoomStatus,
   RoomTile,
@@ -139,6 +144,8 @@ function toBooking(r: BookingRow): Booking {
     razorpayPaymentId: r.razorpayPaymentId ?? undefined,
     batchId: r.batchId ?? undefined,
     specialRequest: (r.specialRequest ?? undefined) as GuestRequest | undefined,
+    requestedServices: (r.requestedServices ?? undefined) as RequestedServices | undefined,
+    revenueOtherNote: r.revenueOtherNote ?? undefined,
   });
 }
 
@@ -200,13 +207,15 @@ async function load(): Promise<BookingData> {
   // order (see `bookingNumber` and the sorts in `bookings.ts`), so this is not
   // what makes the screens deterministic; it is what stops the *query* from
   // being a coin flip, which matters the moment anyone debugs one or pages it.
-  const [guestRows, bookingRows, partyHallRows, roomRows, roomTypeRows] = await Promise.all([
-    conn.select().from(schema.guests).orderBy(schema.guests.id),
-    conn.select().from(schema.bookings).orderBy(schema.bookings.id),
-    conn.select().from(schema.partyHallEnquiries).orderBy(schema.partyHallEnquiries.id),
-    conn.select().from(schema.rooms).orderBy(schema.rooms.no),
-    conn.select().from(schema.roomTypeSettings).orderBy(schema.roomTypeSettings.type),
-  ]);
+  const [guestRows, bookingRows, partyHallRows, roomRows, roomTypeRows, addOnRows] =
+    await Promise.all([
+      conn.select().from(schema.guests).orderBy(schema.guests.id),
+      conn.select().from(schema.bookings).orderBy(schema.bookings.id),
+      conn.select().from(schema.partyHallEnquiries).orderBy(schema.partyHallEnquiries.id),
+      conn.select().from(schema.rooms).orderBy(schema.rooms.no),
+      conn.select().from(schema.roomTypeSettings).orderBy(schema.roomTypeSettings.type),
+      conn.select().from(schema.addOnSettings).orderBy(schema.addOnSettings.id),
+    ]);
 
   return {
     guests: guestRows.map(toGuest),
@@ -219,6 +228,9 @@ async function load(): Promise<BookingData> {
         { name: r.name ?? undefined, areaSqm: r.areaSqm, pricePerNight: r.pricePerNight },
       ]),
     ) as BookingData["roomTypeOverrides"],
+    addOnRateOverrides: Object.fromEntries(
+      addOnRows.map((r) => [r.id, r.price]),
+    ) as BookingData["addOnRateOverrides"],
   };
 }
 
@@ -280,6 +292,7 @@ async function insertBooking(guest: Guest, booking: Booking): Promise<void> {
     createdAt: new Date(booking.createdAt),
     batchId: booking.batchId,
     specialRequest: booking.specialRequest ?? null,
+    requestedServices: booking.requestedServices ?? null,
   });
 }
 
@@ -497,6 +510,59 @@ async function upsertRoomTypeSettings(
     .onConflictDoUpdate({ target: schema.roomTypeSettings.type, set: patch });
 }
 
+/** Settings' Slice B add-on rate fields — same upsert-on-`id` shape as
+ *  `upsertRoomTypeSettings`. */
+async function upsertAddOnSettings(
+  id: AddOnServiceKey,
+  label: string,
+  price: number,
+): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    fixtures.addOnRateOverrides = { ...fixtures.addOnRateOverrides, [id]: price };
+    return;
+  }
+  await conn
+    .insert(schema.addOnSettings)
+    .values({ id, label, price })
+    .onConflictDoUpdate({ target: schema.addOnSettings.id, set: { price } });
+}
+
+/**
+ * Slice B's admin resolution write: whatever `resolveRequestedService`
+ * decided — the booking's new revenue, `requestedServices`, and (for
+ * mattress) the appended `revenueOtherNote`. Same fixtures-mutation
+ * convenience as the other row-store helpers when there is no database.
+ */
+async function updateBookingServiceCharge(
+  bookingId: string,
+  patch: { revenue: BookingRevenue; requestedServices: RequestedServices; note?: string },
+): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    const booking = fixtures.bookings.find((b) => b.id === bookingId);
+    if (booking) {
+      booking.revenue = patch.revenue;
+      booking.requestedServices = patch.requestedServices;
+      booking.revenueOtherNote = patch.note;
+      booking.totalBill = withTotal({ ...booking, revenue: patch.revenue }).totalBill;
+    }
+    return;
+  }
+  await conn
+    .update(schema.bookings)
+    .set({
+      revenueEarlyCheckIn: patch.revenue.earlyCheckIn,
+      revenueLateCheckOut: patch.revenue.lateCheckOut,
+      revenueOther: patch.revenue.other,
+      revenueOtherNote: patch.note ?? null,
+      requestedServices: patch.requestedServices,
+    })
+    .where(eq(schema.bookings.id, bookingId));
+}
+
 /**
  * Settings' room-count field: adds or removes rooms of a type until the
  * floor board has exactly `count` of them, since `count` itself is never
@@ -626,6 +692,24 @@ export const getRoomTypesFn = createServerFn({ method: "GET" }).handler(
       areaSqm,
       count,
     }));
+  },
+);
+
+/**
+ * The current Slice B add-on rates for the guest booking flow — public and
+ * read-only, same reasoning as `getRoomTypesFn`: a guest must see the exact
+ * rate the front desk would charge, not a stale build-time number, and the
+ * marketing/booking pages must still render if the DB is briefly unreachable.
+ */
+export const getAddOnRatesFn = createServerFn({ method: "GET" }).handler(
+  async (): Promise<AddOnRates> => {
+    try {
+      const current = await load();
+      return resolveAddOnRates(current.addOnRateOverrides);
+    } catch (err) {
+      console.error("getAddOnRatesFn: DB load failed, serving default rates", err);
+      return resolveAddOnRates();
+    }
   },
 );
 
@@ -852,6 +936,60 @@ export const updateRoomTypeSettingsFn = createServerFn({ method: "POST" })
       areaSqm: data.areaSqm,
       pricePerNight: data.pricePerNight,
     });
+    return { ok: true };
+  });
+
+const ADD_ON_LABEL: Record<AddOnServiceKey, string> = {
+  earlyCheckIn: "Early check-in fee",
+  lateCheckOut: "Late check-out fee",
+  extraMattress: "Extra mattress fee",
+};
+
+/** Settings' Slice B add-on rate fields. */
+export const updateAddOnSettingsFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { key: AddOnServiceKey; price: number }) => data)
+  .handler(async ({ data }): Promise<Result> => {
+    const auth = await requireSettingsWriter();
+    if (!auth.ok) return auth;
+    if (!Number.isFinite(data.price) || data.price < 0) {
+      return { ok: false, error: "Rate must be zero or more." };
+    }
+    await upsertAddOnSettings(data.key, ADD_ON_LABEL[data.key], Math.round(data.price));
+    return { ok: true };
+  });
+
+/**
+ * The admin Bookings screen's Apply/Decline action on a guest's requested
+ * service, and its ad-hoc "add charge" for a walk-in the guest never
+ * flagged. `resolveRequestedService` in `bookings.ts` holds the actual rule
+ * (rate snapshot, note append, the already-resolved guard); this only loads,
+ * asks, and persists.
+ */
+export const resolveRequestedServiceFn = createServerFn({ method: "POST" })
+  .inputValidator(
+    (data: {
+      id: string;
+      service: AddOnServiceKey;
+      action: "applied" | "declined";
+      mattressQty?: number;
+    }) => data,
+  )
+  .handler(async ({ data }): Promise<Result> => {
+    const auth = await requireBookingWriter();
+    if (!auth.ok) return auth;
+    const current = await load();
+    const booking = current.bookings.find((b) => b.id === data.id);
+    if (!booking) return { ok: false, error: `Booking ${data.id} does not exist.` };
+
+    const res = resolveRequestedService(
+      current,
+      booking,
+      data.service,
+      data.action,
+      data.mattressQty,
+    );
+    if (!res.ok) return res;
+    await updateBookingServiceCharge(data.id, res);
     return { ok: true };
   });
 

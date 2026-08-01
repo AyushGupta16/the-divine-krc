@@ -5,8 +5,11 @@ import {
   checkAvailability,
   checkInEligibilityError,
   createBooking,
+  EARLY_CHECKIN_FEE,
+  EXTRA_MATTRESS_FEE,
   getBookingsPageData,
   markBookingPaid,
+  resolveRequestedService,
   ROOM_UNITS,
   type NewBookingInput,
 } from "@/lib/bookings";
@@ -209,6 +212,140 @@ describe("createBooking", () => {
       "2026-08-01",
     );
     expect(res.ok).toBe(true);
+  });
+
+  it("Slice B: a requested add-on is recorded pending, never an immediate charge", () => {
+    const res = createBooking(
+      fixtures,
+      {
+        ...NEW_BOOKING,
+        requestEarlyCheckIn: true,
+        requestLateCheckOut: true,
+        requestExtraMattressQty: 2,
+      },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.booking.requestedServices).toEqual({
+      earlyCheckIn: { requested: true, status: "pending" },
+      lateCheckOut: { requested: true, status: "pending" },
+      extraMattress: { requested: true, status: "pending", qty: 2 },
+    });
+    // Requesting is not charging — the revenue columns stay untouched.
+    expect(res.booking.revenue.earlyCheckIn).toBe(0);
+    expect(res.booking.revenue.lateCheckOut).toBe(0);
+    expect(res.booking.revenue.other).toBe(0);
+  });
+
+  it("stores undefined, not an empty object, when no add-on was requested", () => {
+    const res = createBooking(fixtures, NEW_BOOKING, "2026-08-01");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.booking.requestedServices).toBeUndefined();
+  });
+
+  it("rejects a mattress quantity outside 0-3", () => {
+    expect(createBooking(fixtures, { ...NEW_BOOKING, requestExtraMattressQty: 4 }).ok).toBe(false);
+    expect(createBooking(fixtures, { ...NEW_BOOKING, requestExtraMattressQty: -1 }).ok).toBe(false);
+  });
+});
+
+describe("resolveRequestedService", () => {
+  function bookingWithPendingRequests() {
+    const res = createBooking(
+      fixtures,
+      {
+        ...NEW_BOOKING,
+        requestEarlyCheckIn: true,
+        requestLateCheckOut: true,
+        requestExtraMattressQty: 2,
+      },
+      "2026-08-01",
+    );
+    if (!res.ok) throw new Error("setup failed");
+    return res.booking;
+  }
+
+  it("applying a pending request snapshots the current rate and flips status to applied", () => {
+    const booking = bookingWithPendingRequests();
+    const res = resolveRequestedService({}, booking, "earlyCheckIn", "applied");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.revenue.earlyCheckIn).toBe(EARLY_CHECKIN_FEE);
+    expect(res.requestedServices.earlyCheckIn).toEqual({ requested: true, status: "applied" });
+  });
+
+  it("applying uses an owner-set override rate instead of the default", () => {
+    const booking = bookingWithPendingRequests();
+    const res = resolveRequestedService(
+      { addOnRateOverrides: { earlyCheckIn: 777 } },
+      booking,
+      "earlyCheckIn",
+      "applied",
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.revenue.earlyCheckIn).toBe(777);
+  });
+
+  it("declining a pending request leaves revenue at zero and records the outcome", () => {
+    const booking = bookingWithPendingRequests();
+    const res = resolveRequestedService({}, booking, "lateCheckOut", "declined");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.revenue.lateCheckOut).toBe(0);
+    expect(res.requestedServices.lateCheckOut).toEqual({ requested: true, status: "declined" });
+  });
+
+  it("mattress applies its requested quantity and appends a readable note", () => {
+    const booking = bookingWithPendingRequests();
+    const res = resolveRequestedService({}, booking, "extraMattress", "applied");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.revenue.other).toBe(EXTRA_MATTRESS_FEE * 2);
+    expect(res.note).toBe("Extra mattress ×2");
+    expect(res.requestedServices.extraMattress).toEqual({
+      requested: true,
+      status: "applied",
+      qty: 2,
+    });
+  });
+
+  it("appends rather than overwrites when revenueOtherNote already holds a charge", () => {
+    const booking = { ...bookingWithPendingRequests(), revenueOtherNote: "Manual adjustment" };
+    const res = resolveRequestedService({}, booking, "extraMattress", "applied");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.note).toBe("Manual adjustment, Extra mattress ×2");
+  });
+
+  it("a walk-in ad-hoc add (no prior request) applies directly at the given quantity", () => {
+    const res1 = createBooking(fixtures, NEW_BOOKING, "2026-08-01");
+    if (!res1.ok) throw new Error("setup failed");
+    const res = resolveRequestedService({}, res1.booking, "extraMattress", "applied", 3);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.revenue.other).toBe(EXTRA_MATTRESS_FEE * 3);
+    expect(res.requestedServices.extraMattress).toEqual({
+      requested: false,
+      status: "applied",
+      qty: 3,
+    });
+  });
+
+  it("refuses to resolve a request that has already been applied or declined", () => {
+    const booking = bookingWithPendingRequests();
+    const applied = resolveRequestedService({}, booking, "earlyCheckIn", "applied");
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+    const reapplied = resolveRequestedService(
+      {},
+      { ...booking, requestedServices: applied.requestedServices },
+      "earlyCheckIn",
+      "declined",
+    );
+    expect(reapplied.ok).toBe(false);
   });
 });
 

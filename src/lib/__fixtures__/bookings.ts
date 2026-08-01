@@ -552,10 +552,12 @@ export const rooms = defaultRoomTiles();
 export const fixtures: BookingData & {
   rooms: NonNullable<BookingData["rooms"]>;
   roomTypeOverrides: NonNullable<BookingData["roomTypeOverrides"]>;
+  addOnRateOverrides: NonNullable<BookingData["addOnRateOverrides"]>;
 } = {
   bookings,
   guests,
   partyHall: partyHallEnquiries,
   rooms,
   roomTypeOverrides: {},
+  addOnRateOverrides: {},
 };

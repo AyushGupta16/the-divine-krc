@@ -89,6 +89,26 @@ export const bookings = pgTable("bookings", {
     preferences: string[];
     note?: string;
   }>(),
+
+  /** Early check-in / late check-out / extra mattress — requested at booking
+   *  or added by the admin, resolved (applied/declined) at the admin's
+   *  discretion (Slice B). A resolved entry's status is overwritten in place,
+   *  never deleted, so whether a request was ever honoured stays on the row.
+   *  Null — never `{}` — when nothing was ever requested or added. */
+  requestedServices: jsonb("requested_services").$type<{
+    earlyCheckIn?: { requested: boolean; status: "pending" | "applied" | "declined" };
+    lateCheckOut?: { requested: boolean; status: "pending" | "applied" | "declined" };
+    extraMattress?: {
+      requested: boolean;
+      status: "pending" | "applied" | "declined";
+      qty: number;
+    };
+  }>(),
+  /** Readable trail of what's inside `revenueOther` (Slice B), e.g. "Extra
+   *  mattress ×2" — appended to, never overwritten, so a second "other"
+   *  charge can't silently erase the first one's label. Null until the first
+   *  charge lands. */
+  revenueOtherNote: text("revenue_other_note"),
 });
 
 export const partyHallEnquiries = pgTable("party_hall_enquiries", {
@@ -193,6 +213,19 @@ export const roomTypeSettings = pgTable("room_type_settings", {
   name: text("name"),
   areaSqm: integer("area_sqm").notNull(),
   pricePerNight: integer("price_per_night").notNull(),
+});
+
+/**
+ * Owner-configurable rates for the three priced add-on services (Slice B).
+ * Same role as `roomTypeSettings`: the Settings screen edits these rows, and
+ * a booking snapshots whatever rate is here at the moment a charge is
+ * applied — later rate changes never retroactively touch that booking.
+ */
+export const addOnSettings = pgTable("addon_settings", {
+  /** 'earlyCheckIn' | 'lateCheckOut' | 'extraMattress'. */
+  id: text("id").primaryKey(),
+  label: text("label").notNull(),
+  price: integer("price").notNull().default(0),
 });
 
 /**

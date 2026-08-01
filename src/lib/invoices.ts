@@ -103,7 +103,7 @@ function bookingLines(b: Booking): InvoiceLine[] {
   if (b.revenue.other > 0) {
     lines.push({
       name: "Other charges",
-      note: "",
+      note: b.revenueOtherNote ?? "",
       qty: "—",
       rate: "—",
       amount: formatINR(b.revenue.other),

@@ -20,7 +20,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 
 import type { GuestPreference, MealPlan, PayMethod, RoomType } from "@/types/booking";
 import { GUEST_PREFERENCES } from "@/types/booking";
-import { GST_PCT, ROOM_TYPES, type RoomTypeInfo } from "@/lib/bookings";
+import { GST_PCT, ROOM_TYPES, type AddOnRates, type RoomTypeInfo } from "@/lib/bookings";
 import { computeTotalBill, formatINR, urn } from "@/lib/booking-math";
 import {
   createGuestBookingFn,
@@ -162,7 +162,13 @@ interface CartLine {
   qty: number;
 }
 
-export function Book({ roomTypes: liveRoomTypes }: { roomTypes: PublicRoomType[] }) {
+export function Book({
+  roomTypes: liveRoomTypes,
+  addOnRates,
+}: {
+  roomTypes: PublicRoomType[];
+  addOnRates: AddOnRates;
+}) {
   const [step, setStep] = useState(0);
   const [cart, setCart] = useState<Record<RoomType, number>>(EMPTY_CART);
   const [guests, setGuests] = useState(2);
@@ -172,6 +178,9 @@ export function Book({ roomTypes: liveRoomTypes }: { roomTypes: PublicRoomType[]
   const [guest, setGuest] = useState(EMPTY_GUEST);
   const [mealPlan, setMealPlan] = useState<MealPlan>("EP");
   const [preferences, setPreferences] = useState<GuestPreference[]>([]);
+  const [requestEarlyCheckIn, setRequestEarlyCheckIn] = useState(false);
+  const [requestLateCheckOut, setRequestLateCheckOut] = useState(false);
+  const [mattressQty, setMattressQty] = useState(0);
   const [payMethod, setPayMethod] = useState<PayMethod>("razorpay");
   const [checkoutMethod, setCheckoutMethod] = useState<CheckoutMethod | null>(null);
   const [bookings, setBookings] = useState<Booking[] | null>(null);
@@ -224,6 +233,9 @@ export function Book({ roomTypes: liveRoomTypes }: { roomTypes: PublicRoomType[]
     setGuest(EMPTY_GUEST);
     setMealPlan("EP");
     setPreferences([]);
+    setRequestEarlyCheckIn(false);
+    setRequestLateCheckOut(false);
+    setMattressQty(0);
     setPayMethod("razorpay");
     setCheckoutMethod(null);
     setBookings(null);
@@ -239,6 +251,11 @@ export function Book({ roomTypes: liveRoomTypes }: { roomTypes: PublicRoomType[]
     const created: Booking[] = [];
     for (const line of cartLines) {
       for (let i = 0; i < line.qty; i++) {
+        // Early check-in / late check-out / extra mattress are requests
+        // against the stay, not per-room — attach them to the first room of
+        // the batch only, so a 2-room booking doesn't ask for two mattresses
+        // when the guest checked the box once.
+        const isFirstOfBatch = created.length === 0;
         const res = await createGuestBookingFn({
           data: {
             guestName,
@@ -254,6 +271,13 @@ export function Book({ roomTypes: liveRoomTypes }: { roomTypes: PublicRoomType[]
             batchId,
             requestPreferences: preferences,
             requestNote: guest.specialRequests.trim() || undefined,
+            ...(isFirstOfBatch
+              ? {
+                  requestEarlyCheckIn,
+                  requestLateCheckOut,
+                  requestExtraMattressQty: mattressQty,
+                }
+              : {}),
           },
         });
         if (!res.ok) {
@@ -367,6 +391,13 @@ export function Book({ roomTypes: liveRoomTypes }: { roomTypes: PublicRoomType[]
             setMealPlan={setMealPlan}
             preferences={preferences}
             setPreferences={setPreferences}
+            requestEarlyCheckIn={requestEarlyCheckIn}
+            setRequestEarlyCheckIn={setRequestEarlyCheckIn}
+            requestLateCheckOut={requestLateCheckOut}
+            setRequestLateCheckOut={setRequestLateCheckOut}
+            mattressQty={mattressQty}
+            setMattressQty={setMattressQty}
+            addOnRates={addOnRates}
             cartLines={cartLines}
             checkIn={checkIn}
             checkOut={checkOut}
@@ -774,6 +805,13 @@ function DetailsStep({
   setMealPlan,
   preferences,
   setPreferences,
+  requestEarlyCheckIn,
+  setRequestEarlyCheckIn,
+  requestLateCheckOut,
+  setRequestLateCheckOut,
+  mattressQty,
+  setMattressQty,
+  addOnRates,
   cartLines,
   checkIn,
   checkOut,
@@ -789,6 +827,13 @@ function DetailsStep({
   setMealPlan: (v: MealPlan) => void;
   preferences: GuestPreference[];
   setPreferences: (v: GuestPreference[]) => void;
+  requestEarlyCheckIn: boolean;
+  setRequestEarlyCheckIn: (v: boolean) => void;
+  requestLateCheckOut: boolean;
+  setRequestLateCheckOut: (v: boolean) => void;
+  mattressQty: number;
+  setMattressQty: (v: number | ((n: number) => number)) => void;
+  addOnRates: AddOnRates;
   cartLines: CartLine[];
   checkIn: string;
   checkOut: string;
@@ -901,6 +946,69 @@ function DetailsStep({
                     </Tooltip>
                   </label>
                 ))}
+              </div>
+            </section>
+
+            <section>
+              <h3 className={SECTION_TITLE}>Extra services</h3>
+              <p className="mt-1 text-[11.5px] text-warm-gray">
+                These are requests, not charges yet — the front desk confirms and bills them once
+                you're checking in or out.
+              </p>
+              <div className="mt-4 flex flex-col gap-2.25">
+                <label className="flex cursor-pointer items-center gap-2 text-[13px] text-obsidian">
+                  <input
+                    type="checkbox"
+                    checked={requestEarlyCheckIn}
+                    onChange={(e) => setRequestEarlyCheckIn(e.target.checked)}
+                    className="accent-gold"
+                  />
+                  <span>
+                    Request early check-in — before 11 AM{" "}
+                    <span className="text-warm-gray">({formatINR(addOnRates.earlyCheckIn)})</span>
+                  </span>
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-[13px] text-obsidian">
+                  <input
+                    type="checkbox"
+                    checked={requestLateCheckOut}
+                    onChange={(e) => setRequestLateCheckOut(e.target.checked)}
+                    className="accent-gold"
+                  />
+                  <span>
+                    Request late check-out — after 11 AM{" "}
+                    <span className="text-warm-gray">({formatINR(addOnRates.lateCheckOut)})</span>
+                  </span>
+                </label>
+                <div className="flex items-center gap-3 text-[13px] text-obsidian">
+                  <span className="flex-1">
+                    Request an extra mattress{" "}
+                    <span className="text-warm-gray">
+                      ({formatINR(addOnRates.extraMattress)} each)
+                    </span>
+                  </span>
+                  <div className="flex items-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setMattressQty((n) => Math.max(0, n - 1))}
+                      disabled={mattressQty <= 0}
+                      aria-label="Fewer mattresses"
+                      className="flex size-7 items-center justify-center rounded-full border border-gold/30 text-obsidian transition-colors hover:border-gold disabled:opacity-30"
+                    >
+                      −
+                    </button>
+                    <span className="w-4 text-center">{mattressQty}</span>
+                    <button
+                      type="button"
+                      onClick={() => setMattressQty((n) => Math.min(3, n + 1))}
+                      disabled={mattressQty >= 3}
+                      aria-label="More mattresses"
+                      className="flex size-7 items-center justify-center rounded-full border border-gold/30 text-obsidian transition-colors hover:border-gold disabled:opacity-30"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
               </div>
             </section>
 
