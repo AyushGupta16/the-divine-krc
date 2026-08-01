@@ -92,15 +92,17 @@ export const bookings = pgTable("bookings", {
 
   /** Early check-in / late check-out / extra mattress — requested at booking
    *  or added by the admin, resolved (applied/declined) at the admin's
-   *  discretion (Slice B). A resolved entry's status is overwritten in place,
-   *  never deleted, so whether a request was ever honoured stays on the row.
-   *  Null — never `{}` — when nothing was ever requested or added. */
+   *  discretion, and an applied charge can later be reversed (Slice B). A
+   *  resolved entry's status is overwritten in place, never deleted, so
+   *  whether a request was ever honoured — and whether an honoured one was
+   *  later undone — stays on the row. Null — never `{}` — when nothing was
+   *  ever requested or added. */
   requestedServices: jsonb("requested_services").$type<{
-    earlyCheckIn?: { requested: boolean; status: "pending" | "applied" | "declined" };
-    lateCheckOut?: { requested: boolean; status: "pending" | "applied" | "declined" };
+    earlyCheckIn?: { requested: boolean; status: "pending" | "applied" | "declined" | "reversed" };
+    lateCheckOut?: { requested: boolean; status: "pending" | "applied" | "declined" | "reversed" };
     extraMattress?: {
       requested: boolean;
-      status: "pending" | "applied" | "declined";
+      status: "pending" | "applied" | "declined" | "reversed";
       qty: number;
     };
   }>(),

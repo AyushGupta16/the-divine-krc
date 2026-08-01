@@ -959,18 +959,18 @@ export const updateAddOnSettingsFn = createServerFn({ method: "POST" })
   });
 
 /**
- * The admin Bookings screen's Apply/Decline action on a guest's requested
- * service, and its ad-hoc "add charge" for a walk-in the guest never
- * flagged. `resolveRequestedService` in `bookings.ts` holds the actual rule
- * (rate snapshot, note append, the already-resolved guard); this only loads,
- * asks, and persists.
+ * The admin Bookings screen's Apply/Decline/Reverse action on a guest's
+ * requested service, and its ad-hoc "add charge" for a walk-in the guest
+ * never flagged. `resolveRequestedService` in `bookings.ts` holds the actual
+ * rule (rate snapshot, note append/clear, the applied/reversed guards); this
+ * only loads, asks, and persists.
  */
 export const resolveRequestedServiceFn = createServerFn({ method: "POST" })
   .inputValidator(
     (data: {
       id: string;
       service: AddOnServiceKey;
-      action: "applied" | "declined";
+      action: "applied" | "declined" | "reversed";
       mattressQty?: number;
     }) => data,
   )

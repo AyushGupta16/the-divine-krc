@@ -8,6 +8,7 @@ import {
   Loader2,
   MessageSquareText,
   Plus,
+  Trash2,
   Wallet,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -46,6 +47,7 @@ import {
 } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { StatCard } from "@/components/ui/stat-card";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 const PREFERENCE_LABEL: Record<GuestPreference, string> = {
@@ -107,21 +109,30 @@ const SERVICE_LABEL: Record<AddOnServiceKey, string> = {
 
 const SERVICE_KEYS: AddOnServiceKey[] = ["earlyCheckIn", "lateCheckOut", "extraMattress"];
 
-const STATUS_LABEL: Record<"pending" | "applied" | "declined", string> = {
+const STATUS_LABEL: Record<"pending" | "applied" | "declined" | "reversed", string> = {
   pending: "Pending",
   applied: "Applied",
   declined: "Declined",
+  reversed: "Reversed",
+};
+
+const STATUS_COLOR: Record<"applied" | "declined" | "reversed", string> = {
+  applied: "#5a8a5a",
+  declined: "#a49d8d",
+  reversed: "#b4553f",
 };
 
 /**
  * Slice B's requested-service control. Same popover shell as `RequestFlag`,
  * but built for a state machine rather than a static note: pending entries
- * get Apply/Decline, resolved ones show their outcome (never cleared — the
- * "was this ever honoured" trail matters), and any service with no entry at
- * all gets an ad-hoc "Add" for a walk-in the guest never flagged. The
- * trigger only turns gold — the same "needs attention" signal as the sidebar
- * badges — while something is still pending; once nothing is, it drops back
- * to a quiet neutral icon so resolved history doesn't nag the daily view.
+ * get Apply/Decline, an applied entry gets a Remove action (zeros the charge
+ * and marks it `reversed` — distinct from `declined`, which means never
+ * charged — so a misclick has a way back), and any service with no entry at
+ * all gets an ad-hoc "Add" for a walk-in the guest never flagged. Kept
+ * compact — small padding, tight rows — since it sits inside a dense table
+ * and must not cover the row it's anchored to. The trigger only turns gold
+ * while something is still pending; once nothing is, it drops back to a
+ * quiet neutral icon so resolved history doesn't nag the daily view.
  */
 function RequestedServicesFlag({
   bookingId,
@@ -136,7 +147,7 @@ function RequestedServicesFlag({
   const [mattressQty, setMattressQty] = useState("1");
   const hasPending = SERVICE_KEYS.some((k) => requested?.[k]?.status === "pending");
 
-  async function resolve(service: AddOnServiceKey, action: "applied" | "declined") {
+  async function resolve(service: AddOnServiceKey, action: "applied" | "declined" | "reversed") {
     setBusy(service);
     const qty = service === "extraMattress" ? Number(mattressQty) : undefined;
     const res = await resolveRequestedServiceFn({
@@ -167,58 +178,78 @@ function RequestedServicesFlag({
           <Plus className="size-2.75" />
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-72 text-[12.5px]" align="start">
-        <div className="flex flex-col gap-2.5">
-          {SERVICE_KEYS.map((key) => {
-            const entry = requested?.[key];
-            return (
-              <div key={key} className="flex items-center justify-between gap-2">
-                <span className="font-semibold text-obsidian">{SERVICE_LABEL[key]}</span>
-                {!entry || entry.status === "pending" ? (
-                  <div className="flex items-center gap-2">
-                    {key === "extraMattress" && !entry && (
-                      <input
-                        type="number"
-                        min="1"
-                        max="3"
-                        value={mattressQty}
-                        onChange={(e) => setMattressQty(e.target.value)}
-                        className="w-10 rounded border border-[#eae4d6] px-1 py-0.5 text-[11px]"
-                        aria-label="Mattress quantity"
-                      />
-                    )}
-                    <button
-                      type="button"
-                      disabled={busy === key}
-                      onClick={() => void resolve(key, "applied")}
-                      className="text-[11px] font-bold uppercase tracking-[0.06em] text-[#5a8a5a] hover:opacity-75 disabled:opacity-50"
-                    >
-                      {entry ? "Apply" : "Add"}
-                    </button>
-                    {entry && (
+      <PopoverContent className="w-52 p-2.5 text-[11.5px]" align="start" sideOffset={2}>
+        <TooltipProvider delayDuration={200}>
+          <div className="flex flex-col gap-1.5">
+            {SERVICE_KEYS.map((key) => {
+              const entry = requested?.[key];
+              return (
+                <div key={key} className="flex items-center justify-between gap-1.5">
+                  <span className="font-semibold text-obsidian">{SERVICE_LABEL[key]}</span>
+                  {!entry || entry.status === "pending" ? (
+                    <div className="flex items-center gap-1.5">
+                      {key === "extraMattress" && !entry && (
+                        <input
+                          type="number"
+                          min="1"
+                          max="3"
+                          value={mattressQty}
+                          onChange={(e) => setMattressQty(e.target.value)}
+                          className="w-8 rounded border border-[#eae4d6] px-1 py-px text-[10.5px]"
+                          aria-label="Mattress quantity"
+                        />
+                      )}
                       <button
                         type="button"
                         disabled={busy === key}
-                        onClick={() => void resolve(key, "declined")}
-                        className="text-[11px] font-bold uppercase tracking-[0.06em] text-[#a49d8d] hover:opacity-75 disabled:opacity-50"
+                        onClick={() => void resolve(key, "applied")}
+                        className="text-[10.5px] font-bold uppercase tracking-wider text-[#5a8a5a] hover:opacity-75 disabled:opacity-50"
                       >
-                        Decline
+                        {entry ? "Apply" : "Add"}
                       </button>
-                    )}
-                  </div>
-                ) : (
-                  <span
-                    className="text-[11px] font-semibold"
-                    style={{ color: entry.status === "applied" ? "#5a8a5a" : "#a49d8d" }}
-                  >
-                    {STATUS_LABEL[entry.status]}
-                    {key === "extraMattress" && "qty" in entry ? ` ×${entry.qty}` : ""}
-                  </span>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                      {entry && (
+                        <button
+                          type="button"
+                          disabled={busy === key}
+                          onClick={() => void resolve(key, "declined")}
+                          className="text-[10.5px] font-bold uppercase tracking-wider text-[#a49d8d] hover:opacity-75 disabled:opacity-50"
+                        >
+                          Decline
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className="text-[10.5px] font-semibold"
+                        style={{ color: STATUS_COLOR[entry.status] }}
+                      >
+                        {STATUS_LABEL[entry.status]}
+                        {key === "extraMattress" && "qty" in entry ? ` ×${entry.qty}` : ""}
+                      </span>
+                      {entry.status === "applied" && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              disabled={busy === key}
+                              onClick={() => void resolve(key, "reversed")}
+                              aria-label="Remove charge"
+                              className="flex size-4 items-center justify-center text-[#a4463a] hover:opacity-75 disabled:opacity-50"
+                            >
+                              <Trash2 className="size-3" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">Remove charge</TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </TooltipProvider>
       </PopoverContent>
     </Popover>
   );
@@ -356,7 +387,7 @@ function StatusTabs({
 const bandHead =
   "h-auto whitespace-nowrap px-3.5 py-2.25 text-left align-middle text-[10px] font-bold uppercase tracking-[0.14em] text-gold-soft";
 const colHead =
-  "h-auto whitespace-nowrap px-2 py-2.5 align-middle text-[10px] font-bold uppercase tracking-[0.05em] text-[#a49d8d]";
+  "h-auto whitespace-nowrap px-2 py-2.5 align-middle text-[10px] font-bold uppercase tracking-wider text-[#a49d8d]";
 const cell = "whitespace-nowrap px-2 py-3 align-middle text-[12px]";
 const num = "text-right tabular-nums";
 

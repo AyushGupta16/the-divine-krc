@@ -35,11 +35,14 @@ export interface GuestRequest {
 /** The three priced add-ons a guest can request and an admin resolves (Slice B). */
 export type AddOnServiceKey = "earlyCheckIn" | "lateCheckOut" | "extraMattress";
 
-/** Where a requested service stands: asked for, charged, or turned down.
- *  `pending` is the only state that still needs the admin's attention — once
- *  resolved, the row keeps the outcome rather than clearing it, so whether a
- *  request was ever honoured stays on the record. */
-export type ServiceRequestStatus = "pending" | "applied" | "declined";
+/** Where a requested service stands: asked for, charged, turned down, or a
+ *  charge that was applied and then undone. `pending` is the only state that
+ *  still needs the admin's attention — every other state keeps the outcome
+ *  rather than clearing it, so whether a request was ever honoured (and
+ *  whether an honoured one was later reversed) stays on the record.
+ *  `reversed` is distinct from `declined`: declined means never charged,
+ *  reversed means charged and then undone — the audit trail differs. */
+export type ServiceRequestStatus = "pending" | "applied" | "declined" | "reversed";
 
 export interface ServiceRequest {
   requested: boolean;

@@ -501,8 +501,10 @@ export function createBooking(
 
 /**
  * Slice B's admin resolution of a Slice-B service request: apply (post the
- * charge, snapshotting the current Settings rate) or decline (no charge,
- * kept on record). Also covers the walk-in path — an admin can apply a
+ * charge, snapshotting the current Settings rate), decline (no charge, kept
+ * on record), or reverse an already-applied charge (undo the charge, kept on
+ * record as `reversed` — distinct from `declined`, which means never
+ * charged at all). Also covers the walk-in path — an admin can apply a
  * charge the guest never requested, which creates the entry as already
  * `applied` since there was no request to resolve.
  *
@@ -513,16 +515,24 @@ export function resolveRequestedService(
   state: { addOnRateOverrides?: BookingData["addOnRateOverrides"] },
   booking: Booking,
   service: AddOnServiceKey,
-  action: "applied" | "declined",
+  action: "applied" | "declined" | "reversed",
   /** Mattress count for a walk-in add with no prior guest request; ignored
    *  otherwise (a pending request's own `qty` is what gets charged). */
   mattressQty = 1,
 ): Result<{ revenue: BookingRevenue; requestedServices: RequestedServices; note?: string }> {
   const existing = booking.requestedServices?.[service];
-  if (existing && existing.status !== "pending") {
+
+  if (action === "reversed") {
+    if (!existing || existing.status !== "applied") {
+      return {
+        ok: false,
+        error: `${service} has not been applied, so there is nothing to reverse.`,
+      };
+    }
+  } else if (existing && existing.status !== "pending") {
     return { ok: false, error: `${service} has already been ${existing.status}.` };
   }
-  if (service === "extraMattress" && !existing) {
+  if (action === "applied" && service === "extraMattress" && !existing) {
     if (!Number.isInteger(mattressQty) || mattressQty < 1 || mattressQty > MAX_MATTRESS_QTY) {
       return {
         ok: false,
@@ -543,6 +553,13 @@ export function resolveRequestedService(
       revenue.other += rates.extraMattress * qty;
       const label = `Extra mattress ×${qty}`;
       note = note ? `${note}, ${label}` : label;
+    }
+  } else if (action === "reversed") {
+    if (service === "earlyCheckIn") revenue.earlyCheckIn = 0;
+    else if (service === "lateCheckOut") revenue.lateCheckOut = 0;
+    else {
+      revenue.other = 0;
+      note = undefined;
     }
   }
 
