@@ -178,11 +178,12 @@ export function Book({ roomTypes: liveRoomTypes }: { roomTypes: PublicRoomType[]
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // `count` isn't part of the public loader (no live inventory to an
-  // unauthenticated endpoint — see `PublicRoomType`), so it still comes from
-  // the static list; name/rate/area come from whatever Settings has live,
-  // same source `getRoomTypesFn` already gives the homepage. A guest must
-  // never be quoted a price the front desk has already changed.
+  // name/rate/area/count all come from the live loader now (same
+  // `getRoomTypesFn` the homepage uses) — the static `ROOM_TYPES` here is
+  // only the fallback shape/ordering if a type is ever missing from the
+  // response. A guest must never be quoted a price the front desk has
+  // already changed, nor offered more rooms than the admin Rooms screen
+  // actually has of that type.
   const liveByType = new Map(liveRoomTypes.map((rt) => [rt.type, rt]));
   const roomTypes = ROOM_TYPES.map((rt) => ({
     ...rt,
