@@ -577,7 +577,7 @@ export function markBookingPaid(
 }
 
 /** Statuses that hold a physical room off the market. */
-const OCCUPYING_STATUSES = new Set(["confirmed", "checked_in", "pending_payment"]);
+export const OCCUPYING_STATUSES = new Set(["confirmed", "checked_in", "pending_payment"]);
 
 /** A stay that has begun — the guest has arrived, whether in-house or gone. */
 const ARRIVED_STATUSES = new Set<BookingStatus>(["checked_in", "checked_out"]);
@@ -982,7 +982,16 @@ export async function getBookingsPageData(
     0,
   );
 
+  const unassignedRooms = data.bookings.filter(
+    (b) => b.roomNo === null && OCCUPYING_STATUSES.has(b.status),
+  ).length;
+
   const summary: BookingsPageData["summary"] = [
+    {
+      key: "unassignedRooms",
+      label: "Unassigned rooms",
+      value: String(unassignedRooms),
+    },
     {
       key: "checkInsToday",
       label: "Today's check-ins",

@@ -20,6 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { StatCard } from "@/components/ui/stat-card";
 import { cn } from "@/lib/utils";
 
 // ── Tokens ──────────────────────────────────────────────────────────────────
@@ -40,22 +41,6 @@ const STATUS_TOKENS: Record<TransactionStatus, { bg: string; color: string }> = 
   refunded: { bg: "#f7e6e0", color: "#b4553f" },
 };
 
-/** KPI key → the accent stripe down its left edge. The lead card is obsidian. */
-const KPI_ACCENT: Record<PaymentsKpi["key"], string> = {
-  collectedToday: "",
-  razorpaySettled: "#5a8a5a",
-  otaReceivables: "#3a6ea5",
-  pendingFromGuests: "#b4553f",
-};
-
-/** KPI key → the ink its figure is set in. */
-const KPI_INK: Record<PaymentsKpi["key"], string> = {
-  collectedToday: "#e8c87a",
-  razorpaySettled: "#0a0a0a",
-  otaReceivables: "#3a6ea5",
-  pendingFromGuests: "#b4553f",
-};
-
 /** Channel disc colours, cycled by row position per the design's OTA list. */
 const CHANNEL_TOKENS: { bg: string; color: string }[] = [
   { bg: "#e4eef7", color: "#3a6ea5" },
@@ -73,31 +58,12 @@ const cell = "px-2 py-3.25 align-middle text-[12.5px]";
 function KpiCard({ kpi }: { kpi: PaymentsKpi }) {
   const lead = kpi.key === "collectedToday";
   return (
-    <div
-      className={cn(
-        "rounded-lg px-4.75 py-4.25",
-        lead ? "bg-obsidian text-[#f9f8f3]" : "border border-[#eae4d6] border-l-[3px] bg-white",
-      )}
-      style={lead ? undefined : { borderLeftColor: KPI_ACCENT[kpi.key] }}
-    >
-      <div
-        className={cn(
-          "text-[10.5px] font-bold uppercase tracking-[0.1em]",
-          lead ? "text-[#8a8479]" : "text-[#7a746a]",
-        )}
-      >
-        {kpi.label}
-      </div>
-      <div
-        className="mt-2 font-display text-[28px] font-semibold tabular-nums"
-        style={{ color: KPI_INK[kpi.key] }}
-      >
-        {kpi.value}
-      </div>
-      <div className={cn("mt-1 text-[11px]", lead ? "text-[#c9c3b6]" : "text-[#a49d8d]")}>
-        {kpi.note}
-      </div>
-    </div>
+    <StatCard
+      variant={lead ? "hero" : "standard"}
+      label={kpi.label}
+      value={kpi.value}
+      meta={kpi.note}
+    />
   );
 }
 

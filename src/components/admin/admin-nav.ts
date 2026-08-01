@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 
 /** Keys for dynamic count badges resolved by the shell. */
-export type CountKey = "bookings" | "rooms" | "guests";
+export type CountKey = "bookings" | "partyHall";
 
 export interface NavItem {
   label: string;
@@ -46,9 +46,9 @@ export const ADMIN_NAV: NavGroup[] = [
     label: "Operations",
     items: [
       { label: "Bookings", to: "/admin/bookings", icon: BookMarked, countKey: "bookings" },
-      { label: "Guests", to: "/admin/guests", icon: Users, countKey: "guests" },
-      { label: "Rooms", to: "/admin/rooms", icon: BedDouble, countKey: "rooms" },
-      { label: "Party Hall", to: "/admin/party-hall", icon: PartyPopper },
+      { label: "Guests", to: "/admin/guests", icon: Users },
+      { label: "Rooms", to: "/admin/rooms", icon: BedDouble },
+      { label: "Party Hall", to: "/admin/party-hall", icon: PartyPopper, countKey: "partyHall" },
     ],
   },
   {
