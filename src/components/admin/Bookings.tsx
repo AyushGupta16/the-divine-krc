@@ -17,7 +17,6 @@ import type {
   BookingListItem,
   BookingSource,
   BookingsPageData,
-  BookingsSummaryKey,
   BookingStatus,
   BookingsTotals,
   GuestPreference,
@@ -43,6 +42,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { StatCard } from "@/components/ui/stat-card";
 import { cn } from "@/lib/utils";
 
 const PREFERENCE_LABEL: Record<GuestPreference, string> = {
@@ -153,45 +153,21 @@ const STATUS_ORDER: BookingStatus[] = [
   "no_show",
 ];
 
-/** Per-card accent: left bar + optional value ink. */
-const SUMMARY_ACCENT: Record<BookingsSummaryKey, { bar: string; ink?: string }> = {
-  checkInsToday: { bar: "#5a8a5a" },
-  checkOutsToday: { bar: "#7c5cbf" },
-  occupied: { bar: "#c5a059" },
-  available: { bar: "#5a8a5a" },
-  totalUrn: { bar: "#3a6ea5" },
-  roomRevenue: { bar: "#c5a059", ink: "#a8863f" },
-  totalCollected: { bar: "#5a8a5a" },
-  pendingCollection: { bar: "#b4553f", ink: "#b4553f" },
-  otaReceivables: { bar: "#3a6ea5", ink: "#3a6ea5" },
-  cancellations: { bar: "#3a3a3a" },
-};
-
 // ── Summary cards ─────────────────────────────────────────────────────────
+// "Unassigned rooms" is the hero — the check-in/assign screen's operational
+// figure, ahead of the finance-flavoured "Total collected".
 
 function SummaryCards({ summary }: { summary: BookingsPageData["summary"] }) {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-      {summary.map((s) => {
-        const accent = SUMMARY_ACCENT[s.key];
-        return (
-          <div
-            key={s.key}
-            className="rounded-lg border border-[#eae4d6] bg-white px-3.75 py-3.25"
-            style={{ borderLeft: `3px solid ${accent.bar}` }}
-          >
-            <div className="text-[10px] font-bold uppercase leading-[1.3] tracking-[0.08em] text-[#7a746a]">
-              {s.label}
-            </div>
-            <div
-              className="mt-1.75 font-display text-[23px] font-semibold"
-              style={accent.ink ? { color: accent.ink } : undefined}
-            >
-              {s.value}
-            </div>
-          </div>
-        );
-      })}
+      {summary.map((s) => (
+        <StatCard
+          key={s.key}
+          variant={s.key === "unassignedRooms" ? "hero" : "standard"}
+          label={s.label}
+          value={s.value}
+        />
+      ))}
     </div>
   );
 }

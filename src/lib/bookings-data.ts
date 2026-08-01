@@ -38,6 +38,7 @@ import {
   getPaymentsPageData,
   getReportsPageData,
   getRoomsPageData,
+  OCCUPYING_STATUSES,
   getSettingsPageData,
   markBookingPaid,
   resolveRoomTypes,
@@ -362,7 +363,7 @@ async function updatePartyHallContact(
 }
 
 export const updatePartyHallContactFn = createServerFn({ method: "POST" })
-  .inputValidator(
+  .validator(
     (data: { id: string; contactName: string; contactPhone: string; contactEmail: string }) => data,
   )
   .handler(async ({ data }): Promise<Result> => {
@@ -537,7 +538,7 @@ async function resizeRoomType(type: RoomType, count: number): Promise<Result> {
  * load state, ask the rule, persist what it decided.
  */
 export const createBookingFn = createServerFn({ method: "POST" })
-  .inputValidator((data: NewBookingInput) => data)
+  .validator((data: NewBookingInput) => data)
   .handler(async ({ data }): Promise<Result<{ booking: Booking }>> => {
     const auth = await requireBookingWriter();
     if (!auth.ok) return auth;
@@ -558,7 +559,7 @@ export const createBookingFn = createServerFn({ method: "POST" })
  * check: this *is* the unauthenticated path, not a bypass of the admin one.
  */
 export const createGuestBookingFn = createServerFn({ method: "POST" })
-  .inputValidator((data: NewBookingInput) => data)
+  .validator((data: NewBookingInput) => data)
   .handler(async ({ data }): Promise<Result<{ booking: Booking }>> => {
     const current = await load();
     const res = createBooking(current, data);
@@ -574,7 +575,7 @@ export const createGuestBookingFn = createServerFn({ method: "POST" })
  * the guest's time in the `/book` flow before falling back to WhatsApp.
  */
 export const checkAvailabilityFn = createServerFn({ method: "POST" })
-  .inputValidator((data: AvailabilityQuery) => data)
+  .validator((data: AvailabilityQuery) => data)
   .handler(async ({ data }): Promise<{ available: boolean }> => {
     const current = await load();
     return { available: checkAvailability(current, data) };
@@ -634,7 +635,7 @@ export const getRoomTypesFn = createServerFn({ method: "GET" }).handler(
  * ownership check with the cancel path below.
  */
 export const lookupGuestBookingFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { bookingId: string; contact: string }) => data)
+  .validator((data: { bookingId: string; contact: string }) => data)
   .handler(async ({ data }): Promise<Result<GuestBookingLookup>> => {
     const current = await load();
     return findGuestBooking(current, data.bookingId, data.contact);
@@ -642,7 +643,7 @@ export const lookupGuestBookingFn = createServerFn({ method: "POST" })
 
 /** The lookup result's "Cancel booking" action. Same ownership check, then one write. */
 export const cancelGuestBookingFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { bookingId: string; contact: string }) => data)
+  .validator((data: { bookingId: string; contact: string }) => data)
   .handler(async ({ data }): Promise<Result<{ booking: Booking }>> => {
     const current = await load();
     const res = cancelGuestBooking(current, data.bookingId, data.contact);
@@ -661,7 +662,7 @@ export const cancelGuestBookingFn = createServerFn({ method: "POST" })
  * are dropped from the sum rather than failing the whole order.
  */
 export const createRazorpayOrderFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { bookingIds: string[] }) => data)
+  .validator((data: { bookingIds: string[] }) => data)
   .handler(
     async ({
       data,
@@ -694,7 +695,7 @@ export const createRazorpayOrderFn = createServerFn({ method: "POST" })
  * signature is a no-op on those rows via `markBookingPaid`'s idempotence.
  */
 export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
-  .inputValidator(
+  .validator(
     (data: {
       bookingIds: string[];
       razorpayOrderId: string;
@@ -764,7 +765,7 @@ export const settingsPage = createServerFn({ method: "GET" }).handler(
 
 /** The Rooms screen's per-tile status popup. */
 export const updateRoomStatusFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { no: string; status: RoomStatus; detail: string }) => data)
+  .validator((data: { no: string; status: RoomStatus; detail: string }) => data)
   .handler(async ({ data }): Promise<Result> => {
     const auth = await requireRoomWriter();
     if (!auth.ok) return auth;
@@ -787,7 +788,7 @@ export const updateRoomStatusFn = createServerFn({ method: "POST" })
 
 /** Settings' "Add room" form. */
 export const addRoomFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { no: string; floor: 1 | 2; type: RoomType }) => data)
+  .validator((data: { no: string; floor: 1 | 2; type: RoomType }) => data)
   .handler(async ({ data }): Promise<Result> => {
     const auth = await requireRoomWriter();
     if (!auth.ok) return auth;
@@ -809,7 +810,7 @@ export const addRoomFn = createServerFn({ method: "POST" })
 
 /** Settings' per-room inline floor/type edit. */
 export const updateRoomDetailsFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { no: string; floor: 1 | 2; type: RoomType }) => data)
+  .validator((data: { no: string; floor: 1 | 2; type: RoomType }) => data)
   .handler(async ({ data }): Promise<Result> => {
     const auth = await requireRoomWriter();
     if (!auth.ok) return auth;
@@ -823,7 +824,7 @@ export const updateRoomDetailsFn = createServerFn({ method: "POST" })
 
 /** Settings' per-room "Remove" action. */
 export const removeRoomFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { no: string }) => data)
+  .validator((data: { no: string }) => data)
   .handler(async ({ data }): Promise<Result> => {
     const auth = await requireRoomWriter();
     if (!auth.ok) return auth;
@@ -833,7 +834,7 @@ export const removeRoomFn = createServerFn({ method: "POST" })
 
 /** Settings' per-type area/rate fields. */
 export const updateRoomTypeSettingsFn = createServerFn({ method: "POST" })
-  .inputValidator(
+  .validator(
     (data: { type: RoomType; name?: string; areaSqm: number; pricePerNight: number }) => data,
   )
   .handler(async ({ data }): Promise<Result> => {
@@ -856,7 +857,7 @@ export const updateRoomTypeSettingsFn = createServerFn({ method: "POST" })
 
 /** Settings' room-count field — resizes the floor board to match. */
 export const setRoomCountFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { type: RoomType; count: number }) => data)
+  .validator((data: { type: RoomType; count: number }) => data)
   .handler(async ({ data }): Promise<Result> => {
     const auth = await requireRoomWriter();
     if (!auth.ok) return auth;
@@ -879,7 +880,7 @@ export const setRoomCountFn = createServerFn({ method: "POST" })
  * maintenance after it was assigned but before the guest actually arrives.
  */
 export const updateBookingStatusFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string; status: BookingStatus }) => data)
+  .validator((data: { id: string; status: BookingStatus }) => data)
   .handler(async ({ data }): Promise<Result> => {
     const auth = await requireBookingWriter();
     if (!auth.ok) return auth;
@@ -904,7 +905,7 @@ export const updateBookingStatusFn = createServerFn({ method: "POST" })
  * maintenance hard-stop, overlap conflicts, the checked-in-unassign block).
  */
 export const updateBookingRoomFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string; roomNo: string | null }) => data)
+  .validator((data: { id: string; roomNo: string | null }) => data)
   .handler(async ({ data }): Promise<Result> => {
     const auth = await requireBookingWriter();
     if (!auth.ok) return auth;
@@ -930,7 +931,7 @@ export const updateBookingRoomFn = createServerFn({ method: "POST" })
  * balance settled or added after check-in/out leaves the stay status alone.
  */
 export const setBookingPaymentStatusFn = createServerFn({ method: "POST" })
-  .inputValidator(
+  .validator(
     (data: { id: string; status: "confirmed" | "pending_payment"; pendingAmount?: number }) => data,
   )
   .handler(async ({ data }): Promise<Result> => {
@@ -964,14 +965,34 @@ export const setBookingPaymentStatusFn = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-/** Sidebar badges. Counts only — the shell has no use for the rows themselves. */
+/**
+ * Sidebar badges. "Gold badge = N items waiting on you" — so Bookings counts
+ * bookings needing attention (no room assigned, or payment still pending) and
+ * Guests counts guests whose first stay starts today, both genuine
+ * attention-worthy events. Party Hall counts enquiries not yet quoted, same
+ * gold treatment. Rooms is informational only (muted badge, see admin-nav.ts)
+ * and shows tonight's available count, not a queue.
+ */
 export const sidebarCounts = createServerFn({ method: "GET" }).handler(
-  async (): Promise<{ bookings: number; guests: number; rooms: number }> => {
+  async (): Promise<{ bookings: number; partyHall: number; rooms: number; guests: number }> => {
     const data = await load();
+    const today = new Date().toISOString().slice(0, 10);
+
+    const firstStayOn = new Map<string, string>();
+    for (const b of data.bookings) {
+      const earliest = firstStayOn.get(b.guestId);
+      if (!earliest || b.checkIn < earliest) firstStayOn.set(b.guestId, b.checkIn);
+    }
+    const newGuestsToday = data.guests.filter((g) => firstStayOn.get(g.id) === today).length;
+
     return {
-      bookings: data.bookings.length,
-      guests: data.guests.length,
-      rooms: await getAvailableRoomCount(data),
+      bookings: data.bookings.filter(
+        (b) =>
+          (b.roomNo === null && OCCUPYING_STATUSES.has(b.status)) || b.status === "pending_payment",
+      ).length,
+      partyHall: data.partyHall.filter((e) => e.status === "enquiry").length,
+      rooms: await getAvailableRoomCount(data, today),
+      guests: newGuestsToday,
     };
   },
 );

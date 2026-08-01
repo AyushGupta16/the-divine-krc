@@ -10,6 +10,7 @@ import type {
   RoomTypePerf,
   SourceSlice,
 } from "@/types/booking";
+import { StatCard } from "@/components/ui/stat-card";
 import { cn } from "@/lib/utils";
 
 // ── Tokens ──────────────────────────────────────────────────────────────────
@@ -35,21 +36,15 @@ const CARD = "rounded-lg border border-[#eae4d6] bg-white";
 // ── KPI row ─────────────────────────────────────────────────────────────────
 
 function KpiCard({ kpi }: { kpi: ReportsKpi }) {
+  const lead = kpi.key === "revenue";
   return (
-    <div className={cn(CARD, "px-4.5 py-4")}>
-      <div className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-[#7a746a]">
-        {kpi.label}
-      </div>
-      <div className="mt-1.75 font-display text-[27px] font-semibold tabular-nums">{kpi.value}</div>
-      {kpi.delta && (
-        <div
-          className="mt-0.75 text-[11px] font-semibold"
-          style={{ color: kpi.deltaUp ? "#5a8a5a" : "#b4553f" }}
-        >
-          {kpi.delta}
-        </div>
-      )}
-    </div>
+    <StatCard
+      variant={lead ? "hero" : "standard"}
+      label={kpi.label}
+      value={kpi.value}
+      metaTone={kpi.deltaUp ? "positive" : "negative"}
+      meta={kpi.delta}
+    />
   );
 }
 

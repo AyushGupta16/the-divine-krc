@@ -1,6 +1,6 @@
 import { useState, type ComponentType } from "react";
 import { Link } from "@tanstack/react-router";
-import { LogIn, LogOut, Globe, TriangleAlert, Check, Sparkles, CreditCard, X } from "lucide-react";
+import { Check, Sparkles, CreditCard, X } from "lucide-react";
 
 import type {
   ActivityItem,
@@ -11,6 +11,7 @@ import type {
   RevenuePeriod,
 } from "@/types/booking";
 import { cn } from "@/lib/utils";
+import { StatCard } from "@/components/ui/stat-card";
 
 /** Card chrome shared by every panel on the dashboard. */
 function Card({ className, children }: { className?: string; children: React.ReactNode }) {
@@ -22,94 +23,72 @@ function Card({ className, children }: { className?: string; children: React.Rea
 }
 
 // ── Stat cards ────────────────────────────────────────────────────────────
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  accent = "gold",
-  valueClassName,
-  children,
-}: {
-  icon: ComponentType<{ className?: string }>;
-  label: string;
-  value: number;
-  accent?: "gold" | "terracotta";
-  valueClassName?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card>
-      <div className="flex items-center gap-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-[#7a746a]">
-        <span
-          className={cn(
-            "flex size-7.5 items-center justify-center rounded-md",
-            accent === "gold" ? "bg-[#f0e7d3]" : "bg-[#f2e0dc]",
-          )}
-        >
-          <Icon className={cn("size-4", accent === "gold" ? "text-gold" : "text-[#b4553f]")} />
-        </span>
-        {label}
-      </div>
-      <div
-        className={cn(
-          "mb-1.75 mt-3.75 font-display text-[40px] font-semibold leading-none",
-          valueClassName,
-        )}
-      >
-        {value}
-      </div>
-      <div className="text-[12px] text-[#7a746a]">{children}</div>
-    </Card>
-  );
-}
+// "Unassigned rooms" is the hero — the single figure that drives the daily
+// job on a 14-room property (assign rooms), ahead of a passive occupancy %.
 
 function StatCards({ data }: { data: DashboardData }) {
   const { checkInsToday, checkOutsToday, expectedArrivals, unassignedRooms } = data;
   return (
     <div className="grid grid-cols-2 gap-4.5 lg:grid-cols-4">
-      <StatCard icon={LogIn} label="Check-ins today" value={checkInsToday.total}>
-        {checkInsToday.arrived} arrived ·{" "}
-        <span className="font-semibold text-[#a8863f]">{checkInsToday.pending} pending</span>
-      </StatCard>
-      <StatCard icon={LogOut} label="Check-outs today" value={checkOutsToday.total}>
-        {checkOutsToday.settled} settled ·{" "}
-        <span className="font-semibold text-[#b4553f]">{checkOutsToday.late} late</span>
-      </StatCard>
-      <StatCard icon={Globe} label="Expected arrivals" value={expectedArrivals.total}>
-        {expectedArrivals.nextLabel ? (
-          <>
-            {/* No arrival time of day in the data yet (spec 19), so name the
-                guest who is due rather than invent a clock time. */}
-            {expectedArrivals.nextTime && (
-              <>
-                Next:{" "}
-                <span className="font-semibold text-obsidian">{expectedArrivals.nextTime}</span>
-                ,{" "}
-              </>
-            )}
-            {expectedArrivals.nextLabel} due
-          </>
-        ) : (
-          "None still expected"
-        )}
-      </StatCard>
       <StatCard
-        icon={TriangleAlert}
+        variant="hero"
         label="Unassigned rooms"
         value={unassignedRooms}
-        accent="terracotta"
-        valueClassName="text-[#b4553f]"
-      >
-        Needs allocation{" "}
-        <Link
-          to="/admin/bookings"
-          search={{ unassigned: "1" }}
-          className="font-semibold text-[#b4553f] hover:underline"
-        >
-          Assign →
-        </Link>
-      </StatCard>
+        meta={
+          <>
+            Needs allocation ·{" "}
+            <Link
+              to="/admin/bookings"
+              search={{ unassigned: "1" }}
+              className="font-semibold text-[#f4d68a] hover:underline"
+            >
+              Assign →
+            </Link>
+          </>
+        }
+      />
+      <StatCard
+        label="Check-ins today"
+        value={checkInsToday.total}
+        meta={
+          <>
+            {checkInsToday.arrived} arrived ·{" "}
+            <span className="font-semibold text-[#a8863f]">{checkInsToday.pending} pending</span>
+          </>
+        }
+      />
+      <StatCard
+        label="Check-outs today"
+        value={checkOutsToday.total}
+        meta={
+          <>
+            {checkOutsToday.settled} settled ·{" "}
+            <span className="font-semibold text-[#b4553f]">{checkOutsToday.late} late</span>
+          </>
+        }
+      />
+      <StatCard
+        label="Expected arrivals"
+        value={expectedArrivals.total}
+        meta={
+          expectedArrivals.nextLabel ? (
+            <>
+              {/* No arrival time of day in the data yet (spec 19), so name the
+                  guest who is due rather than invent a clock time. */}
+              {expectedArrivals.nextTime && (
+                <>
+                  Next:{" "}
+                  <span className="font-semibold text-obsidian">{expectedArrivals.nextTime}</span>
+                  ,{" "}
+                </>
+              )}
+              {expectedArrivals.nextLabel} due
+            </>
+          ) : (
+            "None still expected"
+          )
+        }
+      />
     </div>
   );
 }

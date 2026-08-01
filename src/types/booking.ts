@@ -234,6 +234,7 @@ export interface DashboardData {
 
 /** Keys that let the component attach the right accent to each summary card. */
 export type BookingsSummaryKey =
+  | "unassignedRooms"
   | "checkInsToday"
   | "checkOutsToday"
   | "occupied"

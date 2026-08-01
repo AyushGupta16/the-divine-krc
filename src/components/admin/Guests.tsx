@@ -1,7 +1,6 @@
 import { Link } from "@tanstack/react-router";
-import { Plus, Search } from "lucide-react";
 
-import type { GuestListItem, GuestsPageData, GuestStat, GuestTier } from "@/types/booking";
+import type { GuestListItem, GuestsPageData, GuestTier } from "@/types/booking";
 import { formatINR } from "@/lib/booking-math";
 import {
   Table,
@@ -11,6 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { StatCard } from "@/components/ui/stat-card";
 import { cn } from "@/lib/utils";
 
 // ── Tokens ──────────────────────────────────────────────────────────────────
@@ -22,40 +22,9 @@ const TIER_TOKENS: Record<GuestTier, { label: string; color: string; bg: string 
   new: { label: "New", color: "#5a8a5a", bg: "#e6efe6" },
 };
 
-/** Stat key → the accent stripe down its left edge. */
-const STAT_ACCENT: Record<GuestStat["key"], string> = {
-  total: "#c5a059",
-  inHouse: "#5a8a5a",
-  repeat: "#7c5cbf",
-  topLtv: "#a8863f",
-};
-
 const colHead =
   "h-auto whitespace-nowrap px-2 py-2.5 align-middle text-[10px] font-bold uppercase tracking-[0.1em] text-[#a49d8d]";
 const cell = "px-2 py-3.5 align-middle text-[12.5px]";
-
-// ── Stat strip ──────────────────────────────────────────────────────────────
-
-function StatCard({ stat }: { stat: GuestStat }) {
-  return (
-    <div
-      className="rounded-lg border border-[#eae4d6] border-l-[3px] bg-white px-4.25 py-3.75"
-      style={{ borderLeftColor: STAT_ACCENT[stat.key] }}
-    >
-      <div className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-[#7a746a]">
-        {stat.label}
-      </div>
-      <div
-        className={cn(
-          "mt-1.5 font-display text-[26px] font-semibold",
-          stat.key === "topLtv" && "text-[#a8863f]",
-        )}
-      >
-        {stat.value}
-      </div>
-    </div>
-  );
-}
 
 // ── Directory row ───────────────────────────────────────────────────────────
 
@@ -132,31 +101,11 @@ function GuestRow({ item }: { item: GuestListItem }) {
 export function Guests({ data }: { data: GuestsPageData }) {
   return (
     <div className="flex flex-col gap-5 p-4 sm:p-6.5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-[12px] tracking-[0.01em] text-[#7a746a]">{data.subtitle}</p>
-        <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            title="Search name, phone, email"
-            className="flex size-10 items-center justify-center rounded-md border border-[#eae4d6] bg-white text-warm-gray transition-colors hover:bg-black/[0.03]"
-          >
-            <Search className="size-4.25" />
-            <span className="sr-only">Search guests</span>
-          </button>
-          <button
-            type="button"
-            title="Add guest"
-            className="flex size-10 items-center justify-center rounded-md bg-gold text-obsidian transition-colors hover:bg-[#b8933f]"
-          >
-            <Plus className="size-4.25" strokeWidth={2.4} />
-            <span className="sr-only">Add guest</span>
-          </button>
-        </div>
-      </div>
+      <p className="text-[12px] tracking-[0.01em] text-[#7a746a]">{data.subtitle}</p>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {data.stats.map((stat) => (
-          <StatCard key={stat.key} stat={stat} />
+          <StatCard key={stat.key} label={stat.label} value={stat.value} />
         ))}
       </div>
 
