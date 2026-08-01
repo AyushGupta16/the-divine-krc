@@ -529,8 +529,12 @@ export function resolveRequestedService(
         error: `${service} has not been applied, so there is nothing to reverse.`,
       };
     }
-  } else if (existing && existing.status !== "pending") {
-    return { ok: false, error: `${service} has already been ${existing.status}.` };
+    // Applying/declining is blocked only while a charge is currently in
+    // force — `pending`, `declined`, and `reversed` are all "open" states an
+    // admin can still act on, same as a service with no entry at all. This
+    // is what lets a reversed charge be re-applied instead of dead-ending.
+  } else if (existing && existing.status === "applied") {
+    return { ok: false, error: `${service} is already applied — reverse it first.` };
   }
   if (action === "applied" && service === "extraMattress" && !existing) {
     if (!Number.isInteger(mattressQty) || mattressQty < 1 || mattressQty > MAX_MATTRESS_QTY) {

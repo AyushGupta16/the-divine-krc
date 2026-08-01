@@ -430,6 +430,85 @@ describe("resolveRequestedService", () => {
     const secondReversal = resolveRequestedService({}, withReversed, "earlyCheckIn", "reversed");
     expect(secondReversal.ok).toBe(false);
   });
+
+  it("a reversed charge can be re-applied — it does not dead-end", () => {
+    const booking = bookingWithPendingRequests();
+    const applied = resolveRequestedService({}, booking, "earlyCheckIn", "applied");
+    if (!applied.ok) throw new Error("setup failed");
+    const withApplied = {
+      ...booking,
+      revenue: applied.revenue,
+      requestedServices: applied.requestedServices,
+    };
+    const reversed = resolveRequestedService({}, withApplied, "earlyCheckIn", "reversed");
+    if (!reversed.ok) throw new Error("setup failed");
+    const withReversed = {
+      ...withApplied,
+      revenue: reversed.revenue,
+      requestedServices: reversed.requestedServices,
+    };
+
+    const reapplied = resolveRequestedService({}, withReversed, "earlyCheckIn", "applied");
+    expect(reapplied.ok).toBe(true);
+    if (!reapplied.ok) return;
+    expect(reapplied.revenue.earlyCheckIn).toBe(EARLY_CHECKIN_FEE);
+    expect(reapplied.requestedServices.earlyCheckIn).toEqual({
+      requested: true,
+      status: "applied",
+    });
+  });
+
+  it("a mattress charge reversed then re-applied recharges its original quantity", () => {
+    const booking = bookingWithPendingRequests();
+    const applied = resolveRequestedService({}, booking, "extraMattress", "applied");
+    if (!applied.ok) throw new Error("setup failed");
+    const withApplied = {
+      ...booking,
+      revenue: applied.revenue,
+      revenueOtherNote: applied.note,
+      requestedServices: applied.requestedServices,
+    };
+    const reversed = resolveRequestedService({}, withApplied, "extraMattress", "reversed");
+    if (!reversed.ok) throw new Error("setup failed");
+    const withReversed = {
+      ...withApplied,
+      revenue: reversed.revenue,
+      revenueOtherNote: reversed.note,
+      requestedServices: reversed.requestedServices,
+    };
+
+    const reapplied = resolveRequestedService({}, withReversed, "extraMattress", "applied");
+    expect(reapplied.ok).toBe(true);
+    if (!reapplied.ok) return;
+    expect(reapplied.revenue.other).toBe(EXTRA_MATTRESS_FEE * 2);
+    expect(reapplied.note).toBe("Extra mattress ×2");
+  });
+
+  it("a declined request can still be applied afterward", () => {
+    const booking = bookingWithPendingRequests();
+    const declined = resolveRequestedService({}, booking, "lateCheckOut", "declined");
+    if (!declined.ok) throw new Error("setup failed");
+    const withDeclined = { ...booking, requestedServices: declined.requestedServices };
+
+    const applied = resolveRequestedService({}, withDeclined, "lateCheckOut", "applied");
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+    expect(applied.revenue.lateCheckOut).toBe(500);
+  });
+
+  it("still refuses to apply a charge that is currently applied — reverse it first", () => {
+    const booking = bookingWithPendingRequests();
+    const applied = resolveRequestedService({}, booking, "earlyCheckIn", "applied");
+    if (!applied.ok) throw new Error("setup failed");
+    const withApplied = {
+      ...booking,
+      revenue: applied.revenue,
+      requestedServices: applied.requestedServices,
+    };
+
+    const reapplied = resolveRequestedService({}, withApplied, "earlyCheckIn", "applied");
+    expect(reapplied.ok).toBe(false);
+  });
 });
 
 describe("markBookingPaid", () => {

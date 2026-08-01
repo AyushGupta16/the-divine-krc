@@ -186,8 +186,18 @@ function RequestedServicesFlag({
               return (
                 <div key={key} className="flex items-center justify-between gap-1.5">
                   <span className="font-semibold text-obsidian">{SERVICE_LABEL[key]}</span>
-                  {!entry || entry.status === "pending" ? (
+                  {!entry || entry.status !== "applied" ? (
                     <div className="flex items-center gap-1.5">
+                      {/* declined/reversed keeps its outcome visible even while
+                          it's still an "open" state an admin can act on again. */}
+                      {entry && entry.status !== "pending" && (
+                        <span
+                          className="text-[10.5px] font-semibold"
+                          style={{ color: STATUS_COLOR[entry.status] }}
+                        >
+                          {STATUS_LABEL[entry.status]}
+                        </span>
+                      )}
                       {key === "extraMattress" && !entry && (
                         <input
                           type="number"
@@ -227,22 +237,20 @@ function RequestedServicesFlag({
                         {STATUS_LABEL[entry.status]}
                         {key === "extraMattress" && "qty" in entry ? ` ×${entry.qty}` : ""}
                       </span>
-                      {entry.status === "applied" && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              disabled={busy === key}
-                              onClick={() => void resolve(key, "reversed")}
-                              aria-label="Remove charge"
-                              className="flex size-4 items-center justify-center text-[#a4463a] hover:opacity-75 disabled:opacity-50"
-                            >
-                              <Trash2 className="size-3" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">Remove charge</TooltipContent>
-                        </Tooltip>
-                      )}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            disabled={busy === key}
+                            onClick={() => void resolve(key, "reversed")}
+                            aria-label="Remove charge"
+                            className="flex size-4 items-center justify-center text-[#a4463a] hover:opacity-75 disabled:opacity-50"
+                          >
+                            <Trash2 className="size-3" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">Remove charge</TooltipContent>
+                      </Tooltip>
                     </div>
                   )}
                 </div>
