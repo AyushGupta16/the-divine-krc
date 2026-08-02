@@ -5,6 +5,12 @@
 export const SITE_URL = "https://thedivinekrc.in";
 export const OG_IMAGE = `${SITE_URL}/og-image.jpg`;
 
+/** Statutory registration numbers from the hotel's physical receipt — hotel-wide
+ *  constants, not per-booking data, so invoices read these rather than each
+ *  carrying its own copy. */
+export const GSTIN = "09AGEPG5753C1ZL";
+export const UDYAM_REGISTRATION = "UP-28-0152798";
+
 export const hotelSchema = {
   "@context": "https://schema.org",
   "@type": "Hotel",
