@@ -6,11 +6,16 @@ import g5 from "@/assets/gallery-reception.jpg";
 import g6 from "@/assets/room-twin.jpg";
 import { Reveal } from "./Reveal";
 
+// Two matching 2x2 heroes + 4 uniform singles = 8 + 4 = 12 units, an exact
+// 3x4 grid at md+ (was: one 2x2 hero + one col-span-2-only "half hero",
+// which left the trailing row two cells short). On mobile (2 cols) it's an
+// exact 6x2. Adding/removing an image reopens the gap this fixed — recheck
+// this math (or the grid-cols count) if the gallery grows.
 const items = [
   { src: g1, alt: "Executive suite", span: "row-span-2 col-span-2" },
   { src: g2, alt: "Hotel lobby", span: "" },
   { src: g3, alt: "Daytime façade", span: "" },
-  { src: g4, alt: "Balcony studio", span: "col-span-2" },
+  { src: g4, alt: "Balcony studio", span: "row-span-2 col-span-2" },
   { src: g5, alt: "Reception desk", span: "" },
   { src: g6, alt: "Twin room", span: "" },
 ];
