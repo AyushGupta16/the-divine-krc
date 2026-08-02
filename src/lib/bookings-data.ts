@@ -142,6 +142,7 @@ function toBooking(r: BookingRow): Booking {
     collection,
     status: r.status as BookingStatus,
     createdAt: r.createdAt.toISOString(),
+    roomAssignedAt: r.roomAssignedAt?.toISOString() ?? undefined,
     razorpayOrderId: r.razorpayOrderId ?? undefined,
     razorpayPaymentId: r.razorpayPaymentId ?? undefined,
     batchId: r.batchId ?? undefined,
@@ -172,6 +173,7 @@ function toPartyHall(r: PartyHallRow): PartyHallEnquiry {
     addOns: r.addOns,
     status: r.status as PartyHallStatus,
     amount: r.amount,
+    createdAt: r.createdAt?.toISOString() ?? undefined,
     contactName: r.contactName ?? undefined,
     contactPhone: r.contactPhone ?? undefined,
     contactEmail: r.contactEmail ?? undefined,
@@ -317,15 +319,25 @@ async function updateBookingStatus(bookingId: string, status: BookingStatus): Pr
  * Slice 2's room-assignment write. Same fixtures-mutation convenience as the
  * other row-store helpers when there is no database.
  */
-async function updateBookingRoom(bookingId: string, roomNo: string | null): Promise<void> {
+async function updateBookingRoom(
+  bookingId: string,
+  roomNo: string | null,
+  roomAssignedAt: string | undefined,
+): Promise<void> {
   const conn = db();
   if (!conn) {
     noDbInsert();
     const booking = fixtures.bookings.find((b) => b.id === bookingId);
-    if (booking) booking.roomNo = roomNo;
+    if (booking) {
+      booking.roomNo = roomNo;
+      booking.roomAssignedAt = roomAssignedAt;
+    }
     return;
   }
-  await conn.update(schema.bookings).set({ roomNo }).where(eq(schema.bookings.id, bookingId));
+  await conn
+    .update(schema.bookings)
+    .set({ roomNo, roomAssignedAt: roomAssignedAt ? new Date(roomAssignedAt) : null })
+    .where(eq(schema.bookings.id, bookingId));
 }
 
 /**
@@ -416,6 +428,7 @@ async function insertPartyHallEnquiry(enquiry: PartyHallEnquiry): Promise<void> 
     addOns: enquiry.addOns,
     status: enquiry.status,
     amount: enquiry.amount,
+    createdAt: enquiry.createdAt ? new Date(enquiry.createdAt) : null,
     contactName: enquiry.contactName ?? null,
     contactPhone: enquiry.contactPhone ?? null,
     contactEmail: enquiry.contactEmail ?? null,
@@ -1096,7 +1109,7 @@ export const updateBookingRoomFn = createServerFn({ method: "POST" })
     const current = await load();
     const res = assignBookingRoom(current, data.id, data.roomNo);
     if (!res.ok) return res;
-    await updateBookingRoom(data.id, data.roomNo);
+    await updateBookingRoom(data.id, data.roomNo, res.booking.roomAssignedAt);
     return { ok: true };
   });
 

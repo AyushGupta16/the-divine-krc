@@ -619,6 +619,7 @@ export function createPartyHallEnquiry(
     addOns,
     status: "enquiry",
     amount: 0,
+    createdAt: new Date().toISOString(),
     contactName,
     contactPhone,
     contactEmail: contactEmail || undefined,
@@ -996,12 +997,15 @@ export function assignBookingRoom(
         error: "Check the guest out, or assign a different room, before unassigning this one.",
       };
     }
-    return { ok: true, booking: { ...booking, roomNo: null } };
+    return { ok: true, booking: { ...booking, roomNo: null, roomAssignedAt: undefined } };
   }
 
   const error = assignableRoomError(data, booking, roomNo);
   if (error) return { ok: false, error };
-  return { ok: true, booking: { ...booking, roomNo } };
+  return {
+    ok: true,
+    booking: { ...booking, roomNo, roomAssignedAt: new Date().toISOString() },
+  };
 }
 
 /**

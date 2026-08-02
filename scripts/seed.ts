@@ -40,6 +40,7 @@ async function main() {
   const bookings = fixtures.bookings.map(({ totalBill: _t, revenue, collection, ...b }) => ({
     ...b,
     createdAt: new Date(b.createdAt),
+    roomAssignedAt: b.roomAssignedAt ? new Date(b.roomAssignedAt) : null,
     revenueRoom: revenue.room,
     revenueEarlyCheckIn: revenue.earlyCheckIn,
     revenueLateCheckOut: revenue.lateCheckOut,
@@ -52,7 +53,10 @@ async function main() {
     collectionComplimentary: collection.complimentary,
     collectionPending: collection.pending,
   }));
-  const partyHall = fixtures.partyHall.map(({ advancePaid: _a, ...e }) => e);
+  const partyHall = fixtures.partyHall.map(({ advancePaid: _a, ...e }) => ({
+    ...e,
+    createdAt: e.createdAt ? new Date(e.createdAt) : null,
+  }));
 
   // No password hash. The seeded staff accepted long before the console existed,
   // so nothing here has any business inventing a credential for them — a null

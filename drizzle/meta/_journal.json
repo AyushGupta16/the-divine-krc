@@ -71,6 +71,13 @@
       "when": 1785584937706,
       "tag": "0009_worthless_crusher_hogan",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785693904385,
+      "tag": "0010_sparkling_stepford_cuckoos",
+      "breakpoints": true
     }
   ]
 }

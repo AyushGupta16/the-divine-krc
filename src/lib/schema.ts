@@ -71,6 +71,13 @@ export const bookings = pgTable("bookings", {
   status: text("status").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
 
+  /** Set the moment `assignBookingRoom` puts a room on this booking; cleared
+   *  back to null on unassign, so a later reassignment reads as a fresh event
+   *  rather than the room-assigned notification silently going stale. Null
+   *  for every booking that predates this column — there is nothing to
+   *  backfill it from. */
+  roomAssignedAt: timestamp("room_assigned_at", { withTimezone: true }),
+
   /** Set once an order is created; null for pay-at-hotel bookings. */
   razorpayOrderId: text("razorpay_order_id"),
   /** Set only after `verifyRazorpaySignature` passes. */
@@ -128,6 +135,12 @@ export const partyHallEnquiries = pgTable("party_hall_enquiries", {
   /** Quoted total in rupees; 0 until quoted, which the screen renders "₹—". */
   amount: integer("amount").notNull().default(0),
   // advancePaid: derived from amount + status. See rule 1.
+
+  /** Set once, by `createPartyHallEnquiry`, at the moment the guest-facing
+   *  form submits. Null for every row that predates this column (seed data,
+   *  and any enquiry an admin entered by hand before the form existed) — the
+   *  notifications producer skips rows without it, rather than guessing. */
+  createdAt: timestamp("created_at", { withTimezone: true }),
 
   /** Who to bill — enquiries don't carry a guest row, so this is the only
    *  identity captured. Null until the invoice feature needs one and someone

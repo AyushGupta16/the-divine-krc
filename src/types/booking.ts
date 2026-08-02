@@ -89,6 +89,9 @@ export interface Booking {
   guestId: string;
   /** null until a physical room is assigned */
   roomNo: string | null;
+  /** ISO timestamp, set the moment a room is assigned and cleared on
+   *  unassign. Undefined for bookings that predate this field. */
+  roomAssignedAt?: string;
   roomType: RoomType;
   /** ISO date (check-in) */
   checkIn: string;
@@ -160,6 +163,9 @@ export interface PartyHallEnquiry {
   amount: number;
   /** Money in hand — derived from `amount` and `status`, never seeded. */
   advancePaid: number;
+  /** ISO timestamp, set once by `createPartyHallEnquiry`. Undefined for
+   *  enquiries that predate this field (seed data, hand-entered rows). */
+  createdAt?: string;
   /** Who to bill for the invoice — enquiries carry no guest row of their own. */
   contactName?: string;
   contactPhone?: string;
