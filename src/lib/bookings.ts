@@ -535,8 +535,21 @@ const PARTY_HALL_PACKAGE_NAMES = new Set(PARTY_HALL_PACKAGES.map((p) => p.name))
 const PARTY_HALL_SLOTS: readonly PartyHallSlot[] = ["morning", "afternoon", "evening", "full_day"];
 const PARTY_HALL_SLOT_SET = new Set<string>(PARTY_HALL_SLOTS);
 
+/** The guest form's Event Type choices — the whitelist the server actually
+ *  checks against, not just what the `Select` happens to offer. */
+export const PARTY_HALL_EVENT_TYPES = ["Wedding", "Reception", "Birthday", "Corporate", "Other"];
+const PARTY_HALL_EVENT_TYPE_SET = new Set(PARTY_HALL_EVENT_TYPES);
+
+/** Same cap as `requestNote` — long enough for a real occasion name, short
+ *  enough that it can't be used to smuggle in something else. */
+const OCCASION_NAME_MAX = 80;
+
 export interface NewPartyHallEnquiryInput {
-  title: string;
+  eventType: string;
+  /** Optional, e.g. "Priya & Arjun's Reception" — composed onto `eventType`
+   *  to build the stored `title`, same "Type — Occasion" shape the seed data
+   *  already uses (e.g. "Reception — Priya & Arjun"). */
+  occasionName?: string;
   date: string;
   slot: PartyHallSlot;
   guests: number;
@@ -563,12 +576,18 @@ export function createPartyHallEnquiry(
   input: NewPartyHallEnquiryInput,
   today: string = new Date().toISOString().slice(0, 10),
 ): Result<{ enquiry: PartyHallEnquiry }> {
-  const title = input.title.trim();
+  const eventType = input.eventType.trim();
+  const occasionName = (input.occasionName ?? "").trim();
   const contactName = input.contactName.trim();
   const contactPhone = input.contactPhone.trim();
   const contactEmail = input.contactEmail.trim();
 
-  if (!title) return { ok: false, error: "Event type is required." };
+  if (!PARTY_HALL_EVENT_TYPE_SET.has(eventType)) {
+    return { ok: false, error: "Invalid event type." };
+  }
+  if (occasionName.length > OCCASION_NAME_MAX) {
+    return { ok: false, error: `Event title must be ${OCCASION_NAME_MAX} characters or fewer.` };
+  }
   if (!input.date) return { ok: false, error: "Event date is required." };
   if (input.date < today) return { ok: false, error: "Event date cannot be in the past." };
   if (!PARTY_HALL_SLOT_SET.has(input.slot)) return { ok: false, error: "Invalid time slot." };
@@ -592,7 +611,7 @@ export function createPartyHallEnquiry(
       state.partyHall.map((e) => e.id),
       today,
     ),
-    title,
+    title: occasionName ? `${eventType} — ${occasionName}` : eventType,
     date: input.date,
     slot: input.slot,
     guests: input.guests,

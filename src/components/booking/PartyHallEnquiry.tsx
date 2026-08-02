@@ -9,7 +9,12 @@ import { useState } from "react";
 import { format, parseISO } from "date-fns";
 import { CalendarIcon, Check, Loader2 } from "lucide-react";
 
-import { MAX_PARTY_HALL_GUESTS, PARTY_HALL_ADD_ONS, PARTY_HALL_PACKAGES } from "@/lib/bookings";
+import {
+  MAX_PARTY_HALL_GUESTS,
+  PARTY_HALL_ADD_ONS,
+  PARTY_HALL_EVENT_TYPES,
+  PARTY_HALL_PACKAGES,
+} from "@/lib/bookings";
 import { createPartyHallEnquiryFn } from "@/lib/bookings-data";
 import type { PartyHallSlot } from "@/types/booking";
 import { Nav } from "@/components/home/Nav";
@@ -24,7 +29,6 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 
-const EVENT_TYPES = ["Wedding", "Reception", "Birthday", "Corporate", "Other"];
 const SLOT_OPTIONS: { value: PartyHallSlot; label: string }[] = [
   { value: "morning", label: "Morning" },
   { value: "afternoon", label: "Afternoon" },
@@ -42,7 +46,9 @@ function todayIso(): string {
 }
 
 export function PartyHallEnquiry() {
-  const [title, setTitle] = useState(EVENT_TYPES[0]);
+  const [eventType, setEventType] = useState(PARTY_HALL_EVENT_TYPES[0]);
+  const [otherEventType, setOtherEventType] = useState("");
+  const [occasionName, setOccasionName] = useState("");
   const [date, setDate] = useState(todayIso());
   const [dateOpen, setDateOpen] = useState(false);
   const [slot, setSlot] = useState<PartyHallSlot>("evening");
@@ -56,13 +62,24 @@ export function PartyHallEnquiry() {
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
 
+  // "Other" carries no meaning of its own in the admin list — fold the
+  // guest's own description in ahead of any separate event title they gave,
+  // same "Type — Occasion" composition `createPartyHallEnquiry` builds.
+  const composedOccasionName =
+    eventType === "Other" && otherEventType.trim()
+      ? occasionName.trim()
+        ? `${otherEventType.trim()} — ${occasionName.trim()}`
+        : otherEventType.trim()
+      : occasionName;
+
   async function submit() {
     setError(null);
     setBusy(true);
     try {
       const res = await createPartyHallEnquiryFn({
         data: {
-          title,
+          eventType,
+          occasionName: composedOccasionName,
           date,
           slot,
           guests,
@@ -116,18 +133,50 @@ export function PartyHallEnquiry() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className={LABEL}>Event type</label>
-                <Select value={title} onValueChange={setTitle}>
+                <Select value={eventType} onValueChange={setEventType}>
                   <SelectTrigger className={`${FIELD} w-full`}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {EVENT_TYPES.map((t) => (
+                    {PARTY_HALL_EVENT_TYPES.map((t) => (
                       <SelectItem key={t} value={t}>
                         {t}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              {eventType === "Other" && (
+                <div>
+                  <label className={LABEL} htmlFor="ph-other-type">
+                    Please specify
+                  </label>
+                  <Input
+                    id="ph-other-type"
+                    value={otherEventType}
+                    onChange={(e) => setOtherEventType(e.target.value)}
+                    placeholder="e.g. Anniversary"
+                    maxLength={80}
+                    className={FIELD}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className={LABEL} htmlFor="ph-occasion">
+                  Event title (optional)
+                </label>
+                <Input
+                  id="ph-occasion"
+                  value={occasionName}
+                  onChange={(e) => setOccasionName(e.target.value)}
+                  placeholder="e.g. Priya & Arjun's Reception"
+                  maxLength={80}
+                  className={FIELD}
+                />
               </div>
 
               <div>
@@ -267,15 +316,17 @@ export function PartyHallEnquiry() {
 
             {error && <p className="mt-4 text-[12.5px] text-red-700">{error}</p>}
 
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void submit()}
-              className="mt-6 inline-flex items-center gap-2 bg-gold text-obsidian text-[11px] uppercase tracking-[0.25em] font-semibold px-7 py-4 hover:bg-gold/90 transition-colors disabled:opacity-60"
-            >
-              {busy && <Loader2 className="size-3.5 animate-spin" />}
-              Submit Enquiry
-            </button>
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void submit()}
+                className="inline-flex items-center gap-2 bg-gold text-obsidian text-[11px] uppercase tracking-[0.25em] font-semibold px-7 py-4 hover:bg-gold/90 transition-colors disabled:opacity-60"
+              >
+                {busy && <Loader2 className="size-3.5 animate-spin" />}
+                Submit Enquiry
+              </button>
+            </div>
           </div>
         )}
       </div>

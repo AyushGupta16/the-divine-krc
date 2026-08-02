@@ -21,7 +21,8 @@ import { computeTotalBill, computeTotalCollected } from "@/lib/booking-math";
 import type { RoomTile } from "@/types/booking";
 
 const NEW_ENQUIRY: NewPartyHallEnquiryInput = {
-  title: "Wedding",
+  eventType: "Wedding",
+  occasionName: "Riya & Kabir",
   date: "2026-09-15",
   slot: "evening",
   guests: 80,
@@ -267,11 +268,11 @@ describe("createBooking", () => {
 });
 
 describe("createPartyHallEnquiry", () => {
-  it("persists every field the guest entered", () => {
+  it("persists every field the guest entered, composing the title as 'type — occasion'", () => {
     const res = createPartyHallEnquiry({ partyHall: [] }, NEW_ENQUIRY, "2026-08-01");
     if (!res.ok) throw new Error(res.error);
     expect(res.enquiry).toMatchObject({
-      title: "Wedding",
+      title: "Wedding — Riya & Kabir",
       date: "2026-09-15",
       slot: "evening",
       guests: 80,
@@ -299,10 +300,29 @@ describe("createPartyHallEnquiry", () => {
     expect(second.enquiry.id).toBe("PH-20260801-002");
   });
 
-  it("rejects a missing event type", () => {
+  it("rejects an event type outside the known whitelist", () => {
     const res = createPartyHallEnquiry(
       { partyHall: [] },
-      { ...NEW_ENQUIRY, title: "  " },
+      { ...NEW_ENQUIRY, eventType: "Concert" },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(false);
+  });
+
+  it("uses just the event type when no occasion name is given", () => {
+    const res = createPartyHallEnquiry(
+      { partyHall: [] },
+      { ...NEW_ENQUIRY, occasionName: undefined },
+      "2026-08-01",
+    );
+    if (!res.ok) throw new Error(res.error);
+    expect(res.enquiry.title).toBe("Wedding");
+  });
+
+  it("rejects an occasion name over the length cap", () => {
+    const res = createPartyHallEnquiry(
+      { partyHall: [] },
+      { ...NEW_ENQUIRY, occasionName: "x".repeat(81) },
       "2026-08-01",
     );
     expect(res.ok).toBe(false);
