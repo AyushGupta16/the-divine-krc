@@ -5,17 +5,33 @@ import {
   checkAvailability,
   checkInEligibilityError,
   createBooking,
+  createPartyHallEnquiry,
   EARLY_CHECKIN_FEE,
   EXTRA_MATTRESS_FEE,
   getBookingsPageData,
   markBookingPaid,
+  MAX_PARTY_HALL_GUESTS,
   resolveRequestedService,
   ROOM_UNITS,
   type NewBookingInput,
+  type NewPartyHallEnquiryInput,
 } from "@/lib/bookings";
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import { computeTotalBill, computeTotalCollected } from "@/lib/booking-math";
 import type { RoomTile } from "@/types/booking";
+
+const NEW_ENQUIRY: NewPartyHallEnquiryInput = {
+  eventType: "Wedding",
+  occasionName: "Riya & Kabir",
+  date: "2026-09-15",
+  slot: "evening",
+  guests: 80,
+  package: "Gold",
+  addOns: ["Decor", "Catering"],
+  contactName: "Riya Sharma",
+  contactPhone: "9811122233",
+  contactEmail: "riya@example.com",
+};
 
 const NEW_BOOKING: NewBookingInput = {
   guestName: "Kavya Iyer",
@@ -248,6 +264,154 @@ describe("createBooking", () => {
   it("rejects a mattress quantity outside 0-3", () => {
     expect(createBooking(fixtures, { ...NEW_BOOKING, requestExtraMattressQty: 4 }).ok).toBe(false);
     expect(createBooking(fixtures, { ...NEW_BOOKING, requestExtraMattressQty: -1 }).ok).toBe(false);
+  });
+});
+
+describe("createPartyHallEnquiry", () => {
+  it("persists every field the guest entered, composing the title as 'type — occasion'", () => {
+    const res = createPartyHallEnquiry({ partyHall: [] }, NEW_ENQUIRY, "2026-08-01");
+    if (!res.ok) throw new Error(res.error);
+    expect(res.enquiry).toMatchObject({
+      title: "Wedding — Riya & Kabir",
+      date: "2026-09-15",
+      slot: "evening",
+      guests: 80,
+      package: "Gold",
+      addOns: ["Decor", "Catering"],
+      status: "enquiry",
+      amount: 0,
+      contactName: "Riya Sharma",
+      contactPhone: "9811122233",
+      contactEmail: "riya@example.com",
+    });
+  });
+
+  it("assigns the next id for the day, sequential per submission date", () => {
+    const first = createPartyHallEnquiry({ partyHall: [] }, NEW_ENQUIRY, "2026-08-01");
+    if (!first.ok) throw new Error(first.error);
+    expect(first.enquiry.id).toBe("PH-20260801-001");
+
+    const second = createPartyHallEnquiry(
+      { partyHall: [first.enquiry] },
+      NEW_ENQUIRY,
+      "2026-08-01",
+    );
+    if (!second.ok) throw new Error(second.error);
+    expect(second.enquiry.id).toBe("PH-20260801-002");
+  });
+
+  it("rejects an event type outside the known whitelist", () => {
+    const res = createPartyHallEnquiry(
+      { partyHall: [] },
+      { ...NEW_ENQUIRY, eventType: "Concert" },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(false);
+  });
+
+  it("uses just the event type when no occasion name is given", () => {
+    const res = createPartyHallEnquiry(
+      { partyHall: [] },
+      { ...NEW_ENQUIRY, occasionName: undefined },
+      "2026-08-01",
+    );
+    if (!res.ok) throw new Error(res.error);
+    expect(res.enquiry.title).toBe("Wedding");
+  });
+
+  it("rejects an occasion name over the length cap", () => {
+    const res = createPartyHallEnquiry(
+      { partyHall: [] },
+      { ...NEW_ENQUIRY, occasionName: "x".repeat(81) },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(false);
+  });
+
+  it("rejects a date in the past", () => {
+    const res = createPartyHallEnquiry(
+      { partyHall: [] },
+      { ...NEW_ENQUIRY, date: "2026-07-01" },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(false);
+  });
+
+  it("rejects a guest count outside 1..MAX_PARTY_HALL_GUESTS", () => {
+    expect(
+      createPartyHallEnquiry({ partyHall: [] }, { ...NEW_ENQUIRY, guests: 0 }, "2026-08-01").ok,
+    ).toBe(false);
+    expect(
+      createPartyHallEnquiry(
+        { partyHall: [] },
+        { ...NEW_ENQUIRY, guests: MAX_PARTY_HALL_GUESTS + 1 },
+        "2026-08-01",
+      ).ok,
+    ).toBe(false);
+    expect(
+      createPartyHallEnquiry(
+        { partyHall: [] },
+        { ...NEW_ENQUIRY, guests: MAX_PARTY_HALL_GUESTS },
+        "2026-08-01",
+      ).ok,
+    ).toBe(true);
+  });
+
+  it("rejects a package name that isn't a real tier", () => {
+    const res = createPartyHallEnquiry(
+      { partyHall: [] },
+      { ...NEW_ENQUIRY, package: "Diamond" },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(false);
+  });
+
+  it("drops add-ons outside the known tag vocabulary rather than trusting the client", () => {
+    const res = createPartyHallEnquiry(
+      { partyHall: [] },
+      { ...NEW_ENQUIRY, addOns: ["Decor", "Fireworks", "Decor"] },
+      "2026-08-01",
+    );
+    if (!res.ok) throw new Error(res.error);
+    expect(res.enquiry.addOns).toEqual(["Decor"]);
+  });
+
+  it("rejects a missing contact name", () => {
+    const res = createPartyHallEnquiry(
+      { partyHall: [] },
+      { ...NEW_ENQUIRY, contactName: "" },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(false);
+  });
+
+  it("rejects a malformed contact phone", () => {
+    const res = createPartyHallEnquiry(
+      { partyHall: [] },
+      { ...NEW_ENQUIRY, contactPhone: "abc" },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(false);
+  });
+
+  it("rejects a malformed contact email but allows an empty one", () => {
+    expect(
+      createPartyHallEnquiry(
+        { partyHall: [] },
+        { ...NEW_ENQUIRY, contactEmail: "not-an-email" },
+        "2026-08-01",
+      ).ok,
+    ).toBe(false);
+    expect(
+      createPartyHallEnquiry({ partyHall: [] }, { ...NEW_ENQUIRY, contactEmail: "" }, "2026-08-01")
+        .ok,
+    ).toBe(true);
+  });
+
+  it("computes advancePaid as 0 for a fresh enquiry — nothing has been quoted yet", () => {
+    const res = createPartyHallEnquiry({ partyHall: [] }, NEW_ENQUIRY, "2026-08-01");
+    if (!res.ok) throw new Error(res.error);
+    expect(res.enquiry.advancePaid).toBe(0);
   });
 });
 

@@ -27,6 +27,7 @@ import {
   checkAvailability,
   checkInEligibilityError,
   createBooking,
+  createPartyHallEnquiry,
   defaultRoomTiles,
   findGuestBooking,
   getAvailableRoomCount,
@@ -52,6 +53,7 @@ import {
   type BookingData,
   type GuestBookingLookup,
   type NewBookingInput,
+  type NewPartyHallEnquiryInput,
   type RoomTypeInfo,
 } from "@/lib/bookings";
 import { fixtures } from "@/lib/__fixtures__/bookings";
@@ -390,6 +392,50 @@ export const updatePartyHallContactFn = createServerFn({ method: "POST" })
       contactEmail: data.contactEmail.trim(),
     });
     return { ok: true };
+  });
+
+/**
+ * The guest-facing enquiry form's write (Party Hall audit Tier 1) — the
+ * pipeline's first real `INSERT`. Same fixtures-mutation convenience as
+ * `insertBooking` when there is no database.
+ */
+async function insertPartyHallEnquiry(enquiry: PartyHallEnquiry): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    fixtures.partyHall.push(enquiry);
+    return;
+  }
+  await conn.insert(schema.partyHallEnquiries).values({
+    id: enquiry.id,
+    title: enquiry.title,
+    date: enquiry.date,
+    slot: enquiry.slot,
+    guests: enquiry.guests,
+    package: enquiry.package,
+    addOns: enquiry.addOns,
+    status: enquiry.status,
+    amount: enquiry.amount,
+    contactName: enquiry.contactName ?? null,
+    contactPhone: enquiry.contactPhone ?? null,
+    contactEmail: enquiry.contactEmail ?? null,
+  });
+}
+
+/**
+ * The Events section's public enquiry form — unauthenticated, same trust
+ * level as `createGuestBookingFn`. `createPartyHallEnquiry` validates every
+ * field independently rather than trusting the client.
+ */
+export const createPartyHallEnquiryFn = createServerFn({ method: "POST" })
+  .validator((data: NewPartyHallEnquiryInput) => data)
+  .handler(async ({ data }): Promise<Result<{ enquiry: PartyHallEnquiry }>> => {
+    const current = await load();
+    const res = createPartyHallEnquiry(current, data);
+    if (!res.ok) return res;
+
+    await insertPartyHallEnquiry(res.enquiry);
+    return { ok: true, enquiry: res.enquiry };
   });
 
 function noDbInsert(): void {
