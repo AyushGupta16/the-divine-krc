@@ -1,0 +1,2 @@
+ALTER TABLE "bookings" ADD COLUMN IF NOT EXISTS "room_assigned_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "party_hall_enquiries" ADD COLUMN IF NOT EXISTS "created_at" timestamp with time zone;
