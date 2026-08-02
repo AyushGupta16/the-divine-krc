@@ -331,22 +331,25 @@ const STATUS_ORDER: BookingStatus[] = [
 // figure, ahead of the finance-flavoured "Total collected".
 
 function SummaryCards({ summary }: { summary: BookingsPageData["summary"] }) {
+  const hero = summary.find((s) => s.key === "unassignedRooms");
+  const standard = summary.filter((s) => s.key !== "unassignedRooms");
+
   return (
-    // items-start: the hero card (unassignedRooms) is taller than a compact
-    // card by design — without this, CSS grid's default row-stretch would
-    // force every compact card in its row up to the hero's height, undoing
-    // the density fix. Fixed at 6 columns from lg up — 10 cards over two
-    // even rows (6 + 4) rather than one near-full-width strip that leaves
-    // each card too narrow to read comfortably.
-    <div className="grid grid-cols-2 items-start gap-2 sm:grid-cols-3 lg:grid-cols-6">
-      {summary.map((s) => (
-        <StatCard
-          key={s.key}
-          variant={s.key === "unassignedRooms" ? "hero" : "compact"}
-          label={s.label}
-          value={s.value}
-        />
-      ))}
+    // One block, not two stacked strips: the hero sits in its own column and
+    // stretches to the height of the 5x2 grid beside it (CSS grid's default
+    // align-items: stretch does this for free — no row-span needed, since the
+    // hero and the standard cards live in separate grids rather than one
+    // flat grid mixing a spanning item with auto-flowing siblings). Below
+    // `lg` the outer grid drops to one column, so the hero stacks above the
+    // standard-card grid instead of trying to preserve the side-by-side shape
+    // at a width that can't fit it.
+    <div className="grid grid-cols-1 gap-2 lg:grid-cols-[240px_1fr]">
+      {hero && <StatCard variant="hero" label={hero.label} value={hero.value} />}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        {standard.map((s) => (
+          <StatCard key={s.key} variant="compact" label={s.label} value={s.value} />
+        ))}
+      </div>
     </div>
   );
 }
