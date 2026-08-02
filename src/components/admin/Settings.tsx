@@ -4,6 +4,7 @@ import { Plus, Save, Trash2, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 import type {
+  AddOnRateSetting,
   ChannelSetting,
   ChargeSetting,
   PropertyProfile,
@@ -19,6 +20,7 @@ import {
   addRoomFn,
   removeRoomFn,
   setRoomCountFn,
+  updateAddOnSettingsFn,
   updateRoomDetailsFn,
   updateRoomTypeSettingsFn,
 } from "@/lib/bookings-data";
@@ -455,14 +457,64 @@ function AddRoomForm({ onAdded }: { onAdded: () => void }) {
   );
 }
 
+/** A Slice B add-on rate — one blur-to-save rupee field, same round-trip
+ *  shape as `TariffRow`'s rate field but without the name/area/count that
+ *  don't apply here. */
+function AddOnRateRow({ rate, onSaved }: { rate: AddOnRateSetting; onSaved: () => void }) {
+  const [price, setPrice] = useState(String(rate.price));
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => setPrice(String(rate.price)), [rate.price]);
+
+  async function save() {
+    const next = Number(price);
+    if (!Number.isFinite(next) || next < 0) {
+      toast.error("Rate must be zero or more.");
+      setPrice(String(rate.price));
+      return;
+    }
+    if (next === rate.price) return;
+    setBusy(true);
+    const res = await updateAddOnSettingsFn({ data: { key: rate.key, price: next } });
+    setBusy(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      setPrice(String(rate.price));
+      return;
+    }
+    onSaved();
+  }
+
+  return (
+    <div>
+      <label className={LABEL} htmlFor={`addon-${rate.key}`}>
+        {rate.label}
+      </label>
+      <Input
+        id={`addon-${rate.key}`}
+        className={FIELD}
+        type="number"
+        min="0"
+        step="1"
+        disabled={busy}
+        value={price}
+        onChange={(e) => setPrice(e.target.value)}
+        onBlur={() => void save()}
+      />
+    </div>
+  );
+}
+
 function PricingPanel({
   tariffs,
   charges,
+  addOnRates,
   rooms,
   onCharge,
 }: {
   tariffs: RoomTariff[];
   charges: ChargeSetting[];
+  addOnRates: AddOnRateSetting[];
   rooms: RoomTile[];
   onCharge: (key: string, value: string) => void;
 }) {
@@ -495,6 +547,17 @@ function PricingPanel({
             />
           </div>
         ))}
+      </div>
+
+      <div className="mt-5 border-t border-[#f0ebe0] pt-4">
+        <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-[#7a746a]">
+          Add-on services
+        </div>
+        <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
+          {addOnRates.map((rate) => (
+            <AddOnRateRow key={rate.key} rate={rate} onSaved={refresh} />
+          ))}
+        </div>
       </div>
 
       <div className="mt-5 border-t border-[#f0ebe0] pt-4">
@@ -651,6 +714,7 @@ export function Settings({ data }: { data: SettingsPageData }) {
           <PricingPanel
             tariffs={data.pricing.tariffs}
             charges={charges}
+            addOnRates={data.pricing.addOnRates}
             rooms={data.pricing.rooms}
             onCharge={(key, value) =>
               setCharges(charges.map((c) => (c.key === key ? { ...c, value } : c)))

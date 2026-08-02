@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { createBooking, type NewBookingInput } from "@/lib/bookings";
-import { resolveInvoiceParty } from "@/lib/invoices";
+import { createBooking, resolveRequestedService, type NewBookingInput } from "@/lib/bookings";
+import { buildRoomInvoice, resolveInvoiceParty } from "@/lib/invoices";
 import type { Booking, Guest } from "@/types/booking";
 
 const BASE_INPUT: NewBookingInput = {
@@ -80,5 +80,40 @@ describe("resolveInvoiceParty", () => {
     b.status = "cancelled";
 
     expect(resolveInvoiceParty(a.id, bookings)).toEqual([a]);
+  });
+});
+
+describe("buildRoomInvoice — Slice B add-on charges", () => {
+  it("renders the applied mattress charge as its own line, labelled with the note", () => {
+    const guests: Guest[] = [];
+    const bookings: Booking[] = [];
+    const booking = makeBooking(guests, bookings, { requestExtraMattressQty: 2 });
+
+    const resolved = resolveRequestedService({}, booking, "extraMattress", "applied");
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    const chargedBooking: Booking = {
+      ...booking,
+      revenue: resolved.revenue,
+      revenueOtherNote: resolved.note,
+    };
+
+    const invoice = buildRoomInvoice("INV-1", "2026-08-01T00:00:00Z", chargedBooking, guests[0]);
+    const otherLine = invoice.sections[0].lines.find((l) => l.name === "Other charges");
+    expect(otherLine?.note).toBe("Extra mattress ×2");
+  });
+
+  it("declined requests never surface an invoice line", () => {
+    const guests: Guest[] = [];
+    const bookings: Booking[] = [];
+    const booking = makeBooking(guests, bookings, { requestEarlyCheckIn: true });
+
+    const resolved = resolveRequestedService({}, booking, "earlyCheckIn", "declined");
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    const declinedBooking: Booking = { ...booking, revenue: resolved.revenue };
+
+    const invoice = buildRoomInvoice("INV-2", "2026-08-01T00:00:00Z", declinedBooking, guests[0]);
+    expect(invoice.sections[0].lines.some((l) => l.name === "Early check-in")).toBe(false);
   });
 });

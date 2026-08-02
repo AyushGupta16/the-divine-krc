@@ -32,6 +32,34 @@ export interface GuestRequest {
   note?: string;
 }
 
+/** The three priced add-ons a guest can request and an admin resolves (Slice B). */
+export type AddOnServiceKey = "earlyCheckIn" | "lateCheckOut" | "extraMattress";
+
+/** Where a requested service stands: asked for, charged, turned down, or a
+ *  charge that was applied and then undone. `pending` is the only state that
+ *  still needs the admin's attention — every other state keeps the outcome
+ *  rather than clearing it, so whether a request was ever honoured (and
+ *  whether an honoured one was later reversed) stays on the record.
+ *  `reversed` is distinct from `declined`: declined means never charged,
+ *  reversed means charged and then undone — the audit trail differs. */
+export type ServiceRequestStatus = "pending" | "applied" | "declined" | "reversed";
+
+export interface ServiceRequest {
+  requested: boolean;
+  status: ServiceRequestStatus;
+}
+
+export interface ExtraMattressRequest extends ServiceRequest {
+  qty: number;
+}
+
+/** Undefined — never `{}` — when nothing was ever requested or admin-added. */
+export interface RequestedServices {
+  earlyCheckIn?: ServiceRequest;
+  lateCheckOut?: ServiceRequest;
+  extraMattress?: ExtraMattressRequest;
+}
+
 export type BookingStatus =
   "confirmed" | "checked_in" | "checked_out" | "pending_payment" | "cancelled" | "no_show";
 
@@ -88,6 +116,13 @@ export interface Booking {
    *  requests" flag and the has-requests notification both key off presence
    *  of this field, not its contents, so it must never be set to `{}`. */
   specialRequest?: GuestRequest;
+  /** Early check-in / late check-out / extra mattress: requested and/or
+   *  resolved (Slice B). Undefined — never `{}` — until the first request or
+   *  admin add-on. */
+  requestedServices?: RequestedServices;
+  /** Readable trail of what's inside `revenue.other`, e.g. "Extra mattress
+   *  ×2". Appended to, never overwritten. Undefined until the first charge. */
+  revenueOtherNote?: string;
 }
 
 export type GuestTier = "gold" | "silver" | "new";
@@ -734,15 +769,25 @@ export interface RoomTariff {
 
 /** A flat charge or rate the property applies on top of the tariff. */
 export interface ChargeSetting {
-  key: "earlyCheckIn" | "lateCheckOut" | "gst" | "partyHallAdvance";
+  key: "gst" | "partyHallAdvance";
   label: string;
-  /** Pre-formatted with its unit, e.g. "₹400" or "12%". */
+  /** Pre-formatted with its unit, e.g. "12%". */
   value: string;
+}
+
+/** One of the three Slice B add-on rates, editable the same way a tariff is
+ *  (blur-to-save) — unlike `ChargeSetting`, which is still read-only display. */
+export interface AddOnRateSetting {
+  key: AddOnServiceKey;
+  label: string;
+  /** Rupees, as a number the "Save" round-trip can post. */
+  price: number;
 }
 
 export interface PricingSettings {
   tariffs: RoomTariff[];
   charges: ChargeSetting[];
+  addOnRates: AddOnRateSetting[];
   /** The full floor board, so the panel can add/remove/edit individual rooms. */
   rooms: RoomTile[];
 }
