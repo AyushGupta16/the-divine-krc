@@ -53,10 +53,10 @@ export function PartyHall() {
                 WhatsApp Us <span>→</span>
               </a>
               <a
-                href="tel:+918707368307"
+                href="/party-hall-enquiry"
                 className="inline-flex items-center gap-2 border border-gold/50 hover:border-gold text-gold text-[11px] uppercase tracking-[0.25em] px-7 py-4 font-semibold hover:bg-gold/10 transition-colors"
               >
-                Call to Book
+                Send an Enquiry
               </a>
             </div>
           </Reveal>

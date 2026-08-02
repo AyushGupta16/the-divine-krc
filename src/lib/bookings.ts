@@ -50,6 +50,7 @@ import type {
   PartyHallPackage,
   PartyHallPageData,
   PartyHallPill,
+  PartyHallSlot,
   PartyHallStat,
   PartyHallStatus,
   PaymentsMonthlyRollup,
@@ -341,6 +342,24 @@ const REQUEST_NOTE_MAX = 500;
  *  more than that is a front-desk conversation, not a checkbox. */
 const MAX_MATTRESS_QTY = 3;
 
+/**
+ * Package tiers, per the design's reference card. Capacities ladder up to the
+ * hall's 150-guest ceiling; Platinum is quoted per-event rather than listed.
+ */
+export const PARTY_HALL_PACKAGES: PartyHallPackage[] = [
+  { name: "Silver", capacity: "up to 60", price: "from ₹35k" },
+  { name: "Gold", capacity: "up to 100", price: "from ₹60k" },
+  { name: "Platinum", capacity: "up to 150", price: "tailored" },
+];
+
+/** The add-on tag vocabulary a guest can request on an enquiry — the same set
+ *  admin cards already render as tags, so a guest's pick lines up with what
+ *  admin expects to see. */
+export const PARTY_HALL_ADD_ONS = ["Decor", "DJ", "Catering", "AV", "Projector", "Lunch Buffet"];
+
+/** The hall's stated guest ceiling (marketing copy: "up to 150 guests"). */
+export const MAX_PARTY_HALL_GUESTS = 150;
+
 function nightsBetween(checkIn: string, checkOut: string): number {
   const ms =
     new Date(`${checkOut}T00:00:00Z`).getTime() - new Date(`${checkIn}T00:00:00Z`).getTime();
@@ -497,6 +516,96 @@ export function createBooking(
   });
 
   return { ok: true, guest, booking };
+}
+
+/** `PH-YYYYMMDD-nnn` — the next free sequence number for that calendar date,
+ *  same shape as `nextBookingId`. Keyed off the submission date, not the
+ *  requested event date — an enquiry made today for an event in three months
+ *  still gets today's prefix. */
+function nextEnquiryId(existingIds: string[], today: string): string {
+  const prefix = `PH-${today.replaceAll("-", "")}-`;
+  const max = existingIds
+    .filter((id) => id.startsWith(prefix))
+    .reduce((m, id) => Math.max(m, bookingNumber(id)), 0);
+  return `${prefix}${String(max + 1).padStart(3, "0")}`;
+}
+
+const PARTY_HALL_ADD_ONS_SET = new Set(PARTY_HALL_ADD_ONS);
+const PARTY_HALL_PACKAGE_NAMES = new Set(PARTY_HALL_PACKAGES.map((p) => p.name));
+const PARTY_HALL_SLOTS: readonly PartyHallSlot[] = ["morning", "afternoon", "evening", "full_day"];
+const PARTY_HALL_SLOT_SET = new Set<string>(PARTY_HALL_SLOTS);
+
+export interface NewPartyHallEnquiryInput {
+  title: string;
+  date: string;
+  slot: PartyHallSlot;
+  guests: number;
+  package: string;
+  addOns: string[];
+  contactName: string;
+  contactPhone: string;
+  contactEmail: string;
+}
+
+/**
+ * The guest-facing enquiry form's only write (Tier 1 of the Party Hall
+ * audit): a pure rule, same shape as `createBooking` — it decides and
+ * returns, `bookings-data.ts` persists it. Unauthenticated input, so every
+ * field is independently validated here rather than trusted from the client,
+ * same discipline as `createBooking`'s `requestPreferences`/`requestNote`
+ * whitelisting.
+ *
+ * `status` always starts `"enquiry"` and `amount` always starts `0` — an
+ * admin quoting/confirming the event is Tier 2, out of scope here.
+ */
+export function createPartyHallEnquiry(
+  state: { partyHall: PartyHallEnquiry[] },
+  input: NewPartyHallEnquiryInput,
+  today: string = new Date().toISOString().slice(0, 10),
+): Result<{ enquiry: PartyHallEnquiry }> {
+  const title = input.title.trim();
+  const contactName = input.contactName.trim();
+  const contactPhone = input.contactPhone.trim();
+  const contactEmail = input.contactEmail.trim();
+
+  if (!title) return { ok: false, error: "Event type is required." };
+  if (!input.date) return { ok: false, error: "Event date is required." };
+  if (input.date < today) return { ok: false, error: "Event date cannot be in the past." };
+  if (!PARTY_HALL_SLOT_SET.has(input.slot)) return { ok: false, error: "Invalid time slot." };
+  if (!Number.isInteger(input.guests) || input.guests < 1 || input.guests > MAX_PARTY_HALL_GUESTS) {
+    return { ok: false, error: `Guest count must be between 1 and ${MAX_PARTY_HALL_GUESTS}.` };
+  }
+  if (!PARTY_HALL_PACKAGE_NAMES.has(input.package)) {
+    return { ok: false, error: "Invalid package tier." };
+  }
+  const addOns = [...new Set(input.addOns)].filter((a) => PARTY_HALL_ADD_ONS_SET.has(a));
+  if (!contactName) return { ok: false, error: "Contact name is required." };
+  if (!contactPhone || !/^[0-9+()\-\s]{7,20}$/.test(contactPhone)) {
+    return { ok: false, error: "A valid contact phone is required." };
+  }
+  if (contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+    return { ok: false, error: "Contact email is invalid." };
+  }
+
+  const enquiry = withAdvance({
+    id: nextEnquiryId(
+      state.partyHall.map((e) => e.id),
+      today,
+    ),
+    title,
+    date: input.date,
+    slot: input.slot,
+    guests: input.guests,
+    package: input.package,
+    addOns,
+    status: "enquiry",
+    amount: 0,
+    contactName,
+    contactPhone,
+    contactEmail: contactEmail || undefined,
+  });
+
+  return { ok: true, enquiry };
 }
 
 /**
@@ -1510,16 +1619,6 @@ const PARTY_HALL_STATUS_ORDER: PartyHallStatus[] = [
   "confirmed",
   "completed",
   "cancelled",
-];
-
-/**
- * Package tiers, per the design's reference card. Capacities ladder up to the
- * hall's 150-guest ceiling; Platinum is quoted per-event rather than listed.
- */
-const PARTY_HALL_PACKAGES: PartyHallPackage[] = [
-  { name: "Silver", capacity: "up to 60", price: "from ₹35k" },
-  { name: "Gold", capacity: "up to 100", price: "from ₹60k" },
-  { name: "Platinum", capacity: "up to 150", price: "tailored" },
 ];
 
 /** Slot line for a card: "Full day" reads oddly as "Full day slot". */
