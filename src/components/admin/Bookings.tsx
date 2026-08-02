@@ -335,10 +335,10 @@ function SummaryCards({ summary }: { summary: BookingsPageData["summary"] }) {
     // items-start: the hero card (unassignedRooms) is taller than a compact
     // card by design — without this, CSS grid's default row-stretch would
     // force every compact card in its row up to the hero's height, undoing
-    // the density fix. lg:grid-cols-10 fits all 10 cards on one row at
-    // desktop widths a Bookings admin actually uses, which is most of the
-    // point — one strip, not two, above a table that already needs the room.
-    <div className="grid grid-cols-2 items-start gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-10">
+    // the density fix. Fixed at 6 columns from lg up — 10 cards over two
+    // even rows (6 + 4) rather than one near-full-width strip that leaves
+    // each card too narrow to read comfortably.
+    <div className="grid grid-cols-2 items-start gap-2 sm:grid-cols-3 lg:grid-cols-6">
       {summary.map((s) => (
         <StatCard
           key={s.key}
