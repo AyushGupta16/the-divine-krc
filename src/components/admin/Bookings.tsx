@@ -180,14 +180,20 @@ function RequestedServicesFlag({
       </PopoverTrigger>
       <PopoverContent className="w-52 p-2.5 text-[11.5px]" align="start" sideOffset={2}>
         <TooltipProvider delayDuration={200}>
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-2.5">
             {SERVICE_KEYS.map((key) => {
               const entry = requested?.[key];
               return (
-                <div key={key} className="flex items-center justify-between gap-1.5">
-                  <span className="font-semibold text-obsidian">{SERVICE_LABEL[key]}</span>
+                // Stacked, not side-by-side: at the popover's compact w-52,
+                // sharing a row with the action cluster left too little room
+                // for a label like "Early check-in" and broke it mid-word.
+                // The label gets its own full-width line; actions wrap below.
+                <div key={key} className="flex flex-col gap-0.5">
+                  <span className="whitespace-nowrap font-semibold text-obsidian">
+                    {SERVICE_LABEL[key]}
+                  </span>
                   {!entry || entry.status !== "applied" ? (
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       {/* declined/reversed keeps its outcome visible even while
                           it's still an "open" state an admin can act on again. */}
                       {entry && entry.status !== "pending" && (
@@ -229,7 +235,7 @@ function RequestedServicesFlag({
                       )}
                     </div>
                   ) : (
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <span
                         className="text-[10.5px] font-semibold"
                         style={{ color: STATUS_COLOR[entry.status] }}
@@ -326,11 +332,17 @@ const STATUS_ORDER: BookingStatus[] = [
 
 function SummaryCards({ summary }: { summary: BookingsPageData["summary"] }) {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+    // items-start: the hero card (unassignedRooms) is taller than a compact
+    // card by design — without this, CSS grid's default row-stretch would
+    // force every compact card in its row up to the hero's height, undoing
+    // the density fix. lg:grid-cols-10 fits all 10 cards on one row at
+    // desktop widths a Bookings admin actually uses, which is most of the
+    // point — one strip, not two, above a table that already needs the room.
+    <div className="grid grid-cols-2 items-start gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-10">
       {summary.map((s) => (
         <StatCard
           key={s.key}
-          variant={s.key === "unassignedRooms" ? "hero" : "standard"}
+          variant={s.key === "unassignedRooms" ? "hero" : "compact"}
           label={s.label}
           value={s.value}
         />
