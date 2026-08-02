@@ -165,3 +165,26 @@
     scroll-behavior: auto;
   }
 }
+
+/* A slow, gentle bob for the fixed scroll-dial chips — distinct from
+ * Tailwind's built-in `animate-bounce`, which is too fast/springy for a
+ * corner control that's meant to sit quietly rather than draw the eye. */
+@keyframes float-y {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.animate-float {
+  animation: float-y 3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-float {
+    animation: none;
+  }
+}
