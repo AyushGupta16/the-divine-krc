@@ -7,6 +7,7 @@ import type {
   AddOnRateSetting,
   ChannelSetting,
   ChargeSetting,
+  PartyHallRateSetting,
   PropertyProfile,
   RoomStatus,
   RoomTariff,
@@ -21,6 +22,7 @@ import {
   removeRoomFn,
   setRoomCountFn,
   updateAddOnSettingsFn,
+  updatePartyHallRateSettingsFn,
   updateRoomDetailsFn,
   updateRoomTypeSettingsFn,
 } from "@/lib/bookings-data";
@@ -505,16 +507,67 @@ function AddOnRateRow({ rate, onSaved }: { rate: AddOnRateSetting; onSaved: () =
   );
 }
 
+/** A Party Hall rate (Slice 2a) — same blur-to-save shape as `AddOnRateRow`,
+ *  but with a `unit`-driven suffix since `phAdvancePct` is a percentage. */
+function PartyHallRateRow({ rate, onSaved }: { rate: PartyHallRateSetting; onSaved: () => void }) {
+  const [price, setPrice] = useState(String(rate.price));
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => setPrice(String(rate.price)), [rate.price]);
+
+  async function save() {
+    const next = Number(price);
+    if (!Number.isFinite(next) || next < 0) {
+      toast.error("Rate must be zero or more.");
+      setPrice(String(rate.price));
+      return;
+    }
+    if (next === rate.price) return;
+    setBusy(true);
+    const res = await updatePartyHallRateSettingsFn({ data: { key: rate.key, price: next } });
+    setBusy(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      setPrice(String(rate.price));
+      return;
+    }
+    onSaved();
+  }
+
+  return (
+    <div>
+      <label className={LABEL} htmlFor={`ph-rate-${rate.key}`}>
+        {rate.label} ({rate.unit})
+      </label>
+      <Input
+        id={`ph-rate-${rate.key}`}
+        className={FIELD}
+        type="number"
+        min="0"
+        step="1"
+        disabled={busy}
+        value={price}
+        onChange={(e) => setPrice(e.target.value)}
+        onBlur={() => void save()}
+      />
+    </div>
+  );
+}
+
 function PricingPanel({
   tariffs,
   charges,
   addOnRates,
+  partyHallRates,
+  partyHallRatesArePlaceholder,
   rooms,
   onCharge,
 }: {
   tariffs: RoomTariff[];
   charges: ChargeSetting[];
   addOnRates: AddOnRateSetting[];
+  partyHallRates: PartyHallRateSetting[];
+  partyHallRatesArePlaceholder: boolean;
   rooms: RoomTile[];
   onCharge: (key: string, value: string) => void;
 }) {
@@ -556,6 +609,24 @@ function PricingPanel({
         <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
           {addOnRates.map((rate) => (
             <AddOnRateRow key={rate.key} rate={rate} onSaved={refresh} />
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-5 border-t border-[#f0ebe0] pt-4">
+        <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#7a746a]">
+          Party hall rates
+        </div>
+        {partyHallRatesArePlaceholder && (
+          <div className="mt-1 mb-3 rounded-md border border-gold-soft/40 bg-[#f5ecd7] px-3 py-2 text-[11.5px] text-[#8a6d1f]">
+            Placeholder rates in use — Silver/Gold/Platinum bases and the flat add-ons below are ₹1
+            stand-ins until the owner confirms real numbers. A quote sent now will under-charge.
+            Catering and the advance percentage are already real.
+          </div>
+        )}
+        <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
+          {partyHallRates.map((rate) => (
+            <PartyHallRateRow key={rate.key} rate={rate} onSaved={refresh} />
           ))}
         </div>
       </div>
@@ -715,6 +786,8 @@ export function Settings({ data }: { data: SettingsPageData }) {
             tariffs={data.pricing.tariffs}
             charges={charges}
             addOnRates={data.pricing.addOnRates}
+            partyHallRates={data.pricing.partyHallRates}
+            partyHallRatesArePlaceholder={data.pricing.partyHallRatesArePlaceholder}
             rooms={data.pricing.rooms}
             onCharge={(key, value) =>
               setCharges(charges.map((c) => (c.key === key ? { ...c, value } : c)))

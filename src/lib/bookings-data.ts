@@ -26,8 +26,11 @@ import {
   cancelGuestBooking,
   checkAvailability,
   checkInEligibilityError,
+  computePartyHallQuote,
+  confirmPartyHallEvent,
   createBooking,
   createPartyHallEnquiry,
+  declinePartyHallEnquiry,
   defaultRoomTiles,
   findGuestBooking,
   getAvailableRoomCount,
@@ -42,9 +45,14 @@ import {
   OCCUPYING_STATUSES,
   getSettingsPageData,
   markBookingPaid,
+  PARTY_HALL_RATE_DEFAULTS,
+  recordPartyHallAdvance,
+  reopenPartyHallEnquiry,
   resolveAddOnRates,
+  resolvePartyHallRates,
   resolveRequestedService,
   resolveRoomTypes,
+  sendPartyHallQuote,
   withAdvance,
   withTier,
   withTotal,
@@ -79,6 +87,7 @@ import type {
   MealPlan,
   PartyHallEnquiry,
   PartyHallPageData,
+  PartyHallRateKey,
   PartyHallSlot,
   PartyHallStatus,
   PaymentsPageData,
@@ -162,22 +171,25 @@ function toRoomTile(r: RoomRow): RoomTile {
   };
 }
 
-function toPartyHall(r: PartyHallRow): PartyHallEnquiry {
-  return withAdvance({
-    id: r.id,
-    title: r.title,
-    date: r.date,
-    slot: r.slot as PartyHallSlot,
-    guests: r.guests,
-    package: r.package,
-    addOns: r.addOns,
-    status: r.status as PartyHallStatus,
-    amount: r.amount,
-    createdAt: r.createdAt?.toISOString() ?? undefined,
-    contactName: r.contactName ?? undefined,
-    contactPhone: r.contactPhone ?? undefined,
-    contactEmail: r.contactEmail ?? undefined,
-  });
+function toPartyHall(r: PartyHallRow, advancePct: number): PartyHallEnquiry {
+  return withAdvance(
+    {
+      id: r.id,
+      title: r.title,
+      date: r.date,
+      slot: r.slot as PartyHallSlot,
+      guests: r.guests,
+      package: r.package,
+      addOns: r.addOns,
+      status: r.status as PartyHallStatus,
+      amount: r.amount,
+      createdAt: r.createdAt?.toISOString() ?? undefined,
+      contactName: r.contactName ?? undefined,
+      contactPhone: r.contactPhone ?? undefined,
+      contactEmail: r.contactEmail ?? undefined,
+    },
+    advancePct,
+  );
 }
 
 /**
@@ -221,10 +233,20 @@ async function load(): Promise<BookingData> {
       conn.select().from(schema.addOnSettings).orderBy(schema.addOnSettings.id),
     ]);
 
+  // Every addon_settings row lands in both maps — room add-on ids and Party
+  // Hall rate ids never collide, and each resolver only ever reads its own keys.
+  const addOnRateOverrides = Object.fromEntries(
+    addOnRows.map((r) => [r.id, r.price]),
+  ) as BookingData["addOnRateOverrides"];
+  const partyHallRateOverrides = Object.fromEntries(
+    addOnRows.map((r) => [r.id, r.price]),
+  ) as BookingData["partyHallRateOverrides"];
+  const advancePct = resolvePartyHallRates(partyHallRateOverrides).phAdvancePct;
+
   return {
     guests: guestRows.map(toGuest),
     bookings: bookingRows.map(toBooking),
-    partyHall: partyHallRows.map(toPartyHall),
+    partyHall: partyHallRows.map((r) => toPartyHall(r, advancePct)),
     rooms: roomRows.map(toRoomTile),
     roomTypeOverrides: Object.fromEntries(
       roomTypeRows.map((r) => [
@@ -232,9 +254,8 @@ async function load(): Promise<BookingData> {
         { name: r.name ?? undefined, areaSqm: r.areaSqm, pricePerNight: r.pricePerNight },
       ]),
     ) as BookingData["roomTypeOverrides"],
-    addOnRateOverrides: Object.fromEntries(
-      addOnRows.map((r) => [r.id, r.price]),
-    ) as BookingData["addOnRateOverrides"],
+    addOnRateOverrides,
+    partyHallRateOverrides,
   };
 }
 
@@ -449,6 +470,147 @@ export const createPartyHallEnquiryFn = createServerFn({ method: "POST" })
 
     await insertPartyHallEnquiry(res.enquiry);
     return { ok: true, enquiry: res.enquiry };
+  });
+
+/**
+ * Slice 2a's pipeline writes: status plus (only `sendPartyHallQuoteFn` ever
+ * changes it) amount. Same fixtures-mutation convenience as the other
+ * row-store helpers with no database.
+ */
+async function updatePartyHallPipeline(
+  id: string,
+  patch: { status: PartyHallStatus; amount?: number },
+): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    const enquiry = fixtures.partyHall.find((e) => e.id === id);
+    if (enquiry) Object.assign(enquiry, patch);
+    return;
+  }
+  await conn
+    .update(schema.partyHallEnquiries)
+    .set(patch)
+    .where(eq(schema.partyHallEnquiries.id, id));
+}
+
+/** Every Party Hall pipeline action shares this shape: load, run the pure
+ *  rule, persist what it decided, return its `Result`. */
+async function runPartyHallTransition(
+  id: string,
+  rule: (current: BookingData) => Result<{ enquiry: PartyHallEnquiry }>,
+): Promise<Result<{ enquiry: PartyHallEnquiry }>> {
+  const auth = await requireBookingWriter();
+  if (!auth.ok) return auth;
+  const current = await load();
+  const res = rule(current);
+  if (!res.ok) return res;
+  await updatePartyHallPipeline(id, { status: res.enquiry.status, amount: res.enquiry.amount });
+  return res;
+}
+
+/** New enquiry → quoted, at the package/add-ons rate resolved right now. */
+export const sendPartyHallQuoteFn = createServerFn({ method: "POST" })
+  .validator((data: { id: string }) => data)
+  .handler(async ({ data }) =>
+    runPartyHallTransition(data.id, (current) =>
+      sendPartyHallQuote(
+        current,
+        data.id,
+        resolvePartyHallRates(current.partyHallRateOverrides),
+        resolvePartyHallRates(current.partyHallRateOverrides).phAdvancePct,
+      ),
+    ),
+  );
+
+/** Admin-recorded advance (Option A) — a deliberate second click, never
+ *  inferred from a gateway. */
+export const recordPartyHallAdvanceFn = createServerFn({ method: "POST" })
+  .validator((data: { id: string }) => data)
+  .handler(async ({ data }) =>
+    runPartyHallTransition(data.id, (current) =>
+      recordPartyHallAdvance(
+        current,
+        data.id,
+        resolvePartyHallRates(current.partyHallRateOverrides).phAdvancePct,
+      ),
+    ),
+  );
+
+/** The second half of Option A: locks the date in once the advance is in hand. */
+export const confirmPartyHallEventFn = createServerFn({ method: "POST" })
+  .validator((data: { id: string }) => data)
+  .handler(async ({ data }) =>
+    runPartyHallTransition(data.id, (current) =>
+      confirmPartyHallEvent(
+        current,
+        data.id,
+        resolvePartyHallRates(current.partyHallRateOverrides).phAdvancePct,
+      ),
+    ),
+  );
+
+/** Declines a quote — before any money has moved. Non-destructive: see
+ *  `reopenPartyHallEnquiryFn`. */
+export const declinePartyHallEnquiryFn = createServerFn({ method: "POST" })
+  .validator((data: { id: string }) => data)
+  .handler(async ({ data }) =>
+    runPartyHallTransition(data.id, (current) => declinePartyHallEnquiry(current, data.id)),
+  );
+
+/** `declined` reopens back to `quote_sent` — not a dead end. */
+export const reopenPartyHallEnquiryFn = createServerFn({ method: "POST" })
+  .validator((data: { id: string }) => data)
+  .handler(async ({ data }) =>
+    runPartyHallTransition(data.id, (current) => reopenPartyHallEnquiry(current, data.id)),
+  );
+
+/**
+ * Party Hall's ten Slice 2a rates — same upsert-on-id shape as
+ * `upsertAddOnSettings`, kept a separate function so `AddOnServiceKey` stays
+ * exactly the three room add-ons it always meant.
+ */
+async function upsertPartyHallRate(
+  id: PartyHallRateKey,
+  label: string,
+  price: number,
+): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    fixtures.partyHallRateOverrides = { ...fixtures.partyHallRateOverrides, [id]: price };
+    return;
+  }
+  await conn
+    .insert(schema.addOnSettings)
+    .values({ id, label, price })
+    .onConflictDoUpdate({ target: schema.addOnSettings.id, set: { price } });
+}
+
+const PARTY_HALL_RATE_LABEL_FOR_SAVE: Record<PartyHallRateKey, string> = {
+  phBaseSilver: "Silver package base",
+  phBaseGold: "Gold package base",
+  phBasePlatinum: "Platinum package base",
+  phDecor: "Decor",
+  phDJ: "DJ",
+  phAV: "AV",
+  phProjector: "Projector",
+  phLunchBuffet: "Lunch Buffet (per guest)",
+  phCatering: "Catering (per guest)",
+  phAdvancePct: "Advance to confirm",
+};
+
+/** Settings' ten Party Hall rate fields. */
+export const updatePartyHallRateSettingsFn = createServerFn({ method: "POST" })
+  .validator((data: { key: PartyHallRateKey; price: number }) => data)
+  .handler(async ({ data }): Promise<Result> => {
+    const auth = await requireSettingsWriter();
+    if (!auth.ok) return auth;
+    if (!Number.isFinite(data.price) || data.price < 0) {
+      return { ok: false, error: "Rate must be zero or more." };
+    }
+    await upsertPartyHallRate(data.key, PARTY_HALL_RATE_LABEL_FOR_SAVE[data.key], data.price);
+    return { ok: true };
   });
 
 function noDbInsert(): void {
