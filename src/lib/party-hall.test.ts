@@ -154,6 +154,25 @@ describe("getPartyHallPageData", () => {
     expect(paid.meta).toContain("advance ₹22k paid");
   });
 
+  it("shows the snapshotted percentage alongside the advance once one is on record", async () => {
+    const custom = {
+      ...fixtures,
+      partyHall: [
+        enquiry({
+          id: "PH-PCT",
+          status: "advance_paid",
+          amount: 100000,
+          advancePaid: 25000,
+          advanceAmount: 25000,
+          advancePct: 25,
+        }),
+      ],
+    };
+    const { events } = await getPartyHallPageData(custom);
+    const item = events.find((e) => e.enquiry.id === "PH-PCT")!;
+    expect(item.meta).toContain("advance ₹25k (25%) paid");
+  });
+
   it("marks the rail's booked days from the live enquiries for that month", async () => {
     const august = await getPartyHallPageData(fixtures, 2026, 8);
     expect(august.calendar.monthLabel).toBe("August 2026");

@@ -1934,8 +1934,12 @@ function metaNote(e: PartyHallEnquiry): string {
       return "awaiting quote";
     case "quote_sent":
       return "quote sent";
-    case "advance_paid":
-      return `advance ${formatINRCompact(e.advancePaid)} paid`;
+    case "advance_paid": {
+      // `advancePct` is the rate snapshotted at record time — shown for
+      // context alongside the amount, never read back into a recompute.
+      const pct = e.advancePct != null ? ` (${e.advancePct}%)` : "";
+      return `advance ${formatINRCompact(e.advancePaid)}${pct} paid`;
+    }
     case "confirmed":
       return "balance due on day";
     case "completed":
