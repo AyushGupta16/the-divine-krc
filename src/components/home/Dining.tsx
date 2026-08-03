@@ -43,7 +43,7 @@ function DiningGallery() {
 
   useEffect(() => {
     const id = setInterval(() => {
-      if (!pausedRef.current) advance(1);
+      if (!pausedRef.current) advance(-1);
     }, 5000);
     return () => clearInterval(id);
   }, [advance]);
@@ -99,7 +99,7 @@ function DiningGallery() {
             }`}
             style={{
               transform,
-              opacity: pos === 2 ? 0.7 : 1,
+              opacity: pos === 2 ? 0.45 : 1,
               zIndex: CARD_COUNT - pos,
               transitionDuration: isFront && draggingRef.current ? "0ms" : undefined,
             }}
@@ -111,7 +111,7 @@ function DiningGallery() {
         <button
           type="button"
           aria-label="Previous photo"
-          onClick={() => advance(-1)}
+          onClick={() => advance(1)}
           className="flex items-center justify-center size-9 rounded-full bg-obsidian/60 backdrop-blur-sm border border-gold/30 text-gold hover:bg-obsidian/80 hover:border-gold transition-colors"
         >
           <ArrowLeft className="size-4" />
@@ -119,7 +119,7 @@ function DiningGallery() {
         <button
           type="button"
           aria-label="Next photo"
-          onClick={() => advance(1)}
+          onClick={() => advance(-1)}
           className="flex items-center justify-center size-9 rounded-full bg-obsidian/60 backdrop-blur-sm border border-gold/30 text-gold hover:bg-obsidian/80 hover:border-gold transition-colors"
         >
           <ArrowRight className="size-4" />
