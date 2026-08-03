@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  cancelPartyHallEvent,
   computePartyHallQuote,
   confirmPartyHallEvent,
   declinePartyHallEnquiry,
@@ -12,6 +13,7 @@ import {
   reopenPartyHallEnquiry,
   resolvePartyHallRates,
   sendPartyHallQuote,
+  withAdvance,
 } from "@/lib/bookings";
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import type {
@@ -168,6 +170,46 @@ describe("getPartyHallPageData", () => {
     expect(bookedDays(calendar.cells)).toEqual([]);
   });
 
+  it("drops cancelled events from confirmed·upcoming and the calendar's booked days", async () => {
+    const custom = {
+      ...fixtures,
+      partyHall: [
+        enquiry({ id: "PH-CANCELLED", status: "cancelled", date: "2026-08-15", amount: 100000 }),
+        enquiry({ id: "PH-CONFIRMED", status: "confirmed", date: "2026-08-16", amount: 100000 }),
+      ],
+    };
+    const { stats, calendar } = await getPartyHallPageData(custom, 2026, 8);
+    expect(statValue(stats, "confirmed")).toBe("1");
+    expect(bookedDays(calendar.cells)).toEqual([16]);
+  });
+
+  it("degrades the quoted-on label to no date for a pre-migration row with no quotedAt", async () => {
+    const custom = {
+      ...fixtures,
+      partyHall: [enquiry({ id: "PH-NO-DATE", status: "quote_sent", amount: 50000 })],
+    };
+    const { events } = await getPartyHallPageData(custom, 2026, 8);
+    const item = events.find((e) => e.enquiry.id === "PH-NO-DATE")!;
+    expect(item.amountLabel).toBe("Quoted");
+  });
+
+  it("shows the quote date in the label once quotedAt is on record", async () => {
+    const custom = {
+      ...fixtures,
+      partyHall: [
+        enquiry({
+          id: "PH-DATED",
+          status: "quote_sent",
+          amount: 50000,
+          quotedAt: "2026-08-04T10:00:00.000Z",
+        }),
+      ],
+    };
+    const { events } = await getPartyHallPageData(custom, 2026, 8);
+    const item = events.find((e) => e.enquiry.id === "PH-DATED")!;
+    expect(item.amountLabel).toBe("Quoted on 4 Aug 2026");
+  });
+
   it("states the 25% advance in the package reference", async () => {
     const { addOnsLine, packages } = await getPartyHallPageData(fixtures);
     expect(addOnsLine).toContain("25% advance to confirm");
@@ -274,5 +316,84 @@ describe("the Party Hall pipeline actions", () => {
   it("refuses to reopen anything but a declined enquiry", () => {
     const res = reopenPartyHallEnquiry({ partyHall: [enquiry({})] }, "PH-TEST-001");
     expect(res.ok).toBe(false);
+  });
+
+  it("reopens a declined-before-any-quote enquiry back to enquiry, not quote_sent", () => {
+    const bare = enquiry({ status: "enquiry", amount: 0 });
+    const declined = declinePartyHallEnquiry({ partyHall: [bare] }, "PH-TEST-001");
+    expect(declined.ok).toBe(true);
+    if (!declined.ok) return;
+    expect(declined.enquiry.status).toBe("declined");
+
+    const reopened = reopenPartyHallEnquiry({ partyHall: [declined.enquiry] }, "PH-TEST-001");
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) return;
+    expect(reopened.enquiry.status).toBe("enquiry");
+    expect(reopened.enquiry.amount).toBe(0);
+  });
+
+  it("cancels a booking out of advance_paid or confirmed, stamping refundedAt", () => {
+    const advancePaid = enquiry({
+      status: "advance_paid",
+      amount: 100000,
+      advanceAmount: 25000,
+      advancePct: 25,
+    });
+    const cancelledFromAdvance = cancelPartyHallEvent({ partyHall: [advancePaid] }, "PH-TEST-001");
+    expect(cancelledFromAdvance.ok).toBe(true);
+    if (!cancelledFromAdvance.ok) return;
+    expect(cancelledFromAdvance.enquiry.status).toBe("cancelled");
+    expect(cancelledFromAdvance.enquiry.refundedAt).toBeTruthy();
+    // Never wipe the financial record.
+    expect(cancelledFromAdvance.enquiry.advanceAmount).toBe(25000);
+
+    const confirmed = enquiry({
+      status: "confirmed",
+      amount: 100000,
+      advanceAmount: 25000,
+      advancePct: 25,
+    });
+    const cancelledFromConfirmed = cancelPartyHallEvent({ partyHall: [confirmed] }, "PH-TEST-001");
+    expect(cancelledFromConfirmed.ok).toBe(true);
+    if (!cancelledFromConfirmed.ok) return;
+    expect(cancelledFromConfirmed.enquiry.status).toBe("cancelled");
+    expect(cancelledFromConfirmed.enquiry.refundedAt).toBeTruthy();
+  });
+
+  it("refuses to cancel a booking with no advance on record", () => {
+    for (const status of ["enquiry", "quote_sent", "declined", "completed"] as const) {
+      const res = cancelPartyHallEvent({ partyHall: [enquiry({ status })] }, "PH-TEST-001");
+      expect(res.ok).toBe(false);
+    }
+  });
+
+  it("has no reopen path out of cancelled", () => {
+    const cancelled = enquiry({ status: "cancelled", amount: 100000 });
+    const res = reopenPartyHallEnquiry({ partyHall: [cancelled] }, "PH-TEST-001");
+    expect(res.ok).toBe(false);
+  });
+});
+
+describe("withAdvance", () => {
+  it("reads the snapshotted advance when one is on record", () => {
+    const e = withAdvance(
+      {
+        ...enquiry({
+          status: "advance_paid",
+          amount: 100000,
+          advanceAmount: 25000,
+          advancePct: 25,
+        }),
+        advanceAmount: 25000,
+      },
+      // A live pct far from the snapshot proves the snapshot wins, not this.
+      50,
+    );
+    expect(e.advancePaid).toBe(25000);
+  });
+
+  it("falls back to amount × live pct for a pre-snapshot row with no advanceAmount", () => {
+    const e = withAdvance(enquiry({ status: "advance_paid", amount: 100000 }), 25);
+    expect(e.advancePaid).toBe(25000);
   });
 });

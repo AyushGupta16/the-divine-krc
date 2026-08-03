@@ -280,12 +280,23 @@ function collectedFor(status: PartyHallStatus, amount: number, pct?: number): nu
 
 /** Hydrates a seeded enquiry with the advance its pipeline stage implies.
  *  `advancePct` should be the resolved `phAdvancePct` rate wherever one is
- *  available; omitted only for fixtures/tests that have no Settings row to read. */
+ *  available; omitted only for fixtures/tests that have no Settings row to read.
+ *
+ *  `advanceAmount` on the row, when present, is the source of truth — it was
+ *  snapshotted by `recordPartyHallAdvance` at the moment money actually moved,
+ *  and must never be recomputed from a `phAdvancePct` the owner edits later.
+ *  The live `amount × advancePct` calculation is a fallback for rows recorded
+ *  before that column existed, nothing more. */
 export function withAdvance(
   e: Omit<PartyHallEnquiry, "advancePaid">,
   advancePct?: number,
 ): PartyHallEnquiry {
-  return { ...e, advancePaid: collectedFor(e.status, e.amount, advancePct) };
+  const snapshotApplies =
+    (e.status === "advance_paid" || e.status === "confirmed") && e.advanceAmount != null;
+  const advancePaid = snapshotApplies
+    ? e.advanceAmount!
+    : collectedFor(e.status, e.amount, advancePct);
+  return { ...e, advancePaid };
 }
 
 /**
@@ -771,7 +782,10 @@ export function sendPartyHallQuote(
   const amount = computePartyHallQuote(found.enquiry, rates);
   return {
     ok: true,
-    enquiry: withAdvance({ ...found.enquiry, status: "quote_sent", amount }, advancePct),
+    enquiry: withAdvance(
+      { ...found.enquiry, status: "quote_sent", amount, quotedAt: new Date().toISOString() },
+      advancePct,
+    ),
   };
 }
 
@@ -794,9 +808,13 @@ export function recordPartyHallAdvance(
   if (found.enquiry.status !== "quote_sent") {
     return { ok: false, error: "Only a quoted enquiry can have its advance recorded." };
   }
+  const advanceAmount = partyHallAdvance(found.enquiry.amount, advancePct);
   return {
     ok: true,
-    enquiry: withAdvance({ ...found.enquiry, status: "advance_paid" }, advancePct),
+    enquiry: withAdvance(
+      { ...found.enquiry, status: "advance_paid", advanceAmount, advancePct },
+      advancePct,
+    ),
   };
 }
 
@@ -837,9 +855,13 @@ export function declinePartyHallEnquiry(
   return { ok: true, enquiry: { ...found.enquiry, status: "declined" } };
 }
 
-/** `declined` is not a dead end (mirrors Slice B's reversed→applied fix):
- *  reopens back to `quote_sent`, since the quote itself was never wrong —
- *  only the guest's answer was "no", and that can change. */
+/** `declined` is not a dead end (mirrors Slice B's reversed→applied fix): it
+ *  reopens back to whatever it was before the decline. `declinePartyHallEnquiry`
+ *  allows declining straight from `enquiry` — before any quote exists — so the
+ *  target can't be hardcoded to `quote_sent`; it must be derived from whether
+ *  a quote is actually on the record. `amount > 0` is that signal (never `0`
+ *  until `sendPartyHallQuote` sets it) and, unlike `quotedAt`, it needs no
+ *  backfill: every pre-0011 row already has the right amount to derive from. */
 export function reopenPartyHallEnquiry(
   state: { partyHall: PartyHallEnquiry[] },
   id: string,
@@ -849,7 +871,37 @@ export function reopenPartyHallEnquiry(
   if (found.enquiry.status !== "declined") {
     return { ok: false, error: "Only a declined enquiry can be reopened." };
   }
-  return { ok: true, enquiry: { ...found.enquiry, status: "quote_sent" } };
+  const status = found.enquiry.amount > 0 ? "quote_sent" : "enquiry";
+  return { ok: true, enquiry: { ...found.enquiry, status } };
+}
+
+/**
+ * Calls off an event after money has already moved — distinct from
+ * `declinePartyHallEnquiry`, which only ever fires before a rupee changes
+ * hands. Reachable from `advance_paid` (the advance came in, then the booking
+ * fell through before Confirm) and from `confirmed` (fell through after the
+ * date was locked in) — both leave an advance on the books, so both stamp
+ * `refundedAt` alongside the status change. Terminal: unlike `declined`,
+ * there is no reopen path back — resurrecting a cancelled, money-collected
+ * booking is a new enquiry's worth of decisions, not a state flip.
+ */
+export function cancelPartyHallEvent(
+  state: { partyHall: PartyHallEnquiry[] },
+  id: string,
+): Result<{ enquiry: PartyHallEnquiry }> {
+  const found = findPartyHallEnquiry(state, id);
+  if (!found.ok) return found;
+  if (found.enquiry.status !== "advance_paid" && found.enquiry.status !== "confirmed") {
+    return { ok: false, error: "Only a booking with an advance on record can be cancelled." };
+  }
+  return {
+    ok: true,
+    enquiry: {
+      ...found.enquiry,
+      status: "cancelled",
+      refundedAt: new Date().toISOString(),
+    },
+  };
 }
 
 /**
@@ -1895,14 +1947,26 @@ function metaNote(e: PartyHallEnquiry): string {
   }
 }
 
-/** What the card's amount means, given where the event sits in the pipeline. */
-function amountLabel(status: PartyHallStatus): string {
+/** What the card's amount means, given where the event sits in the pipeline.
+ *  `quote_sent`/`declined` append the quote date when one is on record —
+ *  `quotedAt` is null for every row quoted before migration 0011, so this
+ *  must degrade to the plain "Quoted" caption rather than render "on null"
+ *  or "on Invalid Date" for those. */
+function amountLabel(status: PartyHallStatus, quotedAt?: string): string {
   switch (status) {
     case "enquiry":
       return "Est. quote";
     case "quote_sent":
-    case "declined":
-      return "Quoted";
+    case "declined": {
+      if (!quotedAt) return "Quoted";
+      const date = new Date(quotedAt).toLocaleDateString("en-IN", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        timeZone: "UTC",
+      });
+      return `Quoted on ${date}`;
+    }
     case "completed":
       return "Collected";
     default:
@@ -1928,6 +1992,8 @@ function ctaFor(status: PartyHallStatus): {
       return { cta: "Record advance", ctaPrimary: true, ctaAction: "record_advance" };
     case "advance_paid":
       return { cta: "Confirm", ctaPrimary: true, ctaAction: "confirm" };
+    case "cancelled":
+      return { cta: "View details", ctaPrimary: false, ctaAction: "none" };
     case "declined":
       return { cta: "Reopen", ctaPrimary: false, ctaAction: "reopen" };
     case "completed":
@@ -1951,10 +2017,11 @@ function buildEventItem(e: PartyHallEnquiry): PartyHallEventItem {
     statusLabel: PARTY_HALL_STATUS_LABEL[e.status],
     meta: `${slotLine(e.slot)} · ${e.guests} guests · ${metaNote(e)}`,
     tags: [e.package, ...e.addOns],
-    amountLabel: amountLabel(e.status),
+    amountLabel: amountLabel(e.status, e.quotedAt),
     // An un-quoted enquiry has no number yet — say so rather than show "₹0".
     amount: e.amount > 0 ? formatINRCompact(e.amount) : "₹—",
     canDecline: e.status === "enquiry" || e.status === "quote_sent",
+    canCancel: e.status === "advance_paid" || e.status === "confirmed",
     ...ctaFor(e.status),
   };
 }

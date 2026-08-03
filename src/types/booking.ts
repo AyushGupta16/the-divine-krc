@@ -165,6 +165,18 @@ export interface PartyHallEnquiry {
   amount: number;
   /** Money in hand — derived from `amount` and `status`, never seeded. */
   advancePaid: number;
+  /** ISO timestamp, set once by `sendPartyHallQuote`. Undefined for rows
+   *  quoted before this field existed — the "Quoted ₹X" label omits the date
+   *  rather than showing one for those. */
+  quotedAt?: string;
+  /** Snapshotted at `recordPartyHallAdvance` time — see `withAdvance`.
+   *  Undefined for rows recorded before this field existed. */
+  advanceAmount?: number;
+  /** Percentage in force when `advanceAmount` was snapshotted — context only. */
+  advancePct?: number;
+  /** ISO timestamp, set once by `cancelPartyHallEvent` when cancelling out of
+   *  `advance_paid` or `confirmed` — i.e. whenever money had already moved. */
+  refundedAt?: string;
   /** ISO timestamp, set once by `createPartyHallEnquiry`. Undefined for
    *  enquiries that predate this field (seed data, hand-entered rows). */
   createdAt?: string;
@@ -495,6 +507,10 @@ export interface PartyHallEventItem {
   /** A quoted-but-undecided enquiry can also be declined — a secondary
    *  action next to the primary CTA, not a replacement for it. */
   canDecline: boolean;
+  /** A booking with money already on record (`advance_paid`/`confirmed`) can
+   *  be called off — distinct from `canDecline`, which only applies before
+   *  any advance exists. */
+  canCancel: boolean;
 }
 
 /** A day slot in the rail's availability mini-calendar. */
