@@ -57,11 +57,11 @@ function Index() {
       <Hero />
       <AvailabilityBar />
       <About />
-      <Gallery />
       <Rooms roomTypes={roomTypes} />
-      <Amenities />
-      <PartyHall />
+      <Gallery />
       <Dining />
+      <PartyHall />
+      <Amenities />
       <Landmarks />
       <Testimonials />
       <FinalCTA />

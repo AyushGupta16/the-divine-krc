@@ -2,7 +2,10 @@ import { Reveal } from "./Reveal";
 
 export function FinalCTA() {
   return (
-    <section className="bg-gold px-6 md:px-10 py-24 md:py-32 text-center relative overflow-hidden">
+    <section
+      id="contact"
+      className="bg-gold px-6 md:px-10 py-24 md:py-32 text-center relative overflow-hidden"
+    >
       <div className="absolute inset-0 opacity-[0.07] bg-[radial-gradient(circle_at_center,_#0a0a0a_1px,_transparent_1px)] bg-[length:24px_24px]" />
       <Reveal className="relative">
         <div className="mx-auto max-w-2xl space-y-7">

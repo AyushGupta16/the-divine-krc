@@ -23,7 +23,10 @@ const quotes = [
 
 export function Testimonials() {
   return (
-    <section className="bg-obsidian text-ivory px-6 md:px-10 py-24 md:py-32 relative overflow-hidden">
+    <section
+      id="testimonials"
+      className="bg-obsidian text-ivory px-6 md:px-10 py-24 md:py-32 relative overflow-hidden"
+    >
       <div className="mx-auto max-w-7xl">
         <Reveal>
           <div className="max-w-2xl mb-14 md:mb-20 space-y-4">
