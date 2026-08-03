@@ -1,5 +1,49 @@
-import restaurant from "@/assets/restaurant.jpg";
+import { useEffect, useState } from "react";
+import restaurantInterior from "@/assets/restaurant-interior.webp";
+import restaurantDish from "@/assets/restaurant-dish-dalmakhani.webp";
 import { Reveal } from "./Reveal";
+
+// Interior first (the real, authentic shot) — the dish photo rotates in after
+// as decorative ambiance, never as the section's primary/first impression.
+const DINING_SHOTS = [
+  {
+    src: restaurantInterior,
+    alt: "Dining room at The Divine KRC restaurant, Pari Chowk, Greater Noida",
+  },
+  {
+    src: restaurantDish,
+    alt: "Dal makhani at The Divine KRC restaurant",
+  },
+];
+
+function DiningGallery() {
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setIndex((i) => (i + 1) % DINING_SHOTS.length);
+    }, 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div className="relative w-full aspect-[5/4]">
+      {DINING_SHOTS.map((shot, i) => (
+        <img
+          key={shot.src}
+          src={shot.src}
+          alt={shot.alt}
+          width={1280}
+          height={1280}
+          loading={i === 0 ? "eager" : "lazy"}
+          className={`absolute inset-0 size-full object-cover transition-opacity duration-1000 ${
+            i === index ? "opacity-100" : "opacity-0"
+          }`}
+        />
+      ))}
+    </div>
+  );
+}
 
 export function Dining() {
   return (
@@ -7,14 +51,7 @@ export function Dining() {
       <div className="mx-auto max-w-7xl grid md:grid-cols-12 gap-12 md:gap-16 items-center">
         <Reveal className="md:col-span-7">
           <div className="relative">
-            <img
-              src={restaurant}
-              alt="The Divine KRC — home to our in-house restaurant"
-              width={1280}
-              height={1280}
-              loading="lazy"
-              className="w-full aspect-[5/4] object-cover"
-            />
+            <DiningGallery />
             <div className="absolute -bottom-5 -left-5 hidden md:flex flex-col items-center justify-center size-28 bg-gold text-obsidian">
               <span className="font-display italic text-xs">Open</span>
               <span className="font-display text-2xl leading-none mt-1">7am</span>

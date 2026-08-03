@@ -59,9 +59,9 @@ function Index() {
       <About />
       <Gallery />
       <Rooms roomTypes={roomTypes} />
-      <Amenities />
       <PartyHall />
       <Dining />
+      <Amenities />
       <Landmarks />
       <Testimonials />
       <FinalCTA />
