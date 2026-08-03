@@ -3016,6 +3016,7 @@ const NOTIFICATION_TOGGLES: ToggleSetting[] = [
 const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: "property", label: "Property profile" },
   { id: "pricing", label: "Rooms & pricing" },
+  { id: "party-hall", label: "Party hall rates" },
   { id: "payments", label: "Payment integrations" },
   { id: "channels", label: "OTA channels" },
   { id: "team", label: "Team & access" },

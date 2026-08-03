@@ -22,6 +22,7 @@ describe("getSettingsPageData", () => {
     expect(sections.map((s) => s.id)).toEqual([
       "property",
       "pricing",
+      "party-hall",
       "payments",
       "channels",
       "team",

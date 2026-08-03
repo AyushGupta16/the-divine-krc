@@ -558,16 +558,12 @@ function PricingPanel({
   tariffs,
   charges,
   addOnRates,
-  partyHallRates,
-  partyHallRatesArePlaceholder,
   rooms,
   onCharge,
 }: {
   tariffs: RoomTariff[];
   charges: ChargeSetting[];
   addOnRates: AddOnRateSetting[];
-  partyHallRates: PartyHallRateSetting[];
-  partyHallRatesArePlaceholder: boolean;
   rooms: RoomTile[];
   onCharge: (key: string, value: string) => void;
 }) {
@@ -615,24 +611,6 @@ function PricingPanel({
 
       <div className="mt-5 border-t border-[#f0ebe0] pt-4">
         <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#7a746a]">
-          Party hall rates
-        </div>
-        {partyHallRatesArePlaceholder && (
-          <div className="mt-1 mb-3 rounded-md border border-gold-soft/40 bg-[#f5ecd7] px-3 py-2 text-[11.5px] text-[#8a6d1f]">
-            Placeholder rates in use — Silver/Gold/Platinum bases and the flat add-ons below are ₹1
-            stand-ins until the owner confirms real numbers. A quote sent now will under-charge.
-            Catering and the advance percentage are already real.
-          </div>
-        )}
-        <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
-          {partyHallRates.map((rate) => (
-            <PartyHallRateRow key={rate.key} rate={rate} onSaved={refresh} />
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-5 border-t border-[#f0ebe0] pt-4">
-        <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#7a746a]">
           Floor board ({rooms.length} rooms)
         </div>
         <div className="text-[11.5px] text-[#a49d8d]">
@@ -644,6 +622,38 @@ function PricingPanel({
           ))}
         </div>
         <AddRoomForm onAdded={refresh} />
+      </div>
+    </section>
+  );
+}
+
+function PartyHallRatesPanel({
+  partyHallRates,
+  partyHallRatesArePlaceholder,
+}: {
+  partyHallRates: PartyHallRateSetting[];
+  partyHallRatesArePlaceholder: boolean;
+}) {
+  const router = useRouter();
+  const refresh = () => void router.invalidate();
+
+  return (
+    <section id="party-hall" className={PANEL}>
+      <PanelHead
+        title="Party hall rates"
+        note="Package bases and add-on rates (Slice 2a) — used to compute a Send Quote amount."
+      />
+      {partyHallRatesArePlaceholder && (
+        <div className="mb-3.5 rounded-md border border-gold-soft/40 bg-[#f5ecd7] px-3 py-2 text-[11.5px] text-[#8a6d1f]">
+          Placeholder rates in use — Silver/Gold/Platinum bases and the flat add-ons below are ₹1
+          stand-ins until the owner confirms real numbers. A quote sent now will under-charge.
+          Catering and the advance percentage are already real.
+        </div>
+      )}
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
+        {partyHallRates.map((rate) => (
+          <PartyHallRateRow key={rate.key} rate={rate} onSaved={refresh} />
+        ))}
       </div>
     </section>
   );
@@ -786,12 +796,15 @@ export function Settings({ data }: { data: SettingsPageData }) {
             tariffs={data.pricing.tariffs}
             charges={charges}
             addOnRates={data.pricing.addOnRates}
-            partyHallRates={data.pricing.partyHallRates}
-            partyHallRatesArePlaceholder={data.pricing.partyHallRatesArePlaceholder}
             rooms={data.pricing.rooms}
             onCharge={(key, value) =>
               setCharges(charges.map((c) => (c.key === key ? { ...c, value } : c)))
             }
+          />
+
+          <PartyHallRatesPanel
+            partyHallRates={data.pricing.partyHallRates}
+            partyHallRatesArePlaceholder={data.pricing.partyHallRatesArePlaceholder}
           />
 
           <section id="payments" className={PANEL}>
