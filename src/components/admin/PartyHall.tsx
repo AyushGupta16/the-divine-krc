@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, FileText, Loader2, Plus } from "lucide-react";
+import { toast } from "sonner";
 
 import type {
   PartyHallCalendarCell,
+  PartyHallCtaAction,
   PartyHallEventItem,
   PartyHallMiniCalendar,
   PartyHallPackage,
@@ -13,10 +15,27 @@ import type {
   PartyHallStat,
   PartyHallStatus,
 } from "@/types/booking";
-import { updatePartyHallContactFn } from "@/lib/bookings-data";
+import {
+  confirmPartyHallEventFn,
+  declinePartyHallEnquiryFn,
+  recordPartyHallAdvanceFn,
+  reopenPartyHallEnquiryFn,
+  sendPartyHallQuoteFn,
+  updatePartyHallContactFn,
+} from "@/lib/bookings-data";
 import { adminIssueInvoiceFn } from "@/lib/invoices-data";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+
+/** One server fn per CTA action — `EventCard` just looks its action up here. */
+const CTA_ACTION_FN: Partial<
+  Record<PartyHallCtaAction, (id: string) => Promise<{ ok: boolean; error?: string }>>
+> = {
+  send_quote: (id) => sendPartyHallQuoteFn({ data: { id } }),
+  record_advance: (id) => recordPartyHallAdvanceFn({ data: { id } }),
+  confirm: (id) => confirmPartyHallEventFn({ data: { id } }),
+  reopen: (id) => reopenPartyHallEnquiryFn({ data: { id } }),
+};
 
 /** Invoices need someone to bill — enquiries have no earlier stage that asks. */
 function canInvoice(status: PartyHallStatus): boolean {
@@ -32,6 +51,10 @@ const STATUS_TOKENS: Record<PartyHallStatus, { color: string; bg: string }> = {
   advance_paid: { color: "#5a8a5a", bg: "#e6efe6" },
   confirmed: { color: "#5a8a5a", bg: "#e6efe6" },
   completed: { color: "#6b7280", bg: "#eef0f2" },
+  // Distinct from `cancelled` on purpose: declined is reopenable, cancelled
+  // is not — a front-desk glance at the pill color should tell them apart
+  // without reading the label.
+  declined: { color: "#a8863f", bg: "#f5ecd7" },
   cancelled: { color: "#b4553f", bg: "#f7e6e0" },
 };
 
@@ -77,6 +100,7 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
   const router = useRouter();
   const [editingContact, setEditingContact] = useState(false);
   const [issuing, setIssuing] = useState(false);
+  const [acting, setActing] = useState(false);
   const [name, setName] = useState(item.enquiry.contactName ?? "");
   const [phone, setPhone] = useState(item.enquiry.contactPhone ?? "");
   const [email, setEmail] = useState(item.enquiry.contactEmail ?? "");
@@ -97,6 +121,30 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
     const res = await adminIssueInvoiceFn({ data: { kind: "party_hall", id: item.enquiry.id } });
     setIssuing(false);
     if (res.ok) window.open(`/invoice/${res.invoiceNo}`, "_blank", "noopener,noreferrer");
+  }
+
+  async function runCta() {
+    const fn = CTA_ACTION_FN[item.ctaAction];
+    if (!fn) return;
+    setActing(true);
+    const res = await fn(item.enquiry.id);
+    setActing(false);
+    if (!res.ok) {
+      toast.error(res.error ?? "That didn't go through.");
+      return;
+    }
+    await router.invalidate();
+  }
+
+  async function decline() {
+    setActing(true);
+    const res = await declinePartyHallEnquiryFn({ data: { id: item.enquiry.id } });
+    setActing(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    await router.invalidate();
   }
 
   return (
@@ -189,16 +237,28 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
                 Invoice
               </button>
             )}
+            {item.canDecline && (
+              <button
+                type="button"
+                disabled={acting}
+                onClick={decline}
+                className="rounded border border-[#e3c9c0] bg-white px-3 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#b4553f] hover:bg-[#f7e6e0] disabled:opacity-60"
+              >
+                Decline
+              </button>
+            )}
             <button
               type="button"
+              disabled={acting || item.ctaAction === "none"}
+              onClick={runCta}
               className={cn(
-                "rounded px-4 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors",
+                "rounded px-4 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors disabled:opacity-60",
                 item.ctaPrimary
                   ? "bg-obsidian text-gold-soft hover:bg-[#262626]"
                   : "border border-[#d9d0bd] bg-white text-warm-gray hover:bg-black/[0.03]",
               )}
             >
-              {item.cta}
+              {acting ? <Loader2 className="size-3 animate-spin" /> : item.cta}
             </button>
           </div>
         </div>

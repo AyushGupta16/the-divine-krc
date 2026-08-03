@@ -538,8 +538,12 @@ export const guests: Guest[] = GUEST_SEED.map(withTier);
 
 export const bookings: Booking[] = BOOKINGS;
 
-/** Advance is derived from the quote, at `PARTY_HALL_ADVANCE_PCT`. */
-export const partyHallEnquiries: PartyHallEnquiry[] = PARTY_HALL_SEED.map(withAdvance);
+/** Advance is derived from the quote, at `PARTY_HALL_ADVANCE_PCT`. Wrapped in
+ *  an arrow rather than passed directly: `withAdvance` now takes an optional
+ *  second `advancePct` parameter, and `Array.prototype.map` calls its
+ *  callback with `(item, index, array)` — passed bare, every seed row would
+ *  silently get its own array index as the advance percentage. */
+export const partyHallEnquiries: PartyHallEnquiry[] = PARTY_HALL_SEED.map((e) => withAdvance(e));
 
 /** The floor board — mutated in place by the no-DB dev path, same convenience
  *  `insertBooking` gives bookings when there is no database to persist to. */
@@ -553,6 +557,7 @@ export const fixtures: BookingData & {
   rooms: NonNullable<BookingData["rooms"]>;
   roomTypeOverrides: NonNullable<BookingData["roomTypeOverrides"]>;
   addOnRateOverrides: NonNullable<BookingData["addOnRateOverrides"]>;
+  partyHallRateOverrides: NonNullable<BookingData["partyHallRateOverrides"]>;
 } = {
   bookings,
   guests,
@@ -560,4 +565,5 @@ export const fixtures: BookingData & {
   rooms,
   roomTypeOverrides: {},
   addOnRateOverrides: {},
+  partyHallRateOverrides: {},
 };

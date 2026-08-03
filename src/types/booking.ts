@@ -144,9 +144,11 @@ export interface Guest {
 
 export type PartyHallSlot = "morning" | "afternoon" | "evening" | "full_day";
 
-/** Pipeline an event moves through, in order; `cancelled` leaves it. */
+/** Pipeline an event moves through, in order; `declined` and `cancelled` leave
+ *  it. `declined` is reachable only from `quote_sent` (before any money moves)
+ *  and reopens back to `quote_sent` — it is not a dead end, unlike `cancelled`. */
 export type PartyHallStatus =
-  "enquiry" | "quote_sent" | "advance_paid" | "confirmed" | "completed" | "cancelled";
+  "enquiry" | "quote_sent" | "advance_paid" | "confirmed" | "completed" | "declined" | "cancelled";
 
 export interface PartyHallEnquiry {
   id: string;
@@ -466,6 +468,9 @@ export interface PartyHallPill {
 }
 
 /** One enquiry/event card: the raw record plus its rendered copy. */
+/** Which server action a Party Hall card's primary CTA click calls. */
+export type PartyHallCtaAction = "send_quote" | "record_advance" | "confirm" | "reopen" | "none";
+
 export interface PartyHallEventItem {
   enquiry: PartyHallEnquiry;
   /** Date chip, e.g. "22" / "Aug". */
@@ -483,8 +488,13 @@ export interface PartyHallEventItem {
   amount: string;
   /** Context action, e.g. "Send quote" when new, else View/Invoice. */
   cta: string;
-  /** Only the action that moves a *new* enquiry forward is emphasised. */
+  /** Only the action that moves the enquiry forward at its current status is emphasised. */
   ctaPrimary: boolean;
+  /** Which server action the primary CTA click calls. */
+  ctaAction: PartyHallCtaAction;
+  /** A quoted-but-undecided enquiry can also be declined — a secondary
+   *  action next to the primary CTA, not a replacement for it. */
+  canDecline: boolean;
 }
 
 /** A day slot in the rail's availability mini-calendar. */
@@ -775,7 +785,7 @@ export interface RoomTariff {
 
 /** A flat charge or rate the property applies on top of the tariff. */
 export interface ChargeSetting {
-  key: "gst" | "partyHallAdvance";
+  key: "gst";
   label: string;
   /** Pre-formatted with its unit, e.g. "12%". */
   value: string;
@@ -790,10 +800,38 @@ export interface AddOnRateSetting {
   price: number;
 }
 
+/** The ten Party Hall rate rows (Slice 2a) — three package bases, five flat/
+ *  per-guest add-on rates, Catering, and the advance percentage. All seeded
+ *  as placeholders except Catering and the advance — see `PARTY_HALL_PLACEHOLDER_KEYS`. */
+export type PartyHallRateKey =
+  | "phBaseSilver"
+  | "phBaseGold"
+  | "phBasePlatinum"
+  | "phDecor"
+  | "phDJ"
+  | "phAV"
+  | "phProjector"
+  | "phLunchBuffet"
+  | "phCatering"
+  | "phAdvancePct";
+
+/** Same blur-to-save shape as `AddOnRateSetting`. `unit` distinguishes the
+ *  one percentage row (phAdvancePct) from the rupee ones in the input's suffix. */
+export interface PartyHallRateSetting {
+  key: PartyHallRateKey;
+  label: string;
+  price: number;
+  unit: "₹" | "%";
+}
+
 export interface PricingSettings {
   tariffs: RoomTariff[];
   charges: ChargeSetting[];
   addOnRates: AddOnRateSetting[];
+  partyHallRates: PartyHallRateSetting[];
+  /** True while any of the eight placeholder-eligible party-hall rates still
+   *  holds its seeded ₹1 stand-in — drives the Settings warning banner. */
+  partyHallRatesArePlaceholder: boolean;
   /** The full floor board, so the panel can add/remove/edit individual rooms. */
   rooms: RoomTile[];
 }

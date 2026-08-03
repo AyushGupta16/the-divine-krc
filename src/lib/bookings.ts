@@ -44,12 +44,15 @@ import type {
   PaymentsTxnItem,
   PaymentTransaction,
   PartyHallCalendarCell,
+  PartyHallCtaAction,
   PartyHallEnquiry,
   PartyHallEventItem,
   PartyHallMiniCalendar,
   PartyHallPackage,
   PartyHallPageData,
   PartyHallPill,
+  PartyHallRateKey,
+  PartyHallRateSetting,
   PartyHallSlot,
   PartyHallStat,
   PartyHallStatus,
@@ -115,6 +118,10 @@ export interface BookingData {
   /** Owner-set rates for the three Slice B add-ons. Missing keys fall back to
    *  the defaults below — same "override over default" shape as `roomTypeOverrides`. */
   addOnRateOverrides?: Partial<Record<AddOnServiceKey, number>>;
+  /** Owner-set Party Hall rates (Slice 2a). Same "override over default" shape,
+   *  resolved by `resolvePartyHallRates`. Placeholder until real numbers land —
+   *  see `PARTY_HALL_PLACEHOLDER_KEYS`. */
+  partyHallRateOverrides?: Partial<Record<PartyHallRateKey, number>>;
 }
 
 export interface AddOnRates {
@@ -247,29 +254,38 @@ export function byBookingNumber(a: Booking, b: Booking): number {
   return bookingNumber(a.id) - bookingNumber(b.id) || a.id.localeCompare(b.id);
 }
 
-/** Share of the total taken up-front to hold a date (design: "25% advance"). */
+/** Share of the total taken up-front to hold a date (design: "25% advance").
+ *  The default `resolvePartyHallRates` falls back to — the owner-editable
+ *  `phAdvancePct` row overrides it once set. */
 export const PARTY_HALL_ADVANCE_PCT = 25;
 
-/** The up-front payment that confirms a booking, to the nearest rupee. */
-export function partyHallAdvance(amount: number): number {
-  return Math.round((amount * PARTY_HALL_ADVANCE_PCT) / 100);
+/** The up-front payment that confirms a booking, to the nearest rupee. `pct`
+ *  defaults to the constant above for callers with no resolved rate to hand
+ *  (fixtures, tests). */
+export function partyHallAdvance(amount: number, pct: number = PARTY_HALL_ADVANCE_PCT): number {
+  return Math.round((amount * pct) / 100);
 }
 
 /**
  * Money actually in hand for an event. Derived from the total and where the
  * event sits in the pipeline, so the seed can never claim an advance that
- * disagrees with the 25% rule: nothing before the advance is paid, the advance
- * once a date is held, and the full amount once the event is settled.
+ * disagrees with the advance rule: nothing before the advance is paid, the
+ * advance once a date is held, and the full amount once the event is settled.
  */
-function collectedFor(status: PartyHallStatus, amount: number): number {
+function collectedFor(status: PartyHallStatus, amount: number, pct?: number): number {
   if (status === "completed") return amount;
-  if (status === "advance_paid" || status === "confirmed") return partyHallAdvance(amount);
+  if (status === "advance_paid" || status === "confirmed") return partyHallAdvance(amount, pct);
   return 0;
 }
 
-/** Hydrates a seeded enquiry with the advance its pipeline stage implies. */
-export function withAdvance(e: Omit<PartyHallEnquiry, "advancePaid">): PartyHallEnquiry {
-  return { ...e, advancePaid: collectedFor(e.status, e.amount) };
+/** Hydrates a seeded enquiry with the advance its pipeline stage implies.
+ *  `advancePct` should be the resolved `phAdvancePct` rate wherever one is
+ *  available; omitted only for fixtures/tests that have no Settings row to read. */
+export function withAdvance(
+  e: Omit<PartyHallEnquiry, "advancePaid">,
+  advancePct?: number,
+): PartyHallEnquiry {
+  return { ...e, advancePaid: collectedFor(e.status, e.amount, advancePct) };
 }
 
 /**
@@ -278,7 +294,7 @@ export function withAdvance(e: Omit<PartyHallEnquiry, "advancePaid">): PartyHall
  * calendar's event flags, so the three can never disagree about what counts.
  */
 function isUpcomingEvent(e: PartyHallEnquiry): boolean {
-  return e.status !== "cancelled" && e.status !== "completed";
+  return e.status !== "cancelled" && e.status !== "completed" && e.status !== "declined";
 }
 
 /** Soonest upcoming event, or undefined when the hall has nothing booked. */
@@ -359,6 +375,103 @@ export const PARTY_HALL_ADD_ONS = ["Decor", "DJ", "Catering", "AV", "Projector",
 
 /** The hall's stated guest ceiling (marketing copy: "up to 150 guests"). */
 export const MAX_PARTY_HALL_GUESTS = 150;
+
+export type PartyHallRates = Record<PartyHallRateKey, number>;
+
+/**
+ * Slice 2a defaults — also what a fresh `addon_settings` seed writes. Eight of
+ * these (everything but Catering and the advance) are ₹1 stand-ins: nobody
+ * has confirmed a real Silver/Gold/Platinum base or a Decor/DJ/AV/Projector/
+ * Lunch Buffet rate yet. Catering (₹450/plate) and the 25% advance are real,
+ * already-quoted figures — see `PARTY_HALL_PLACEHOLDER_KEYS` for which is which.
+ */
+export const PARTY_HALL_RATE_DEFAULTS: PartyHallRates = {
+  phBaseSilver: 1,
+  phBaseGold: 1,
+  phBasePlatinum: 1,
+  phDecor: 1,
+  phDJ: 1,
+  phAV: 1,
+  phProjector: 1,
+  phLunchBuffet: 1,
+  phCatering: 450,
+  phAdvancePct: PARTY_HALL_ADVANCE_PCT,
+};
+
+/** Rows still carrying the ₹1 placeholder — drives the Settings warning banner. */
+export const PARTY_HALL_PLACEHOLDER_KEYS: PartyHallRateKey[] = [
+  "phBaseSilver",
+  "phBaseGold",
+  "phBasePlatinum",
+  "phDecor",
+  "phDJ",
+  "phAV",
+  "phProjector",
+  "phLunchBuffet",
+];
+
+/** Owner override over default, same shape as `resolveAddOnRates`. */
+export function resolvePartyHallRates(
+  overrides?: BookingData["partyHallRateOverrides"],
+): PartyHallRates {
+  return {
+    phBaseSilver: overrides?.phBaseSilver ?? PARTY_HALL_RATE_DEFAULTS.phBaseSilver,
+    phBaseGold: overrides?.phBaseGold ?? PARTY_HALL_RATE_DEFAULTS.phBaseGold,
+    phBasePlatinum: overrides?.phBasePlatinum ?? PARTY_HALL_RATE_DEFAULTS.phBasePlatinum,
+    phDecor: overrides?.phDecor ?? PARTY_HALL_RATE_DEFAULTS.phDecor,
+    phDJ: overrides?.phDJ ?? PARTY_HALL_RATE_DEFAULTS.phDJ,
+    phAV: overrides?.phAV ?? PARTY_HALL_RATE_DEFAULTS.phAV,
+    phProjector: overrides?.phProjector ?? PARTY_HALL_RATE_DEFAULTS.phProjector,
+    phLunchBuffet: overrides?.phLunchBuffet ?? PARTY_HALL_RATE_DEFAULTS.phLunchBuffet,
+    phCatering: overrides?.phCatering ?? PARTY_HALL_RATE_DEFAULTS.phCatering,
+    phAdvancePct: overrides?.phAdvancePct ?? PARTY_HALL_RATE_DEFAULTS.phAdvancePct,
+  };
+}
+
+const PARTY_HALL_BASE_KEY: Record<string, PartyHallRateKey> = {
+  Silver: "phBaseSilver",
+  Gold: "phBaseGold",
+  Platinum: "phBasePlatinum",
+};
+
+/** Flat-fee add-ons: charged once per event, regardless of guest count. */
+const PARTY_HALL_FLAT_ADDON_KEY: Partial<Record<string, PartyHallRateKey>> = {
+  Decor: "phDecor",
+  DJ: "phDJ",
+  AV: "phAV",
+  Projector: "phProjector",
+};
+
+/** Per-guest add-ons: the only two with a documented per-head rate today. */
+const PARTY_HALL_PER_GUEST_ADDON_KEY: Partial<Record<string, PartyHallRateKey>> = {
+  Catering: "phCatering",
+  "Lunch Buffet": "phLunchBuffet",
+};
+
+/**
+ * The quote a "Send quote" click commits to: the package base, plus every
+ * requested add-on at its resolved rate — flat once per event, or × guests
+ * for the two catering-style add-ons. An add-on outside the known vocabulary
+ * (should never happen, `createPartyHallEnquiry` whitelists it) contributes 0
+ * rather than throwing, same "don't trust what you can't place" posture as
+ * the rest of this file.
+ */
+export function computePartyHallQuote(
+  e: Pick<PartyHallEnquiry, "package" | "addOns" | "guests">,
+  rates: PartyHallRates,
+): number {
+  let total = rates[PARTY_HALL_BASE_KEY[e.package]] ?? 0;
+  for (const addOn of e.addOns) {
+    const flatKey = PARTY_HALL_FLAT_ADDON_KEY[addOn];
+    if (flatKey) {
+      total += rates[flatKey];
+      continue;
+    }
+    const perGuestKey = PARTY_HALL_PER_GUEST_ADDON_KEY[addOn];
+    if (perGuestKey) total += rates[perGuestKey] * e.guests;
+  }
+  return total;
+}
 
 function nightsBetween(checkIn: string, checkOut: string): number {
   const ms =
@@ -626,6 +739,117 @@ export function createPartyHallEnquiry(
   });
 
   return { ok: true, enquiry };
+}
+
+function findPartyHallEnquiry(
+  state: { partyHall: PartyHallEnquiry[] },
+  id: string,
+): Result<{ enquiry: PartyHallEnquiry }> {
+  const enquiry = state.partyHall.find((e) => e.id === id);
+  if (!enquiry) return { ok: false, error: "Enquiry not found." };
+  return { ok: true, enquiry };
+}
+
+/**
+ * Slice 2a's first real pipeline action: quotes a fresh enquiry at its
+ * package + add-ons, snapshotting the rate in force right now — same
+ * snapshot-at-charge-time discipline as `resolveRequestedService`, so a later
+ * rate change (once real numbers replace the placeholders) never reprices an
+ * enquiry that was already quoted against the ₹1 stand-ins.
+ */
+export function sendPartyHallQuote(
+  state: { partyHall: PartyHallEnquiry[] },
+  id: string,
+  rates: PartyHallRates,
+  advancePct: number = PARTY_HALL_ADVANCE_PCT,
+): Result<{ enquiry: PartyHallEnquiry }> {
+  const found = findPartyHallEnquiry(state, id);
+  if (!found.ok) return found;
+  if (found.enquiry.status !== "enquiry") {
+    return { ok: false, error: "Only a new enquiry can be quoted." };
+  }
+  const amount = computePartyHallQuote(found.enquiry, rates);
+  return {
+    ok: true,
+    enquiry: withAdvance({ ...found.enquiry, status: "quote_sent", amount }, advancePct),
+  };
+}
+
+/**
+ * Admin-recorded advance (Tier 2 design): a deliberate second click from
+ * "quote sent", never inferred from a payment gateway — the hall takes
+ * advances by hand (cash, UPI, bank transfer), so nothing here can watch for
+ * one arriving. Kept a separate action from `confirmPartyHallEvent` (Option
+ * A) rather than folding "advance in hand" and "date confirmed" into one
+ * click — the hall sometimes holds an advance for a day or two before the
+ * booking is locked in.
+ */
+export function recordPartyHallAdvance(
+  state: { partyHall: PartyHallEnquiry[] },
+  id: string,
+  advancePct: number = PARTY_HALL_ADVANCE_PCT,
+): Result<{ enquiry: PartyHallEnquiry }> {
+  const found = findPartyHallEnquiry(state, id);
+  if (!found.ok) return found;
+  if (found.enquiry.status !== "quote_sent") {
+    return { ok: false, error: "Only a quoted enquiry can have its advance recorded." };
+  }
+  return {
+    ok: true,
+    enquiry: withAdvance({ ...found.enquiry, status: "advance_paid" }, advancePct),
+  };
+}
+
+/** The second half of Option A: locks the date in once the advance is in hand. */
+export function confirmPartyHallEvent(
+  state: { partyHall: PartyHallEnquiry[] },
+  id: string,
+  advancePct: number = PARTY_HALL_ADVANCE_PCT,
+): Result<{ enquiry: PartyHallEnquiry }> {
+  const found = findPartyHallEnquiry(state, id);
+  if (!found.ok) return found;
+  if (found.enquiry.status !== "advance_paid") {
+    return { ok: false, error: "Record the advance before confirming." };
+  }
+  return {
+    ok: true,
+    enquiry: withAdvance({ ...found.enquiry, status: "confirmed" }, advancePct),
+  };
+}
+
+/**
+ * Declines a quote — before any money has moved, which is why this is only
+ * reachable from `enquiry`/`quote_sent` and not from `advance_paid` onward
+ * (a booking falling through after the advance is a different, out-of-scope
+ * situation, not a decline). Non-destructive: the enquiry, its amount and its
+ * add-ons all survive untouched, so `reopenPartyHallEnquiry` has something
+ * real to reopen rather than a blank quote.
+ */
+export function declinePartyHallEnquiry(
+  state: { partyHall: PartyHallEnquiry[] },
+  id: string,
+): Result<{ enquiry: PartyHallEnquiry }> {
+  const found = findPartyHallEnquiry(state, id);
+  if (!found.ok) return found;
+  if (found.enquiry.status !== "enquiry" && found.enquiry.status !== "quote_sent") {
+    return { ok: false, error: "Only an unconfirmed enquiry can be declined." };
+  }
+  return { ok: true, enquiry: { ...found.enquiry, status: "declined" } };
+}
+
+/** `declined` is not a dead end (mirrors Slice B's reversed→applied fix):
+ *  reopens back to `quote_sent`, since the quote itself was never wrong —
+ *  only the guest's answer was "no", and that can change. */
+export function reopenPartyHallEnquiry(
+  state: { partyHall: PartyHallEnquiry[] },
+  id: string,
+): Result<{ enquiry: PartyHallEnquiry }> {
+  const found = findPartyHallEnquiry(state, id);
+  if (!found.ok) return found;
+  if (found.enquiry.status !== "declined") {
+    return { ok: false, error: "Only a declined enquiry can be reopened." };
+  }
+  return { ok: true, enquiry: { ...found.enquiry, status: "quote_sent" } };
 }
 
 /**
@@ -1631,6 +1855,7 @@ const PARTY_HALL_STATUS_LABEL: Record<PartyHallStatus, string> = {
   advance_paid: "Advance paid",
   confirmed: "Confirmed",
   completed: "Completed",
+  declined: "Declined",
   cancelled: "Cancelled",
 };
 
@@ -1641,6 +1866,7 @@ const PARTY_HALL_STATUS_ORDER: PartyHallStatus[] = [
   "advance_paid",
   "confirmed",
   "completed",
+  "declined",
   "cancelled",
 ];
 
@@ -1662,6 +1888,8 @@ function metaNote(e: PartyHallEnquiry): string {
       return "balance due on day";
     case "completed":
       return "settled";
+    case "declined":
+      return "declined";
     case "cancelled":
       return "cancelled";
   }
@@ -1673,6 +1901,7 @@ function amountLabel(status: PartyHallStatus): string {
     case "enquiry":
       return "Est. quote";
     case "quote_sent":
+    case "declined":
       return "Quoted";
     case "completed":
       return "Collected";
@@ -1682,19 +1911,29 @@ function amountLabel(status: PartyHallStatus): string {
 }
 
 /**
- * The one action that matters for this event. Only a new enquiry gets a primary
- * CTA — it is the sole state where the hall owes someone a response.
+ * The one action that matters for this event, keyed by status. Every status
+ * but `cancelled` and `completed` owes someone a next step, so more than
+ * `enquiry` now gets a primary CTA — `EventCard` reads `ctaAction` to decide
+ * which server function the click calls.
  */
-function ctaFor(status: PartyHallStatus): { cta: string; ctaPrimary: boolean } {
+function ctaFor(status: PartyHallStatus): {
+  cta: string;
+  ctaPrimary: boolean;
+  ctaAction: PartyHallCtaAction;
+} {
   switch (status) {
     case "enquiry":
-      return { cta: "Send quote", ctaPrimary: true };
+      return { cta: "Send quote", ctaPrimary: true, ctaAction: "send_quote" };
     case "quote_sent":
-      return { cta: "Send reminder", ctaPrimary: false };
+      return { cta: "Record advance", ctaPrimary: true, ctaAction: "record_advance" };
+    case "advance_paid":
+      return { cta: "Confirm", ctaPrimary: true, ctaAction: "confirm" };
+    case "declined":
+      return { cta: "Reopen", ctaPrimary: false, ctaAction: "reopen" };
     case "completed":
-      return { cta: "Invoice", ctaPrimary: false };
+      return { cta: "Invoice", ctaPrimary: false, ctaAction: "none" };
     default:
-      return { cta: "View details", ctaPrimary: false };
+      return { cta: "View details", ctaPrimary: false, ctaAction: "none" };
   }
 }
 
@@ -1715,6 +1954,7 @@ function buildEventItem(e: PartyHallEnquiry): PartyHallEventItem {
     amountLabel: amountLabel(e.status),
     // An un-quoted enquiry has no number yet — say so rather than show "₹0".
     amount: e.amount > 0 ? formatINRCompact(e.amount) : "₹—",
+    canDecline: e.status === "enquiry" || e.status === "quote_sent",
     ...ctaFor(e.status),
   };
 }
@@ -2776,6 +3016,7 @@ const NOTIFICATION_TOGGLES: ToggleSetting[] = [
 const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: "property", label: "Property profile" },
   { id: "pricing", label: "Rooms & pricing" },
+  { id: "party-hall", label: "Party hall rates" },
   { id: "payments", label: "Payment integrations" },
   { id: "channels", label: "OTA channels" },
   { id: "team", label: "Team & access" },
@@ -2798,10 +3039,32 @@ function tariffSettings(roomTypes: RoomTypeInfo[]): RoomTariff[] {
 /** The two rates still read-only in this panel — GST and the party-hall
  *  advance are out of Slice B's scope. */
 function chargeSettings(): ChargeSetting[] {
-  return [
-    { key: "gst", label: "GST rate", value: `${GST_PCT}%` },
-    { key: "partyHallAdvance", label: "Party hall advance", value: `${PARTY_HALL_ADVANCE_PCT}%` },
-  ];
+  return [{ key: "gst", label: "GST rate", value: `${GST_PCT}%` }];
+}
+
+const PARTY_HALL_RATE_LABEL: Record<PartyHallRateKey, string> = {
+  phBaseSilver: "Silver package base",
+  phBaseGold: "Gold package base",
+  phBasePlatinum: "Platinum package base",
+  phDecor: "Decor",
+  phDJ: "DJ",
+  phAV: "AV",
+  phProjector: "Projector",
+  phLunchBuffet: "Lunch Buffet (per guest)",
+  phCatering: "Catering (per guest)",
+  phAdvancePct: "Advance to confirm",
+};
+
+/** Slice 2a's ten editable Party Hall rates, same blur-to-save shape as
+ *  `addOnRateSettings`. `phAdvancePct` is the one percentage row — its `unit`
+ *  tells `PartyHallRateRow` which suffix to show. */
+function partyHallRateSettings(rates: PartyHallRates): PartyHallRateSetting[] {
+  return (Object.keys(PARTY_HALL_RATE_LABEL) as PartyHallRateKey[]).map((key) => ({
+    key,
+    label: PARTY_HALL_RATE_LABEL[key],
+    price: rates[key],
+    unit: key === "phAdvancePct" ? "%" : "₹",
+  }));
 }
 
 const ADD_ON_LABEL: Record<AddOnServiceKey, string> = {
@@ -2862,6 +3125,7 @@ export async function getSettingsPageData(
   const bookings = data.bookings;
   const tiles = data.rooms ?? defaultRoomTiles();
   const roomTypes = resolveRoomTypes(tiles, data.roomTypeOverrides);
+  const partyHallRates = resolvePartyHallRates(data.partyHallRateOverrides);
 
   return {
     sections: SETTINGS_SECTIONS,
@@ -2870,6 +3134,10 @@ export async function getSettingsPageData(
       tariffs: tariffSettings(roomTypes),
       charges: chargeSettings(),
       addOnRates: addOnRateSettings(resolveAddOnRates(data.addOnRateOverrides)),
+      partyHallRates: partyHallRateSettings(partyHallRates),
+      partyHallRatesArePlaceholder: PARTY_HALL_PLACEHOLDER_KEYS.some(
+        (key) => partyHallRates[key] === PARTY_HALL_RATE_DEFAULTS[key],
+      ),
       rooms: tiles,
     },
     payments: paymentSettings(),

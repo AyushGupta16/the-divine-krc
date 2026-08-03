@@ -22,6 +22,7 @@ describe("getSettingsPageData", () => {
     expect(sections.map((s) => s.id)).toEqual([
       "property",
       "pricing",
+      "party-hall",
       "payments",
       "channels",
       "team",
@@ -51,10 +52,20 @@ describe("getSettingsPageData", () => {
     for (const b of bookings) expect(b.revenue.taxPct).toBe(GST_PCT);
   });
 
-  it("states the advance the party hall actually holds dates for", async () => {
+  it("states the advance the party hall actually holds dates for, and it is editable", async () => {
     const { pricing } = await getSettingsPageData(fixtures, roster);
 
-    expect(charge(pricing.charges, "partyHallAdvance")).toBe(`${PARTY_HALL_ADVANCE_PCT}%`);
+    const advance = pricing.partyHallRates.find((r) => r.key === "phAdvancePct")!;
+    expect(advance.price).toBe(PARTY_HALL_ADVANCE_PCT);
+    expect(advance.unit).toBe("%");
+  });
+
+  it("flags placeholder party-hall rates until the real numbers land", async () => {
+    const { pricing } = await getSettingsPageData(fixtures, roster);
+
+    // Fixtures carry no overrides, so every unconfirmed rate is still ₹1.
+    expect(pricing.partyHallRatesArePlaceholder).toBe(true);
+    expect(pricing.partyHallRates.find((r) => r.key === "phCatering")!.price).toBe(450);
   });
 
   it("quotes each channel the commission its own money proves", async () => {

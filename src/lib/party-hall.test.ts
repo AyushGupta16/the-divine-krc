@@ -1,8 +1,25 @@
 import { describe, expect, it } from "vitest";
 
-import { getPartyHallPageData, PARTY_HALL_ADVANCE_PCT, partyHallAdvance } from "@/lib/bookings";
+import {
+  computePartyHallQuote,
+  confirmPartyHallEvent,
+  declinePartyHallEnquiry,
+  getPartyHallPageData,
+  PARTY_HALL_ADVANCE_PCT,
+  PARTY_HALL_RATE_DEFAULTS,
+  partyHallAdvance,
+  recordPartyHallAdvance,
+  reopenPartyHallEnquiry,
+  resolvePartyHallRates,
+  sendPartyHallQuote,
+} from "@/lib/bookings";
 import { fixtures } from "@/lib/__fixtures__/bookings";
-import type { PartyHallCalendarCell, PartyHallStatKey, PartyHallStatus } from "@/types/booking";
+import type {
+  PartyHallCalendarCell,
+  PartyHallEnquiry,
+  PartyHallStatKey,
+  PartyHallStatus,
+} from "@/types/booking";
 
 const statValue = (stats: { key: PartyHallStatKey; value: string }[], key: PartyHallStatKey) =>
   stats.find((s) => s.key === key)!.value;
@@ -79,12 +96,18 @@ describe("getPartyHallPageData", () => {
     expect(events[0].enquiry.status).toBe("enquiry");
   });
 
-  it("gives a new enquiry the primary quote CTA and everything else a quiet one", async () => {
+  it("gives every unresolved pipeline stage its own primary CTA", async () => {
     const { events } = await getPartyHallPageData(fixtures);
+    const primaryCta: Partial<Record<PartyHallStatus, string>> = {
+      enquiry: "Send quote",
+      quote_sent: "Record advance",
+      advance_paid: "Confirm",
+    };
 
     for (const e of events) {
-      if (e.enquiry.status === "enquiry") {
-        expect(e.cta).toBe("Send quote");
+      const expected = primaryCta[e.enquiry.status];
+      if (expected) {
+        expect(e.cta).toBe(expected);
         expect(e.ctaPrimary).toBe(true);
       } else {
         expect(e.ctaPrimary).toBe(false);
@@ -92,6 +115,14 @@ describe("getPartyHallPageData", () => {
     }
     expect(events.find((e) => e.enquiry.status === "completed")!.cta).toBe("Invoice");
     expect(events.find((e) => e.enquiry.status === "confirmed")!.cta).toBe("View details");
+  });
+
+  it("only a quoted-but-undecided enquiry can be declined", async () => {
+    const { events } = await getPartyHallPageData(fixtures);
+    for (const e of events) {
+      const expected = e.enquiry.status === "enquiry" || e.enquiry.status === "quote_sent";
+      expect(e.canDecline).toBe(expected);
+    }
   });
 
   it("shows a dash rather than a false zero before an enquiry is quoted", async () => {
@@ -141,5 +172,107 @@ describe("getPartyHallPageData", () => {
     const { addOnsLine, packages } = await getPartyHallPageData(fixtures);
     expect(addOnsLine).toContain("25% advance to confirm");
     expect(packages.map((p) => p.name)).toEqual(["Silver", "Gold", "Platinum"]);
+  });
+});
+
+function enquiry(patch: Partial<PartyHallEnquiry>): PartyHallEnquiry {
+  return {
+    id: "PH-TEST-001",
+    title: "Test event",
+    date: "2027-01-01",
+    slot: "evening",
+    guests: 100,
+    package: "Gold",
+    addOns: ["Catering", "Decor"],
+    status: "enquiry",
+    amount: 0,
+    advancePaid: 0,
+    ...patch,
+  };
+}
+
+describe("computePartyHallQuote", () => {
+  it("adds the package base to flat and per-guest add-ons at the resolved rates", () => {
+    const rates = resolvePartyHallRates({
+      phBaseGold: 60000,
+      phDecor: 5000,
+      phCatering: 450,
+    });
+    // 60000 base + 5000 flat decor + 100 guests × ₹450 catering.
+    expect(computePartyHallQuote(enquiry({}), rates)).toBe(60000 + 5000 + 100 * 450);
+  });
+
+  it("falls back to the placeholder defaults when nothing is overridden", () => {
+    const rates = resolvePartyHallRates();
+    expect(rates).toEqual(PARTY_HALL_RATE_DEFAULTS);
+  });
+});
+
+describe("the Party Hall pipeline actions", () => {
+  it("quotes a new enquiry and moves it to quote_sent", () => {
+    const state = { partyHall: [enquiry({})] };
+    const rates = resolvePartyHallRates({ phBaseGold: 60000, phDecor: 5000, phCatering: 450 });
+    const res = sendPartyHallQuote(state, "PH-TEST-001", rates);
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.enquiry.status).toBe("quote_sent");
+    expect(res.enquiry.amount).toBe(60000 + 5000 + 100 * 450);
+    expect(res.enquiry.advancePaid).toBe(0);
+  });
+
+  it("refuses to quote anything but a new enquiry", () => {
+    const state = { partyHall: [enquiry({ status: "quote_sent" })] };
+    const res = sendPartyHallQuote(state, "PH-TEST-001", resolvePartyHallRates());
+    expect(res.ok).toBe(false);
+  });
+
+  it("records the advance only from quote_sent, and confirms only from advance_paid", () => {
+    const quoted = enquiry({ status: "quote_sent", amount: 100000 });
+
+    const tooEarly = confirmPartyHallEvent({ partyHall: [quoted] }, "PH-TEST-001");
+    expect(tooEarly.ok).toBe(false);
+
+    const advanced = recordPartyHallAdvance({ partyHall: [quoted] }, "PH-TEST-001", 25);
+    expect(advanced.ok).toBe(true);
+    if (!advanced.ok) return;
+    expect(advanced.enquiry.status).toBe("advance_paid");
+    expect(advanced.enquiry.advancePaid).toBe(25000);
+
+    const confirmed = confirmPartyHallEvent({ partyHall: [advanced.enquiry] }, "PH-TEST-001", 25);
+    expect(confirmed.ok).toBe(true);
+    if (!confirmed.ok) return;
+    expect(confirmed.enquiry.status).toBe("confirmed");
+    expect(confirmed.enquiry.advancePaid).toBe(25000);
+  });
+
+  it("declines a quote and reopens it back to quote_sent, non-destructively", () => {
+    const quoted = enquiry({ status: "quote_sent", amount: 100000 });
+
+    const declined = declinePartyHallEnquiry({ partyHall: [quoted] }, "PH-TEST-001");
+    expect(declined.ok).toBe(true);
+    if (!declined.ok) return;
+    expect(declined.enquiry.status).toBe("declined");
+    expect(declined.enquiry.amount).toBe(100000);
+    expect(declined.enquiry.addOns).toEqual(quoted.addOns);
+
+    const reopened = reopenPartyHallEnquiry({ partyHall: [declined.enquiry] }, "PH-TEST-001");
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) return;
+    expect(reopened.enquiry.status).toBe("quote_sent");
+    expect(reopened.enquiry.amount).toBe(100000);
+  });
+
+  it("refuses to decline an enquiry once its advance is in hand", () => {
+    const res = declinePartyHallEnquiry(
+      { partyHall: [enquiry({ status: "advance_paid", amount: 100000 })] },
+      "PH-TEST-001",
+    );
+    expect(res.ok).toBe(false);
+  });
+
+  it("refuses to reopen anything but a declined enquiry", () => {
+    const res = reopenPartyHallEnquiry({ partyHall: [enquiry({})] }, "PH-TEST-001");
+    expect(res.ok).toBe(false);
   });
 });
