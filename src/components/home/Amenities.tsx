@@ -13,7 +13,7 @@ const items = [
 
 export function Amenities() {
   return (
-    <section id="amenities" className="bg-ivory px-6 md:px-10 py-24 md:py-32">
+    <section id="amenities" className="bg-obsidian text-ivory px-6 md:px-10 py-24 md:py-32">
       <div className="mx-auto max-w-7xl">
         <Reveal>
           <div className="max-w-2xl mb-16 space-y-4">
@@ -23,19 +23,19 @@ export function Amenities() {
                 Signature Amenities
               </span>
             </div>
-            <h2 className="font-display text-4xl md:text-5xl text-obsidian leading-[1.05] text-balance">
+            <h2 className="font-display text-4xl md:text-5xl leading-[1.05] text-balance">
               The small details, <span className="italic text-gold">made remarkable.</span>
             </h2>
           </div>
         </Reveal>
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-px bg-stone-200">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-px bg-ivory/10">
           {items.map((it, i) => (
-            <Reveal key={it.t} delay={i * 40} className="bg-ivory">
-              <div className="p-8 h-full hover:bg-white transition-colors group">
+            <Reveal key={it.t} delay={i * 40} className="bg-obsidian">
+              <div className="p-8 h-full hover:bg-ivory/5 transition-colors group">
                 <div className="text-gold text-xl mb-5">✦</div>
-                <h3 className="font-display text-xl text-obsidian mb-2">{it.t}</h3>
-                <p className="text-sm text-warm-gray leading-relaxed">{it.d}</p>
+                <h3 className="font-display text-xl mb-2">{it.t}</h3>
+                <p className="text-sm text-ivory/60 leading-relaxed">{it.d}</p>
                 <div className="mt-6 h-px w-0 bg-gold group-hover:w-12 transition-all duration-500" />
               </div>
             </Reveal>

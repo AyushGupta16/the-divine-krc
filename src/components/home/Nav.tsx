@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import logo from "@/assets/krc-logo.jpg";
 
-const links = ["Gallery", "Rooms", "Events", "Dining", "Amenities", "Testimonials", "Contact"];
+const links = ["Rooms", "Gallery", "Dining", "Events", "Amenities", "Testimonials", "Contact"];
 
 /**
  * `alwaysSolid` skips the transparent-over-hero gradient for pages with no

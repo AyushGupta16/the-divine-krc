@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import restaurantInterior from "@/assets/restaurant-interior.webp";
 import restaurantDish from "@/assets/restaurant-dish-dalmakhani.webp";
+import restaurantExterior from "@/assets/restaurant.jpg";
 import { Reveal } from "./Reveal";
 
-// Interior first (the real, authentic shot) — the dish photo rotates in after
-// as decorative ambiance, never as the section's primary/first impression.
+// Interior first (the real, authentic shot) — the exterior and dish photos
+// rotate in after as decorative ambiance, never as the section's primary/
+// first impression. The exterior shot is the same photo issue #53 flagged
+// for being mislabeled as an interior — it's honest here, just relabeled.
 const DINING_SHOTS = [
   {
     src: restaurantInterior,
@@ -13,6 +16,10 @@ const DINING_SHOTS = [
   {
     src: restaurantDish,
     alt: "Dal makhani at The Divine KRC restaurant",
+  },
+  {
+    src: restaurantExterior,
+    alt: "Exterior of The Divine KRC hotel and restaurant at dusk",
   },
 ];
 
