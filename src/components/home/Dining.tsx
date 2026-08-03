@@ -64,8 +64,8 @@ function DiningGallery() {
     if (!draggingRef.current) return;
     draggingRef.current = false;
     pausedRef.current = false;
-    if (dragX > SWIPE_THRESHOLD) advance(-1);
-    else if (dragX < -SWIPE_THRESHOLD) advance(1);
+    if (dragX > SWIPE_THRESHOLD) advance(1);
+    else if (dragX < -SWIPE_THRESHOLD) advance(-1);
     setDragX(0);
   }
 
