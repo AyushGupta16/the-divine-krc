@@ -15,6 +15,7 @@ import {
   sendPartyHallQuote,
   withAdvance,
 } from "@/lib/bookings";
+import { toPartyHall } from "@/lib/bookings-data";
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import type {
   PartyHallCalendarCell,
@@ -162,7 +163,6 @@ describe("getPartyHallPageData", () => {
           id: "PH-PCT",
           status: "advance_paid",
           amount: 100000,
-          advancePaid: 25000,
           advanceAmount: 25000,
           advancePct: 25,
         }),
@@ -171,6 +171,33 @@ describe("getPartyHallPageData", () => {
     const { events } = await getPartyHallPageData(custom);
     const item = events.find((e) => e.enquiry.id === "PH-PCT")!;
     expect(item.meta).toContain("advance ₹25k (25%) paid");
+  });
+
+  it("withAdvance falls back to a live amount × pct calculation for a row with no advance snapshot", () => {
+    // Exercised through `toPartyHall`, the real DB-row hydration path where
+    // `withAdvance` actually runs — not through the `enquiry()` fixture helper,
+    // which would only prove the fixture agrees with itself.
+    const row = {
+      id: "PH-NULL-SNAPSHOT",
+      title: "Test event",
+      date: "2027-01-01",
+      slot: "evening",
+      guests: 100,
+      package: "Gold",
+      addOns: ["Catering"],
+      status: "advance_paid",
+      amount: 100000,
+      quotedAt: null,
+      advanceAmount: null,
+      advancePct: null,
+      refundedAt: null,
+      createdAt: null,
+      contactName: null,
+      contactPhone: null,
+      contactEmail: null,
+    };
+    const hydrated = toPartyHall(row, 25);
+    expect(hydrated.advancePaid).toBe(25000);
   });
 
   it("marks the rail's booked days from the live enquiries for that month", async () => {
@@ -236,8 +263,14 @@ describe("getPartyHallPageData", () => {
   });
 });
 
+/** Derives `advancePaid` through the real `withAdvance` rule instead of
+ *  defaulting it to 0, so a patch like `{ status: "advance_paid", advanceAmount:
+ *  25000 }` can't silently produce the incoherent `advancePaid: 0` — the exact
+ *  shape that let a bad test assertion through undetected. Pass `advancePaid`
+ *  explicitly only to test a deliberately-incoherent row. */
 function enquiry(patch: Partial<PartyHallEnquiry>): PartyHallEnquiry {
-  return {
+  const { advancePaid: explicitAdvancePaid, ...rest } = patch;
+  const merged: Omit<PartyHallEnquiry, "advancePaid"> = {
     id: "PH-TEST-001",
     title: "Test event",
     date: "2027-01-01",
@@ -247,9 +280,12 @@ function enquiry(patch: Partial<PartyHallEnquiry>): PartyHallEnquiry {
     addOns: ["Catering", "Decor"],
     status: "enquiry",
     amount: 0,
-    advancePaid: 0,
-    ...patch,
+    ...rest,
   };
+  if (explicitAdvancePaid !== undefined) {
+    return { ...merged, advancePaid: explicitAdvancePaid };
+  }
+  return withAdvance(merged, merged.advancePct);
 }
 
 describe("computePartyHallQuote", () => {

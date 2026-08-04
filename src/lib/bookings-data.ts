@@ -172,7 +172,7 @@ function toRoomTile(r: RoomRow): RoomTile {
   };
 }
 
-function toPartyHall(r: PartyHallRow, advancePct: number): PartyHallEnquiry {
+export function toPartyHall(r: PartyHallRow, advancePct: number): PartyHallEnquiry {
   return withAdvance(
     {
       id: r.id,
