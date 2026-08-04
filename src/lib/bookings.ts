@@ -774,6 +774,24 @@ export function createPartyHallEnquiry(
   return { ok: true, enquiry };
 }
 
+/**
+ * The pipeline write precondition: a status-changing write may only proceed
+ * if the row's actual status still matches what the caller last saw. Two
+ * concurrent clicks can both read the same status before either writes —
+ * this is what tells the second one its write is now stale.
+ *
+ * The single source of truth for that comparison — `updatePartyHallPipeline`
+ * calls this rather than re-deriving it, on both the no-DB fixtures path and
+ * (in spirit) the real `WHERE id = ? AND status = priorStatus`, so wiring the
+ * guard wrong means deleting a call site, not silently duplicating a check.
+ */
+export function partyHallTransitionAllowed(
+  actualStatus: PartyHallStatus,
+  priorStatus: PartyHallStatus,
+): boolean {
+  return actualStatus === priorStatus;
+}
+
 function findPartyHallEnquiry(
   state: { partyHall: PartyHallEnquiry[] },
   id: string,
@@ -1834,16 +1852,6 @@ const JULY_2026_OCCUPANCY: Record<number, number> = {
   31: 10,
 };
 
-/**
- * Party-hall events by ISO date, seeded for the July display month per the
- * design. Merged with the live enquiry set below so other months stay truthful.
- */
-const CALENDAR_EVENT_SEED: Record<string, string> = {
-  "2026-07-12": "Birthday · 55 pax",
-  "2026-07-22": "Reception · 140 pax",
-  "2026-07-30": "Wedding · 150 pax",
-};
-
 /** Occupancy percent → shading band. Thresholds mirror the legend. */
 export function occupancyBand(pct: number): OccupancyBand {
   if (pct >= 100) return "full";
@@ -1852,7 +1860,7 @@ export function occupancyBand(pct: number): OccupancyBand {
   return "low";
 }
 
-/** Party-hall events for a month: design seed first, then live enquiries. */
+/** Party-hall events for a month, from the live enquiry set only. */
 function eventsForMonth(
   partyHall: PartyHallEnquiry[],
   year: number,
@@ -1864,10 +1872,6 @@ function eventsForMonth(
   for (const e of partyHall) {
     if (!isUpcomingEvent(e) || !e.date.startsWith(prefix)) continue;
     events.set(e.date, `${e.title} · ${e.guests} pax`);
-  }
-  // Seed wins — it is what the design shows for the July display month.
-  for (const [date, label] of Object.entries(CALENDAR_EVENT_SEED)) {
-    if (date.startsWith(prefix)) events.set(date, label);
   }
   return events;
 }

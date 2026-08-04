@@ -67,12 +67,13 @@ describe("getCalendarPageData", () => {
   });
 
   it("flags party-hall events on their own day and nowhere else", async () => {
+    // Live enquiry set only — no seeded/design placeholder events. July's 2nd
+    // (a completed Sangeet) is history, not something to plan around; only
+    // the 30th (an upcoming, confirmed wedding) flags.
     const { cells } = await getCalendarPageData(fixtures, 2026, 7);
     const flagged = daysOf(cells).filter((d) => d.event !== null);
     expect(flagged.map((d) => [d.day, d.event])).toEqual([
-      [12, "Birthday · 55 pax"],
-      [22, "Reception · 140 pax"],
-      [30, "Wedding · 150 pax"],
+      [30, "Wedding reception — Rao family · 150 pax"],
     ]);
   });
 

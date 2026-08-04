@@ -10,6 +10,7 @@ import {
   PARTY_HALL_ADVANCE_PCT,
   PARTY_HALL_RATE_DEFAULTS,
   partyHallAdvance,
+  partyHallTransitionAllowed,
   recordPartyHallAdvance,
   reopenPartyHallEnquiry,
   resolvePartyHallRates,
@@ -364,6 +365,22 @@ describe("quoteBreakdown persistence", () => {
       partyHall: [enquiry({ id: "PH-NO-BREAKDOWN-PAGE", status: "quote_sent", amount: 50000 })],
     };
     await expect(getPartyHallPageData(custom)).resolves.toBeDefined();
+  });
+});
+
+describe("partyHallTransitionAllowed", () => {
+  // `updatePartyHallPipeline` calls this rather than re-deriving the check —
+  // this is the same guard the real `WHERE id = ? AND status = priorStatus`
+  // and the no-DB fixtures path both rely on to make a stale write a no-op.
+  it("allows a write when the row's actual status still matches what the caller last saw", () => {
+    expect(partyHallTransitionAllowed("confirmed", "confirmed")).toBe(true);
+  });
+
+  it("blocks a write when the row has already moved on since the caller last saw it", () => {
+    // Simulates two tabs: both loaded the enquiry while it was "confirmed",
+    // one already moved it on to "cancelled", and this caller is still
+    // holding the stale "confirmed" it read earlier.
+    expect(partyHallTransitionAllowed("cancelled", "confirmed")).toBe(false);
   });
 });
 

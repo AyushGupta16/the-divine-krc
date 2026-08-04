@@ -50,6 +50,7 @@ import {
   recordPartyHallAdvance,
   reopenPartyHallEnquiry,
   resolveAddOnRates,
+  partyHallTransitionAllowed,
   resolvePartyHallRates,
   resolveRequestedService,
   resolveRoomTypes,
@@ -507,7 +508,7 @@ async function updatePartyHallPipeline(
   if (!conn) {
     noDbInsert();
     const enquiry = fixtures.partyHall.find((e) => e.id === id);
-    if (!enquiry || enquiry.status !== priorStatus) return false;
+    if (!enquiry || !partyHallTransitionAllowed(enquiry.status, priorStatus)) return false;
     Object.assign(enquiry, {
       ...patch,
       quotedAt: patch.quotedAt?.toISOString() ?? enquiry.quotedAt,
