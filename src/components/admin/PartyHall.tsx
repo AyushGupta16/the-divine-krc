@@ -16,6 +16,7 @@ import type {
   PartyHallStatus,
 } from "@/types/booking";
 import {
+  cancelPartyHallEventFn,
   confirmPartyHallEventFn,
   declinePartyHallEnquiryFn,
   recordPartyHallAdvanceFn,
@@ -147,6 +148,17 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
     await router.invalidate();
   }
 
+  async function cancel() {
+    setActing(true);
+    const res = await cancelPartyHallEventFn({ data: { id: item.enquiry.id } });
+    setActing(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    await router.invalidate();
+  }
+
   return (
     <div className="rounded-lg border border-[#eae4d6] bg-white px-5 py-4.5 transition-colors hover:border-[#d9cba6]">
       <div className="flex flex-wrap items-start gap-3.5">
@@ -245,6 +257,16 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
                 className="rounded border border-[#e3c9c0] bg-white px-3 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#b4553f] hover:bg-[#f7e6e0] disabled:opacity-60"
               >
                 Decline
+              </button>
+            )}
+            {item.canCancel && (
+              <button
+                type="button"
+                disabled={acting}
+                onClick={cancel}
+                className="rounded border border-[#e3c9c0] bg-white px-3 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#b4553f] hover:bg-[#f7e6e0] disabled:opacity-60"
+              >
+                Cancel
               </button>
             )}
             <button

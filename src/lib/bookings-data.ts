@@ -19,11 +19,12 @@
 // it knows where the rows come from — which was the point of the split.
 
 import { createServerFn } from "@tanstack/react-start";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import {
   assignBookingRoom,
   cancelGuestBooking,
+  cancelPartyHallEvent,
   checkAvailability,
   checkInEligibilityError,
   computePartyHallQuote,
@@ -49,6 +50,7 @@ import {
   recordPartyHallAdvance,
   reopenPartyHallEnquiry,
   resolveAddOnRates,
+  partyHallTransitionAllowed,
   resolvePartyHallRates,
   resolveRequestedService,
   resolveRoomTypes,
@@ -171,7 +173,7 @@ function toRoomTile(r: RoomRow): RoomTile {
   };
 }
 
-function toPartyHall(r: PartyHallRow, advancePct: number): PartyHallEnquiry {
+export function toPartyHall(r: PartyHallRow, advancePct: number): PartyHallEnquiry {
   return withAdvance(
     {
       id: r.id,
@@ -183,6 +185,11 @@ function toPartyHall(r: PartyHallRow, advancePct: number): PartyHallEnquiry {
       addOns: r.addOns,
       status: r.status as PartyHallStatus,
       amount: r.amount,
+      quotedAt: r.quotedAt?.toISOString() ?? undefined,
+      quoteBreakdown: r.quoteBreakdown ?? undefined,
+      advanceAmount: r.advanceAmount ?? undefined,
+      advancePct: r.advancePct ?? undefined,
+      refundedAt: r.refundedAt?.toISOString() ?? undefined,
       createdAt: r.createdAt?.toISOString() ?? undefined,
       contactName: r.contactName ?? undefined,
       contactPhone: r.contactPhone ?? undefined,
@@ -473,25 +480,50 @@ export const createPartyHallEnquiryFn = createServerFn({ method: "POST" })
   });
 
 /**
- * Slice 2a's pipeline writes: status plus (only `sendPartyHallQuoteFn` ever
- * changes it) amount. Same fixtures-mutation convenience as the other
- * row-store helpers with no database.
+ * Slice 2a's pipeline writes: status, amount, and (since 0011) the
+ * quote/advance/refund snapshot columns each transition may set.
+ *
+ * `priorStatus` is required and checked in the `WHERE` (and, for the no-DB
+ * fixtures path, before the mutation): the pure rule in `bookings.ts` already
+ * validated the enquiry was in that status when `load()` read it, but two
+ * concurrent clicks can both pass that in-memory check against the same
+ * stale read before either write lands. Matching on `id AND status =
+ * priorStatus` makes the second write a no-op — it affects zero rows — rather
+ * than silently re-applying a transition whose precondition no longer holds.
  */
 async function updatePartyHallPipeline(
   id: string,
-  patch: { status: PartyHallStatus; amount?: number },
-): Promise<void> {
+  priorStatus: PartyHallStatus,
+  patch: {
+    status: PartyHallStatus;
+    amount?: number;
+    quotedAt?: Date;
+    quoteBreakdown?: { label: string; amount: number }[];
+    advanceAmount?: number;
+    advancePct?: number;
+    refundedAt?: Date;
+  },
+): Promise<boolean> {
   const conn = db();
   if (!conn) {
     noDbInsert();
     const enquiry = fixtures.partyHall.find((e) => e.id === id);
-    if (enquiry) Object.assign(enquiry, patch);
-    return;
+    if (!enquiry || !partyHallTransitionAllowed(enquiry.status, priorStatus)) return false;
+    Object.assign(enquiry, {
+      ...patch,
+      quotedAt: patch.quotedAt?.toISOString() ?? enquiry.quotedAt,
+      refundedAt: patch.refundedAt?.toISOString() ?? enquiry.refundedAt,
+    });
+    return true;
   }
-  await conn
+  const result = await conn
     .update(schema.partyHallEnquiries)
     .set(patch)
-    .where(eq(schema.partyHallEnquiries.id, id));
+    .where(
+      and(eq(schema.partyHallEnquiries.id, id), eq(schema.partyHallEnquiries.status, priorStatus)),
+    )
+    .returning({ id: schema.partyHallEnquiries.id });
+  return result.length > 0;
 }
 
 /** Every Party Hall pipeline action shares this shape: load, run the pure
@@ -503,9 +535,25 @@ async function runPartyHallTransition(
   const auth = await requireBookingWriter();
   if (!auth.ok) return auth;
   const current = await load();
+  const priorStatus = current.partyHall.find((e) => e.id === id)?.status;
+  if (!priorStatus) return { ok: false, error: "Enquiry not found." };
   const res = rule(current);
   if (!res.ok) return res;
-  await updatePartyHallPipeline(id, { status: res.enquiry.status, amount: res.enquiry.amount });
+  const wrote = await updatePartyHallPipeline(id, priorStatus, {
+    status: res.enquiry.status,
+    amount: res.enquiry.amount,
+    quotedAt: res.enquiry.quotedAt ? new Date(res.enquiry.quotedAt) : undefined,
+    quoteBreakdown: res.enquiry.quoteBreakdown,
+    advanceAmount: res.enquiry.advanceAmount,
+    advancePct: res.enquiry.advancePct,
+    refundedAt: res.enquiry.refundedAt ? new Date(res.enquiry.refundedAt) : undefined,
+  });
+  if (!wrote) {
+    return {
+      ok: false,
+      error: "This enquiry changed since you loaded it — refresh and try again.",
+    };
+  }
   return res;
 }
 
@@ -556,6 +604,13 @@ export const declinePartyHallEnquiryFn = createServerFn({ method: "POST" })
   .validator((data: { id: string }) => data)
   .handler(async ({ data }) =>
     runPartyHallTransition(data.id, (current) => declinePartyHallEnquiry(current, data.id)),
+  );
+
+/** Calls off a booking after money has moved — terminal, no reopen. */
+export const cancelPartyHallEventFn = createServerFn({ method: "POST" })
+  .validator((data: { id: string }) => data)
+  .handler(async ({ data }) =>
+    runPartyHallTransition(data.id, (current) => cancelPartyHallEvent(current, data.id)),
   );
 
 /** `declined` reopens back to `quote_sent` — not a dead end. */

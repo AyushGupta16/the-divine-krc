@@ -70,6 +70,8 @@ async function main() {
   const partyHall = fixtures.partyHall.map(({ advancePaid: _a, ...e }) => ({
     ...e,
     createdAt: e.createdAt ? new Date(e.createdAt) : null,
+    quotedAt: e.quotedAt ? new Date(e.quotedAt) : null,
+    refundedAt: e.refundedAt ? new Date(e.refundedAt) : null,
   }));
 
   // No password hash. The seeded staff accepted long before the console existed,

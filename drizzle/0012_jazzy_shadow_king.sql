@@ -1,0 +1,1 @@
+ALTER TABLE "party_hall_enquiries" ADD COLUMN "quote_breakdown" jsonb;

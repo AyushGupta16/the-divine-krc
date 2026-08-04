@@ -136,6 +136,33 @@ export const partyHallEnquiries = pgTable("party_hall_enquiries", {
   amount: integer("amount").notNull().default(0),
   // advancePaid: derived from amount + status. See rule 1.
 
+  /** Set once, by `sendPartyHallQuote`. Null for rows quoted before this
+   *  column existed — the "Quoted ₹X" label degrades to no date rather than
+   *  rendering "on null" for those. */
+  quotedAt: timestamp("quoted_at", { withTimezone: true }),
+  /** Set once, by `sendPartyHallQuote`, alongside `amount`/`quotedAt` — the
+   *  package base plus each add-on, at the rate resolved at that exact
+   *  moment. Label and amount stored together, never a rate-key id, so
+   *  rendering it later needs no lookup against (possibly since-changed)
+   *  Settings. Null for rows quoted before this column existed; never
+   *  backfilled and never recomputed on read — a null here means "no
+   *  breakdown on record", not "zero-cost". */
+  quoteBreakdown: jsonb("quote_breakdown").$type<{ label: string; amount: number }[]>(),
+  /** Snapshotted at `recordPartyHallAdvance` time — the source of truth for
+   *  display going forward. Never recomputed from a later `phAdvancePct`
+   *  edit, which is the whole reason this column exists instead of a live
+   *  re-derive. Null for rows that predate it; `withAdvance` falls back to
+   *  live amount × pct only in that case. */
+  advanceAmount: integer("advance_amount"),
+  /** Percentage in force when the advance above was recorded — context only,
+   *  never read back into a recompute. */
+  advancePct: integer("advance_pct"),
+  /** Stamped by `cancelPartyHallEvent` when cancelling out of `advance_paid`
+   *  or `confirmed` — i.e. whenever money had already moved. Never cleared;
+   *  the advance fields above stay put alongside it as the historical
+   *  record, per rule: never wipe a financial record. */
+  refundedAt: timestamp("refunded_at", { withTimezone: true }),
+
   /** Set once, by `createPartyHallEnquiry`, at the moment the guest-facing
    *  form submits. Null for every row that predates this column (seed data,
    *  and any enquiry an admin entered by hand before the form existed) — the

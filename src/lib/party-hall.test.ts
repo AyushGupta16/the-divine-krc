@@ -1,18 +1,23 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  cancelPartyHallEvent,
   computePartyHallQuote,
+  computePartyHallQuoteBreakdown,
   confirmPartyHallEvent,
   declinePartyHallEnquiry,
   getPartyHallPageData,
   PARTY_HALL_ADVANCE_PCT,
   PARTY_HALL_RATE_DEFAULTS,
   partyHallAdvance,
+  partyHallTransitionAllowed,
   recordPartyHallAdvance,
   reopenPartyHallEnquiry,
   resolvePartyHallRates,
   sendPartyHallQuote,
+  withAdvance,
 } from "@/lib/bookings";
+import { toPartyHall } from "@/lib/bookings-data";
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import type {
   PartyHallCalendarCell,
@@ -152,6 +157,52 @@ describe("getPartyHallPageData", () => {
     expect(paid.meta).toContain("advance ₹22k paid");
   });
 
+  it("shows the snapshotted percentage alongside the advance once one is on record", async () => {
+    const custom = {
+      ...fixtures,
+      partyHall: [
+        enquiry({
+          id: "PH-PCT",
+          status: "advance_paid",
+          amount: 100000,
+          advanceAmount: 25000,
+          advancePct: 25,
+        }),
+      ],
+    };
+    const { events } = await getPartyHallPageData(custom);
+    const item = events.find((e) => e.enquiry.id === "PH-PCT")!;
+    expect(item.meta).toContain("advance ₹25k (25%) paid");
+  });
+
+  it("withAdvance falls back to a live amount × pct calculation for a row with no advance snapshot", () => {
+    // Exercised through `toPartyHall`, the real DB-row hydration path where
+    // `withAdvance` actually runs — not through the `enquiry()` fixture helper,
+    // which would only prove the fixture agrees with itself.
+    const row = {
+      id: "PH-NULL-SNAPSHOT",
+      title: "Test event",
+      date: "2027-01-01",
+      slot: "evening",
+      guests: 100,
+      package: "Gold",
+      addOns: ["Catering"],
+      status: "advance_paid",
+      amount: 100000,
+      quotedAt: null,
+      quoteBreakdown: null,
+      advanceAmount: null,
+      advancePct: null,
+      refundedAt: null,
+      createdAt: null,
+      contactName: null,
+      contactPhone: null,
+      contactEmail: null,
+    };
+    const hydrated = toPartyHall(row, 25);
+    expect(hydrated.advancePaid).toBe(25000);
+  });
+
   it("marks the rail's booked days from the live enquiries for that month", async () => {
     const august = await getPartyHallPageData(fixtures, 2026, 8);
     expect(august.calendar.monthLabel).toBe("August 2026");
@@ -168,6 +219,46 @@ describe("getPartyHallPageData", () => {
     expect(bookedDays(calendar.cells)).toEqual([]);
   });
 
+  it("drops cancelled events from confirmed·upcoming and the calendar's booked days", async () => {
+    const custom = {
+      ...fixtures,
+      partyHall: [
+        enquiry({ id: "PH-CANCELLED", status: "cancelled", date: "2026-08-15", amount: 100000 }),
+        enquiry({ id: "PH-CONFIRMED", status: "confirmed", date: "2026-08-16", amount: 100000 }),
+      ],
+    };
+    const { stats, calendar } = await getPartyHallPageData(custom, 2026, 8);
+    expect(statValue(stats, "confirmed")).toBe("1");
+    expect(bookedDays(calendar.cells)).toEqual([16]);
+  });
+
+  it("degrades the quoted-on label to no date for a pre-migration row with no quotedAt", async () => {
+    const custom = {
+      ...fixtures,
+      partyHall: [enquiry({ id: "PH-NO-DATE", status: "quote_sent", amount: 50000 })],
+    };
+    const { events } = await getPartyHallPageData(custom, 2026, 8);
+    const item = events.find((e) => e.enquiry.id === "PH-NO-DATE")!;
+    expect(item.amountLabel).toBe("Quoted");
+  });
+
+  it("shows the quote date in the label once quotedAt is on record", async () => {
+    const custom = {
+      ...fixtures,
+      partyHall: [
+        enquiry({
+          id: "PH-DATED",
+          status: "quote_sent",
+          amount: 50000,
+          quotedAt: "2026-08-04T10:00:00.000Z",
+        }),
+      ],
+    };
+    const { events } = await getPartyHallPageData(custom, 2026, 8);
+    const item = events.find((e) => e.enquiry.id === "PH-DATED")!;
+    expect(item.amountLabel).toBe("Quoted on 4 Aug 2026");
+  });
+
   it("states the 25% advance in the package reference", async () => {
     const { addOnsLine, packages } = await getPartyHallPageData(fixtures);
     expect(addOnsLine).toContain("25% advance to confirm");
@@ -175,8 +266,14 @@ describe("getPartyHallPageData", () => {
   });
 });
 
+/** Derives `advancePaid` through the real `withAdvance` rule instead of
+ *  defaulting it to 0, so a patch like `{ status: "advance_paid", advanceAmount:
+ *  25000 }` can't silently produce the incoherent `advancePaid: 0` — the exact
+ *  shape that let a bad test assertion through undetected. Pass `advancePaid`
+ *  explicitly only to test a deliberately-incoherent row. */
 function enquiry(patch: Partial<PartyHallEnquiry>): PartyHallEnquiry {
-  return {
+  const { advancePaid: explicitAdvancePaid, ...rest } = patch;
+  const merged: Omit<PartyHallEnquiry, "advancePaid"> = {
     id: "PH-TEST-001",
     title: "Test event",
     date: "2027-01-01",
@@ -186,9 +283,12 @@ function enquiry(patch: Partial<PartyHallEnquiry>): PartyHallEnquiry {
     addOns: ["Catering", "Decor"],
     status: "enquiry",
     amount: 0,
-    advancePaid: 0,
-    ...patch,
+    ...rest,
   };
+  if (explicitAdvancePaid !== undefined) {
+    return { ...merged, advancePaid: explicitAdvancePaid };
+  }
+  return withAdvance(merged, merged.advancePct);
 }
 
 describe("computePartyHallQuote", () => {
@@ -205,6 +305,82 @@ describe("computePartyHallQuote", () => {
   it("falls back to the placeholder defaults when nothing is overridden", () => {
     const rates = resolvePartyHallRates();
     expect(rates).toEqual(PARTY_HALL_RATE_DEFAULTS);
+  });
+
+  it("breaks the quote into lines that sum to the same total computePartyHallQuote returns", () => {
+    const rates = resolvePartyHallRates({ phBaseGold: 60000, phDecor: 5000, phCatering: 450 });
+    const e = enquiry({});
+    const breakdown = computePartyHallQuoteBreakdown(e, rates);
+    expect(breakdown.reduce((sum, line) => sum + line.amount, 0)).toBe(
+      computePartyHallQuote(e, rates),
+    );
+    expect(breakdown).toEqual([
+      { label: "Gold package", amount: 60000 },
+      { label: "Catering", amount: 100 * 450 },
+      { label: "Decor", amount: 5000 },
+    ]);
+  });
+});
+
+describe("quoteBreakdown persistence", () => {
+  it("sendPartyHallQuote freezes a breakdown whose lines sum to the frozen amount", () => {
+    const state = { partyHall: [enquiry({})] };
+    const rates = resolvePartyHallRates({ phBaseGold: 60000, phDecor: 5000, phCatering: 450 });
+    const res = sendPartyHallQuote(state, "PH-TEST-001", rates);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const sum = (res.enquiry.quoteBreakdown ?? []).reduce((s, line) => s + line.amount, 0);
+    expect(sum).toBe(res.enquiry.amount);
+  });
+
+  it("hydrates a null quoteBreakdown without throwing, for rows that predate the column", () => {
+    const row = {
+      id: "PH-NO-BREAKDOWN",
+      title: "Test event",
+      date: "2027-01-01",
+      slot: "evening",
+      guests: 100,
+      package: "Gold",
+      addOns: ["Catering"],
+      status: "quote_sent",
+      amount: 50000,
+      quotedAt: new Date("2026-01-01T00:00:00.000Z"),
+      quoteBreakdown: null,
+      advanceAmount: null,
+      advancePct: null,
+      refundedAt: null,
+      createdAt: null,
+      contactName: null,
+      contactPhone: null,
+      contactEmail: null,
+    };
+    expect(() => toPartyHall(row, 25)).not.toThrow();
+    const hydrated = toPartyHall(row, 25);
+    expect(hydrated.quoteBreakdown).toBeUndefined();
+  });
+
+  it("renders a page of events with a null quoteBreakdown without throwing", async () => {
+    const custom = {
+      ...fixtures,
+      partyHall: [enquiry({ id: "PH-NO-BREAKDOWN-PAGE", status: "quote_sent", amount: 50000 })],
+    };
+    await expect(getPartyHallPageData(custom)).resolves.toBeDefined();
+  });
+});
+
+describe("partyHallTransitionAllowed", () => {
+  // `updatePartyHallPipeline` calls this rather than re-deriving the check —
+  // this is the same guard the real `WHERE id = ? AND status = priorStatus`
+  // and the no-DB fixtures path both rely on to make a stale write a no-op.
+  it("allows a write when the row's actual status still matches what the caller last saw", () => {
+    expect(partyHallTransitionAllowed("confirmed", "confirmed")).toBe(true);
+  });
+
+  it("blocks a write when the row has already moved on since the caller last saw it", () => {
+    // Simulates two tabs: both loaded the enquiry while it was "confirmed",
+    // one already moved it on to "cancelled", and this caller is still
+    // holding the stale "confirmed" it read earlier.
+    expect(partyHallTransitionAllowed("cancelled", "confirmed")).toBe(false);
   });
 });
 
@@ -274,5 +450,84 @@ describe("the Party Hall pipeline actions", () => {
   it("refuses to reopen anything but a declined enquiry", () => {
     const res = reopenPartyHallEnquiry({ partyHall: [enquiry({})] }, "PH-TEST-001");
     expect(res.ok).toBe(false);
+  });
+
+  it("reopens a declined-before-any-quote enquiry back to enquiry, not quote_sent", () => {
+    const bare = enquiry({ status: "enquiry", amount: 0 });
+    const declined = declinePartyHallEnquiry({ partyHall: [bare] }, "PH-TEST-001");
+    expect(declined.ok).toBe(true);
+    if (!declined.ok) return;
+    expect(declined.enquiry.status).toBe("declined");
+
+    const reopened = reopenPartyHallEnquiry({ partyHall: [declined.enquiry] }, "PH-TEST-001");
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) return;
+    expect(reopened.enquiry.status).toBe("enquiry");
+    expect(reopened.enquiry.amount).toBe(0);
+  });
+
+  it("cancels a booking out of advance_paid or confirmed, stamping refundedAt", () => {
+    const advancePaid = enquiry({
+      status: "advance_paid",
+      amount: 100000,
+      advanceAmount: 25000,
+      advancePct: 25,
+    });
+    const cancelledFromAdvance = cancelPartyHallEvent({ partyHall: [advancePaid] }, "PH-TEST-001");
+    expect(cancelledFromAdvance.ok).toBe(true);
+    if (!cancelledFromAdvance.ok) return;
+    expect(cancelledFromAdvance.enquiry.status).toBe("cancelled");
+    expect(cancelledFromAdvance.enquiry.refundedAt).toBeTruthy();
+    // Never wipe the financial record.
+    expect(cancelledFromAdvance.enquiry.advanceAmount).toBe(25000);
+
+    const confirmed = enquiry({
+      status: "confirmed",
+      amount: 100000,
+      advanceAmount: 25000,
+      advancePct: 25,
+    });
+    const cancelledFromConfirmed = cancelPartyHallEvent({ partyHall: [confirmed] }, "PH-TEST-001");
+    expect(cancelledFromConfirmed.ok).toBe(true);
+    if (!cancelledFromConfirmed.ok) return;
+    expect(cancelledFromConfirmed.enquiry.status).toBe("cancelled");
+    expect(cancelledFromConfirmed.enquiry.refundedAt).toBeTruthy();
+  });
+
+  it("refuses to cancel a booking with no advance on record", () => {
+    for (const status of ["enquiry", "quote_sent", "declined", "completed"] as const) {
+      const res = cancelPartyHallEvent({ partyHall: [enquiry({ status })] }, "PH-TEST-001");
+      expect(res.ok).toBe(false);
+    }
+  });
+
+  it("has no reopen path out of cancelled", () => {
+    const cancelled = enquiry({ status: "cancelled", amount: 100000 });
+    const res = reopenPartyHallEnquiry({ partyHall: [cancelled] }, "PH-TEST-001");
+    expect(res.ok).toBe(false);
+  });
+});
+
+describe("withAdvance", () => {
+  it("reads the snapshotted advance when one is on record", () => {
+    const e = withAdvance(
+      {
+        ...enquiry({
+          status: "advance_paid",
+          amount: 100000,
+          advanceAmount: 25000,
+          advancePct: 25,
+        }),
+        advanceAmount: 25000,
+      },
+      // A live pct far from the snapshot proves the snapshot wins, not this.
+      50,
+    );
+    expect(e.advancePaid).toBe(25000);
+  });
+
+  it("falls back to amount × live pct for a pre-snapshot row with no advanceAmount", () => {
+    const e = withAdvance(enquiry({ status: "advance_paid", amount: 100000 }), 25);
+    expect(e.advancePaid).toBe(25000);
   });
 });

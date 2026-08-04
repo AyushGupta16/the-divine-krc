@@ -280,12 +280,23 @@ function collectedFor(status: PartyHallStatus, amount: number, pct?: number): nu
 
 /** Hydrates a seeded enquiry with the advance its pipeline stage implies.
  *  `advancePct` should be the resolved `phAdvancePct` rate wherever one is
- *  available; omitted only for fixtures/tests that have no Settings row to read. */
+ *  available; omitted only for fixtures/tests that have no Settings row to read.
+ *
+ *  `advanceAmount` on the row, when present, is the source of truth — it was
+ *  snapshotted by `recordPartyHallAdvance` at the moment money actually moved,
+ *  and must never be recomputed from a `phAdvancePct` the owner edits later.
+ *  The live `amount × advancePct` calculation is a fallback for rows recorded
+ *  before that column existed, nothing more. */
 export function withAdvance(
   e: Omit<PartyHallEnquiry, "advancePaid">,
   advancePct?: number,
 ): PartyHallEnquiry {
-  return { ...e, advancePaid: collectedFor(e.status, e.amount, advancePct) };
+  const snapshotApplies =
+    (e.status === "advance_paid" || e.status === "confirmed") && e.advanceAmount != null;
+  const advancePaid = snapshotApplies
+    ? e.advanceAmount!
+    : collectedFor(e.status, e.amount, advancePct);
+  return { ...e, advancePaid };
 }
 
 /**
@@ -448,29 +459,51 @@ const PARTY_HALL_PER_GUEST_ADDON_KEY: Partial<Record<string, PartyHallRateKey>> 
   "Lunch Buffet": "phLunchBuffet",
 };
 
+export interface QuotePriceLine {
+  label: string;
+  amount: number;
+}
+
 /**
- * The quote a "Send quote" click commits to: the package base, plus every
- * requested add-on at its resolved rate — flat once per event, or × guests
- * for the two catering-style add-ons. An add-on outside the known vocabulary
- * (should never happen, `createPartyHallEnquiry` whitelists it) contributes 0
- * rather than throwing, same "don't trust what you can't place" posture as
- * the rest of this file.
+ * The per-line breakdown a "Send quote" click freezes: the package base,
+ * then every requested add-on at its resolved rate — flat once per event, or
+ * × guests for the two catering-style add-ons, pre-multiplied into `amount`
+ * so nothing reading this later needs `guests` or a rate lookup to make
+ * sense of it. An add-on outside the known vocabulary (should never happen,
+ * `createPartyHallEnquiry` whitelists it) contributes nothing, same
+ * "don't trust what you can't place" posture as the rest of this file.
+ *
+ * `computePartyHallQuote` sums this — one computation, not two that could
+ * silently disagree.
+ */
+export function computePartyHallQuoteBreakdown(
+  e: Pick<PartyHallEnquiry, "package" | "addOns" | "guests">,
+  rates: PartyHallRates,
+): QuotePriceLine[] {
+  const lines: QuotePriceLine[] = [
+    { label: `${e.package} package`, amount: rates[PARTY_HALL_BASE_KEY[e.package]] ?? 0 },
+  ];
+  for (const addOn of e.addOns) {
+    const flatKey = PARTY_HALL_FLAT_ADDON_KEY[addOn];
+    if (flatKey) {
+      lines.push({ label: addOn, amount: rates[flatKey] });
+      continue;
+    }
+    const perGuestKey = PARTY_HALL_PER_GUEST_ADDON_KEY[addOn];
+    if (perGuestKey) lines.push({ label: addOn, amount: rates[perGuestKey] * e.guests });
+  }
+  return lines;
+}
+
+/**
+ * The quote a "Send quote" click commits to — the sum of
+ * `computePartyHallQuoteBreakdown`'s lines.
  */
 export function computePartyHallQuote(
   e: Pick<PartyHallEnquiry, "package" | "addOns" | "guests">,
   rates: PartyHallRates,
 ): number {
-  let total = rates[PARTY_HALL_BASE_KEY[e.package]] ?? 0;
-  for (const addOn of e.addOns) {
-    const flatKey = PARTY_HALL_FLAT_ADDON_KEY[addOn];
-    if (flatKey) {
-      total += rates[flatKey];
-      continue;
-    }
-    const perGuestKey = PARTY_HALL_PER_GUEST_ADDON_KEY[addOn];
-    if (perGuestKey) total += rates[perGuestKey] * e.guests;
-  }
-  return total;
+  return computePartyHallQuoteBreakdown(e, rates).reduce((sum, line) => sum + line.amount, 0);
 }
 
 function nightsBetween(checkIn: string, checkOut: string): number {
@@ -741,6 +774,24 @@ export function createPartyHallEnquiry(
   return { ok: true, enquiry };
 }
 
+/**
+ * The pipeline write precondition: a status-changing write may only proceed
+ * if the row's actual status still matches what the caller last saw. Two
+ * concurrent clicks can both read the same status before either writes —
+ * this is what tells the second one its write is now stale.
+ *
+ * The single source of truth for that comparison — `updatePartyHallPipeline`
+ * calls this rather than re-deriving it, on both the no-DB fixtures path and
+ * (in spirit) the real `WHERE id = ? AND status = priorStatus`, so wiring the
+ * guard wrong means deleting a call site, not silently duplicating a check.
+ */
+export function partyHallTransitionAllowed(
+  actualStatus: PartyHallStatus,
+  priorStatus: PartyHallStatus,
+): boolean {
+  return actualStatus === priorStatus;
+}
+
 function findPartyHallEnquiry(
   state: { partyHall: PartyHallEnquiry[] },
   id: string,
@@ -768,10 +819,20 @@ export function sendPartyHallQuote(
   if (found.enquiry.status !== "enquiry") {
     return { ok: false, error: "Only a new enquiry can be quoted." };
   }
-  const amount = computePartyHallQuote(found.enquiry, rates);
+  const quoteBreakdown = computePartyHallQuoteBreakdown(found.enquiry, rates);
+  const amount = quoteBreakdown.reduce((sum, line) => sum + line.amount, 0);
   return {
     ok: true,
-    enquiry: withAdvance({ ...found.enquiry, status: "quote_sent", amount }, advancePct),
+    enquiry: withAdvance(
+      {
+        ...found.enquiry,
+        status: "quote_sent",
+        amount,
+        quotedAt: new Date().toISOString(),
+        quoteBreakdown,
+      },
+      advancePct,
+    ),
   };
 }
 
@@ -794,9 +855,13 @@ export function recordPartyHallAdvance(
   if (found.enquiry.status !== "quote_sent") {
     return { ok: false, error: "Only a quoted enquiry can have its advance recorded." };
   }
+  const advanceAmount = partyHallAdvance(found.enquiry.amount, advancePct);
   return {
     ok: true,
-    enquiry: withAdvance({ ...found.enquiry, status: "advance_paid" }, advancePct),
+    enquiry: withAdvance(
+      { ...found.enquiry, status: "advance_paid", advanceAmount, advancePct },
+      advancePct,
+    ),
   };
 }
 
@@ -837,9 +902,13 @@ export function declinePartyHallEnquiry(
   return { ok: true, enquiry: { ...found.enquiry, status: "declined" } };
 }
 
-/** `declined` is not a dead end (mirrors Slice B's reversed→applied fix):
- *  reopens back to `quote_sent`, since the quote itself was never wrong —
- *  only the guest's answer was "no", and that can change. */
+/** `declined` is not a dead end (mirrors Slice B's reversed→applied fix): it
+ *  reopens back to whatever it was before the decline. `declinePartyHallEnquiry`
+ *  allows declining straight from `enquiry` — before any quote exists — so the
+ *  target can't be hardcoded to `quote_sent`; it must be derived from whether
+ *  a quote is actually on the record. `amount > 0` is that signal (never `0`
+ *  until `sendPartyHallQuote` sets it) and, unlike `quotedAt`, it needs no
+ *  backfill: every pre-0011 row already has the right amount to derive from. */
 export function reopenPartyHallEnquiry(
   state: { partyHall: PartyHallEnquiry[] },
   id: string,
@@ -849,7 +918,37 @@ export function reopenPartyHallEnquiry(
   if (found.enquiry.status !== "declined") {
     return { ok: false, error: "Only a declined enquiry can be reopened." };
   }
-  return { ok: true, enquiry: { ...found.enquiry, status: "quote_sent" } };
+  const status = found.enquiry.amount > 0 ? "quote_sent" : "enquiry";
+  return { ok: true, enquiry: { ...found.enquiry, status } };
+}
+
+/**
+ * Calls off an event after money has already moved — distinct from
+ * `declinePartyHallEnquiry`, which only ever fires before a rupee changes
+ * hands. Reachable from `advance_paid` (the advance came in, then the booking
+ * fell through before Confirm) and from `confirmed` (fell through after the
+ * date was locked in) — both leave an advance on the books, so both stamp
+ * `refundedAt` alongside the status change. Terminal: unlike `declined`,
+ * there is no reopen path back — resurrecting a cancelled, money-collected
+ * booking is a new enquiry's worth of decisions, not a state flip.
+ */
+export function cancelPartyHallEvent(
+  state: { partyHall: PartyHallEnquiry[] },
+  id: string,
+): Result<{ enquiry: PartyHallEnquiry }> {
+  const found = findPartyHallEnquiry(state, id);
+  if (!found.ok) return found;
+  if (found.enquiry.status !== "advance_paid" && found.enquiry.status !== "confirmed") {
+    return { ok: false, error: "Only a booking with an advance on record can be cancelled." };
+  }
+  return {
+    ok: true,
+    enquiry: {
+      ...found.enquiry,
+      status: "cancelled",
+      refundedAt: new Date().toISOString(),
+    },
+  };
 }
 
 /**
@@ -1753,16 +1852,6 @@ const JULY_2026_OCCUPANCY: Record<number, number> = {
   31: 10,
 };
 
-/**
- * Party-hall events by ISO date, seeded for the July display month per the
- * design. Merged with the live enquiry set below so other months stay truthful.
- */
-const CALENDAR_EVENT_SEED: Record<string, string> = {
-  "2026-07-12": "Birthday · 55 pax",
-  "2026-07-22": "Reception · 140 pax",
-  "2026-07-30": "Wedding · 150 pax",
-};
-
 /** Occupancy percent → shading band. Thresholds mirror the legend. */
 export function occupancyBand(pct: number): OccupancyBand {
   if (pct >= 100) return "full";
@@ -1771,7 +1860,7 @@ export function occupancyBand(pct: number): OccupancyBand {
   return "low";
 }
 
-/** Party-hall events for a month: design seed first, then live enquiries. */
+/** Party-hall events for a month, from the live enquiry set only. */
 function eventsForMonth(
   partyHall: PartyHallEnquiry[],
   year: number,
@@ -1783,10 +1872,6 @@ function eventsForMonth(
   for (const e of partyHall) {
     if (!isUpcomingEvent(e) || !e.date.startsWith(prefix)) continue;
     events.set(e.date, `${e.title} · ${e.guests} pax`);
-  }
-  // Seed wins — it is what the design shows for the July display month.
-  for (const [date, label] of Object.entries(CALENDAR_EVENT_SEED)) {
-    if (date.startsWith(prefix)) events.set(date, label);
   }
   return events;
 }
@@ -1882,8 +1967,12 @@ function metaNote(e: PartyHallEnquiry): string {
       return "awaiting quote";
     case "quote_sent":
       return "quote sent";
-    case "advance_paid":
-      return `advance ${formatINRCompact(e.advancePaid)} paid`;
+    case "advance_paid": {
+      // `advancePct` is the rate snapshotted at record time — shown for
+      // context alongside the amount, never read back into a recompute.
+      const pct = e.advancePct != null ? ` (${e.advancePct}%)` : "";
+      return `advance ${formatINRCompact(e.advancePaid)}${pct} paid`;
+    }
     case "confirmed":
       return "balance due on day";
     case "completed":
@@ -1895,14 +1984,26 @@ function metaNote(e: PartyHallEnquiry): string {
   }
 }
 
-/** What the card's amount means, given where the event sits in the pipeline. */
-function amountLabel(status: PartyHallStatus): string {
+/** What the card's amount means, given where the event sits in the pipeline.
+ *  `quote_sent`/`declined` append the quote date when one is on record —
+ *  `quotedAt` is null for every row quoted before migration 0011, so this
+ *  must degrade to the plain "Quoted" caption rather than render "on null"
+ *  or "on Invalid Date" for those. */
+function amountLabel(status: PartyHallStatus, quotedAt?: string): string {
   switch (status) {
     case "enquiry":
       return "Est. quote";
     case "quote_sent":
-    case "declined":
-      return "Quoted";
+    case "declined": {
+      if (!quotedAt) return "Quoted";
+      const date = new Date(quotedAt).toLocaleDateString("en-IN", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        timeZone: "UTC",
+      });
+      return `Quoted on ${date}`;
+    }
     case "completed":
       return "Collected";
     default:
@@ -1928,6 +2029,8 @@ function ctaFor(status: PartyHallStatus): {
       return { cta: "Record advance", ctaPrimary: true, ctaAction: "record_advance" };
     case "advance_paid":
       return { cta: "Confirm", ctaPrimary: true, ctaAction: "confirm" };
+    case "cancelled":
+      return { cta: "View details", ctaPrimary: false, ctaAction: "none" };
     case "declined":
       return { cta: "Reopen", ctaPrimary: false, ctaAction: "reopen" };
     case "completed":
@@ -1951,10 +2054,11 @@ function buildEventItem(e: PartyHallEnquiry): PartyHallEventItem {
     statusLabel: PARTY_HALL_STATUS_LABEL[e.status],
     meta: `${slotLine(e.slot)} · ${e.guests} guests · ${metaNote(e)}`,
     tags: [e.package, ...e.addOns],
-    amountLabel: amountLabel(e.status),
+    amountLabel: amountLabel(e.status, e.quotedAt),
     // An un-quoted enquiry has no number yet — say so rather than show "₹0".
     amount: e.amount > 0 ? formatINRCompact(e.amount) : "₹—",
     canDecline: e.status === "enquiry" || e.status === "quote_sent",
+    canCancel: e.status === "advance_paid" || e.status === "confirmed",
     ...ctaFor(e.status),
   };
 }
