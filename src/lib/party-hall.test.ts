@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   cancelPartyHallEvent,
   computePartyHallQuote,
+  computePartyHallQuoteBreakdown,
   confirmPartyHallEvent,
   declinePartyHallEnquiry,
   getPartyHallPageData,
@@ -188,6 +189,7 @@ describe("getPartyHallPageData", () => {
       status: "advance_paid",
       amount: 100000,
       quotedAt: null,
+      quoteBreakdown: null,
       advanceAmount: null,
       advancePct: null,
       refundedAt: null,
@@ -302,6 +304,66 @@ describe("computePartyHallQuote", () => {
   it("falls back to the placeholder defaults when nothing is overridden", () => {
     const rates = resolvePartyHallRates();
     expect(rates).toEqual(PARTY_HALL_RATE_DEFAULTS);
+  });
+
+  it("breaks the quote into lines that sum to the same total computePartyHallQuote returns", () => {
+    const rates = resolvePartyHallRates({ phBaseGold: 60000, phDecor: 5000, phCatering: 450 });
+    const e = enquiry({});
+    const breakdown = computePartyHallQuoteBreakdown(e, rates);
+    expect(breakdown.reduce((sum, line) => sum + line.amount, 0)).toBe(
+      computePartyHallQuote(e, rates),
+    );
+    expect(breakdown).toEqual([
+      { label: "Gold package", amount: 60000 },
+      { label: "Catering", amount: 100 * 450 },
+      { label: "Decor", amount: 5000 },
+    ]);
+  });
+});
+
+describe("quoteBreakdown persistence", () => {
+  it("sendPartyHallQuote freezes a breakdown whose lines sum to the frozen amount", () => {
+    const state = { partyHall: [enquiry({})] };
+    const rates = resolvePartyHallRates({ phBaseGold: 60000, phDecor: 5000, phCatering: 450 });
+    const res = sendPartyHallQuote(state, "PH-TEST-001", rates);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const sum = (res.enquiry.quoteBreakdown ?? []).reduce((s, line) => s + line.amount, 0);
+    expect(sum).toBe(res.enquiry.amount);
+  });
+
+  it("hydrates a null quoteBreakdown without throwing, for rows that predate the column", () => {
+    const row = {
+      id: "PH-NO-BREAKDOWN",
+      title: "Test event",
+      date: "2027-01-01",
+      slot: "evening",
+      guests: 100,
+      package: "Gold",
+      addOns: ["Catering"],
+      status: "quote_sent",
+      amount: 50000,
+      quotedAt: new Date("2026-01-01T00:00:00.000Z"),
+      quoteBreakdown: null,
+      advanceAmount: null,
+      advancePct: null,
+      refundedAt: null,
+      createdAt: null,
+      contactName: null,
+      contactPhone: null,
+      contactEmail: null,
+    };
+    expect(() => toPartyHall(row, 25)).not.toThrow();
+    const hydrated = toPartyHall(row, 25);
+    expect(hydrated.quoteBreakdown).toBeUndefined();
+  });
+
+  it("renders a page of events with a null quoteBreakdown without throwing", async () => {
+    const custom = {
+      ...fixtures,
+      partyHall: [enquiry({ id: "PH-NO-BREAKDOWN-PAGE", status: "quote_sent", amount: 50000 })],
+    };
+    await expect(getPartyHallPageData(custom)).resolves.toBeDefined();
   });
 });
 

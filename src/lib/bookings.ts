@@ -459,29 +459,51 @@ const PARTY_HALL_PER_GUEST_ADDON_KEY: Partial<Record<string, PartyHallRateKey>> 
   "Lunch Buffet": "phLunchBuffet",
 };
 
+export interface QuotePriceLine {
+  label: string;
+  amount: number;
+}
+
 /**
- * The quote a "Send quote" click commits to: the package base, plus every
- * requested add-on at its resolved rate — flat once per event, or × guests
- * for the two catering-style add-ons. An add-on outside the known vocabulary
- * (should never happen, `createPartyHallEnquiry` whitelists it) contributes 0
- * rather than throwing, same "don't trust what you can't place" posture as
- * the rest of this file.
+ * The per-line breakdown a "Send quote" click freezes: the package base,
+ * then every requested add-on at its resolved rate — flat once per event, or
+ * × guests for the two catering-style add-ons, pre-multiplied into `amount`
+ * so nothing reading this later needs `guests` or a rate lookup to make
+ * sense of it. An add-on outside the known vocabulary (should never happen,
+ * `createPartyHallEnquiry` whitelists it) contributes nothing, same
+ * "don't trust what you can't place" posture as the rest of this file.
+ *
+ * `computePartyHallQuote` sums this — one computation, not two that could
+ * silently disagree.
+ */
+export function computePartyHallQuoteBreakdown(
+  e: Pick<PartyHallEnquiry, "package" | "addOns" | "guests">,
+  rates: PartyHallRates,
+): QuotePriceLine[] {
+  const lines: QuotePriceLine[] = [
+    { label: `${e.package} package`, amount: rates[PARTY_HALL_BASE_KEY[e.package]] ?? 0 },
+  ];
+  for (const addOn of e.addOns) {
+    const flatKey = PARTY_HALL_FLAT_ADDON_KEY[addOn];
+    if (flatKey) {
+      lines.push({ label: addOn, amount: rates[flatKey] });
+      continue;
+    }
+    const perGuestKey = PARTY_HALL_PER_GUEST_ADDON_KEY[addOn];
+    if (perGuestKey) lines.push({ label: addOn, amount: rates[perGuestKey] * e.guests });
+  }
+  return lines;
+}
+
+/**
+ * The quote a "Send quote" click commits to — the sum of
+ * `computePartyHallQuoteBreakdown`'s lines.
  */
 export function computePartyHallQuote(
   e: Pick<PartyHallEnquiry, "package" | "addOns" | "guests">,
   rates: PartyHallRates,
 ): number {
-  let total = rates[PARTY_HALL_BASE_KEY[e.package]] ?? 0;
-  for (const addOn of e.addOns) {
-    const flatKey = PARTY_HALL_FLAT_ADDON_KEY[addOn];
-    if (flatKey) {
-      total += rates[flatKey];
-      continue;
-    }
-    const perGuestKey = PARTY_HALL_PER_GUEST_ADDON_KEY[addOn];
-    if (perGuestKey) total += rates[perGuestKey] * e.guests;
-  }
-  return total;
+  return computePartyHallQuoteBreakdown(e, rates).reduce((sum, line) => sum + line.amount, 0);
 }
 
 function nightsBetween(checkIn: string, checkOut: string): number {
@@ -779,11 +801,18 @@ export function sendPartyHallQuote(
   if (found.enquiry.status !== "enquiry") {
     return { ok: false, error: "Only a new enquiry can be quoted." };
   }
-  const amount = computePartyHallQuote(found.enquiry, rates);
+  const quoteBreakdown = computePartyHallQuoteBreakdown(found.enquiry, rates);
+  const amount = quoteBreakdown.reduce((sum, line) => sum + line.amount, 0);
   return {
     ok: true,
     enquiry: withAdvance(
-      { ...found.enquiry, status: "quote_sent", amount, quotedAt: new Date().toISOString() },
+      {
+        ...found.enquiry,
+        status: "quote_sent",
+        amount,
+        quotedAt: new Date().toISOString(),
+        quoteBreakdown,
+      },
       advancePct,
     ),
   };

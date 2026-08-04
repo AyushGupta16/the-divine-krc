@@ -185,6 +185,7 @@ export function toPartyHall(r: PartyHallRow, advancePct: number): PartyHallEnqui
       status: r.status as PartyHallStatus,
       amount: r.amount,
       quotedAt: r.quotedAt?.toISOString() ?? undefined,
+      quoteBreakdown: r.quoteBreakdown ?? undefined,
       advanceAmount: r.advanceAmount ?? undefined,
       advancePct: r.advancePct ?? undefined,
       refundedAt: r.refundedAt?.toISOString() ?? undefined,
@@ -496,6 +497,7 @@ async function updatePartyHallPipeline(
     status: PartyHallStatus;
     amount?: number;
     quotedAt?: Date;
+    quoteBreakdown?: { label: string; amount: number }[];
     advanceAmount?: number;
     advancePct?: number;
     refundedAt?: Date;
@@ -540,6 +542,7 @@ async function runPartyHallTransition(
     status: res.enquiry.status,
     amount: res.enquiry.amount,
     quotedAt: res.enquiry.quotedAt ? new Date(res.enquiry.quotedAt) : undefined,
+    quoteBreakdown: res.enquiry.quoteBreakdown,
     advanceAmount: res.enquiry.advanceAmount,
     advancePct: res.enquiry.advancePct,
     refundedAt: res.enquiry.refundedAt ? new Date(res.enquiry.refundedAt) : undefined,

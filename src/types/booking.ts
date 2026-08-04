@@ -169,6 +169,10 @@ export interface PartyHallEnquiry {
    *  quoted before this field existed — the "Quoted ₹X" label omits the date
    *  rather than showing one for those. */
   quotedAt?: string;
+  /** Set once, by `sendPartyHallQuote`, alongside `quotedAt` — the package
+   *  base plus each add-on, at the rate resolved that moment. Undefined for
+   *  rows quoted before this field existed; never recomputed on read. */
+  quoteBreakdown?: { label: string; amount: number }[];
   /** Snapshotted at `recordPartyHallAdvance` time — see `withAdvance`.
    *  Undefined for rows recorded before this field existed. */
   advanceAmount?: number;

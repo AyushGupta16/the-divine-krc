@@ -140,6 +140,14 @@ export const partyHallEnquiries = pgTable("party_hall_enquiries", {
    *  column existed — the "Quoted ₹X" label degrades to no date rather than
    *  rendering "on null" for those. */
   quotedAt: timestamp("quoted_at", { withTimezone: true }),
+  /** Set once, by `sendPartyHallQuote`, alongside `amount`/`quotedAt` — the
+   *  package base plus each add-on, at the rate resolved at that exact
+   *  moment. Label and amount stored together, never a rate-key id, so
+   *  rendering it later needs no lookup against (possibly since-changed)
+   *  Settings. Null for rows quoted before this column existed; never
+   *  backfilled and never recomputed on read — a null here means "no
+   *  breakdown on record", not "zero-cost". */
+  quoteBreakdown: jsonb("quote_breakdown").$type<{ label: string; amount: number }[]>(),
   /** Snapshotted at `recordPartyHallAdvance` time — the source of truth for
    *  display going forward. Never recomputed from a later `phAdvancePct`
    *  edit, which is the whole reason this column exists instead of a live
