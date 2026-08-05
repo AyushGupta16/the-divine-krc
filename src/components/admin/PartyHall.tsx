@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
-import { useRouter } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, FileText, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 
+import { shiftCalendarMonth } from "@/lib/bookings";
 import type {
   PartyHallCalendarCell,
   PartyHallCtaAction,
@@ -305,26 +306,38 @@ function MiniCalendarCell({ cell }: { cell: PartyHallCalendarCell }) {
   );
 }
 
-function AvailabilityCalendar({ calendar }: { calendar: PartyHallMiniCalendar }) {
+function AvailabilityCalendar({
+  calendar,
+  year,
+  month,
+}: {
+  calendar: PartyHallMiniCalendar;
+  year: number;
+  month: number;
+}) {
+  const prev = shiftCalendarMonth(year, month, -1);
+  const next = shiftCalendarMonth(year, month, 1);
   return (
     <div className="rounded-lg border border-[#eae4d6] bg-white px-5 py-4.5">
       <div className="mb-3.5 flex items-center justify-between">
         <span className="font-display text-[16px] font-semibold">{calendar.monthLabel}</span>
         <div className="flex gap-1">
-          <button
-            type="button"
+          <Link
+            to="/admin/party-hall"
+            search={prev}
             aria-label="Previous month"
             className="flex size-6 items-center justify-center rounded border border-[#eae4d6] text-[#a49d8d] transition-colors hover:bg-black/[0.03]"
           >
             <ChevronLeft className="size-3" strokeWidth={2.4} />
-          </button>
-          <button
-            type="button"
+          </Link>
+          <Link
+            to="/admin/party-hall"
+            search={next}
             aria-label="Next month"
             className="flex size-6 items-center justify-center rounded border border-[#eae4d6] text-warm-gray transition-colors hover:bg-black/[0.03]"
           >
             <ChevronRight className="size-3" strokeWidth={2.4} />
-          </button>
+          </Link>
         </div>
       </div>
 
@@ -426,7 +439,15 @@ function matchesPill(status: PartyHallStatus, key: PartyHallPillKey): boolean {
 
 // ── Page ────────────────────────────────────────────────────────────────────
 
-export function PartyHall({ data }: { data: PartyHallPageData }) {
+export function PartyHall({
+  data,
+  year,
+  month,
+}: {
+  data: PartyHallPageData;
+  year: number;
+  month: number;
+}) {
   const [pillFilter, setPillFilter] = useState<PartyHallPillKey>("all");
 
   const visibleEvents = useMemo(
@@ -469,7 +490,7 @@ export function PartyHall({ data }: { data: PartyHallPageData }) {
         </div>
 
         <div className="flex flex-col gap-4.5">
-          <AvailabilityCalendar calendar={data.calendar} />
+          <AvailabilityCalendar calendar={data.calendar} year={year} month={month} />
           <PackageReference packages={data.packages} addOnsLine={data.addOnsLine} />
         </div>
       </div>

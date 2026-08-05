@@ -1110,13 +1110,21 @@ export const roomsPage = createServerFn({ method: "GET" }).handler(
   async (): Promise<RoomsPageData> => getRoomsPageData(await load()),
 );
 
-export const calendarPage = createServerFn({ method: "GET" }).handler(
-  async (): Promise<CalendarPageData> => getCalendarPageData(await load()),
-);
+export const calendarPage = createServerFn({ method: "GET" })
+  .validator((data?: { year: number; month: number }) => data)
+  .handler(async ({ data }): Promise<CalendarPageData> =>
+    data
+      ? getCalendarPageData(await load(), data.year, data.month)
+      : getCalendarPageData(await load()),
+  );
 
-export const partyHallPage = createServerFn({ method: "GET" }).handler(
-  async (): Promise<PartyHallPageData> => getPartyHallPageData(await load()),
-);
+export const partyHallPage = createServerFn({ method: "GET" })
+  .validator((data?: { year: number; month: number }) => data)
+  .handler(async ({ data }): Promise<PartyHallPageData> =>
+    data
+      ? getPartyHallPageData(await load(), data.year, data.month)
+      : getPartyHallPageData(await load()),
+  );
 
 export const guestsPage = createServerFn({ method: "GET" }).handler(
   async (): Promise<GuestsPageData> => getGuestsPageData(await load()),

@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 
+import { shiftCalendarMonth } from "@/lib/bookings";
 import type {
   CalendarCell,
   CalendarDay,
@@ -143,37 +144,49 @@ function GridCell({ cell }: { cell: CalendarCell }) {
 
 // ── Month nav ───────────────────────────────────────────────────────────────
 
-function MonthNav({ label }: { label: string }) {
+function MonthNav({ label, year, month }: { label: string; year: number; month: number }) {
+  const prev = shiftCalendarMonth(year, month, -1);
+  const next = shiftCalendarMonth(year, month, 1);
   return (
     <div className="flex items-center gap-0.5">
-      <button
-        type="button"
+      <Link
+        to="/admin/calendar"
+        search={prev}
         aria-label="Previous month"
         className="flex h-9 w-8.5 items-center justify-center rounded-l-[5px] border border-[#eae4d6] bg-white text-warm-gray transition-colors hover:bg-black/[0.03]"
       >
         <ChevronLeft className="size-3.75" strokeWidth={2.2} />
-      </button>
+      </Link>
       <span className="flex h-9 items-center border-y border-[#eae4d6] bg-white px-3.5 font-display text-[15px] font-semibold">
         {label}
       </span>
-      <button
-        type="button"
+      <Link
+        to="/admin/calendar"
+        search={next}
         aria-label="Next month"
         className="flex h-9 w-8.5 items-center justify-center rounded-r-[5px] border border-[#eae4d6] bg-white text-warm-gray transition-colors hover:bg-black/[0.03]"
       >
         <ChevronRight className="size-3.75" strokeWidth={2.2} />
-      </button>
+      </Link>
     </div>
   );
 }
 
 // ── Page ────────────────────────────────────────────────────────────────────
 
-export function Calendar({ data }: { data: CalendarPageData }) {
+export function Calendar({
+  data,
+  year,
+  month,
+}: {
+  data: CalendarPageData;
+  year: number;
+  month: number;
+}) {
   return (
     <div className="flex flex-col gap-4 p-4 sm:p-6.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <MonthNav label={data.monthLabel} />
+        <MonthNav label={data.monthLabel} year={year} month={month} />
         <Link
           to="/admin/bookings"
           search={{ new: "1" }}
