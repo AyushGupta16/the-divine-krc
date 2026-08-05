@@ -17,6 +17,23 @@
 //
 // #12b: `load()` is now a query. Nothing above it changed, because nothing above
 // it knows where the rows come from — which was the point of the split.
+//
+// LANDMINE: never export a plain (non-`createServerFn`) function from this
+// file if its body reads the `fixtures` value (or `db`/`schema` at module
+// scope). `createServerFn` handler bodies are what actually get stripped from
+// the client build — a plain export gets none of that treatment, so Rollup
+// can no longer prove `fixtures` is unreachable from the client graph, and the
+// entire seed dataset ships to the browser alongside it: real-looking guest
+// emails/phones, and — because `fixtures`/`schema` pull in the same
+// module graph — `PGPASSWORD` and `password_hash` too. This is not
+// hypothetical: PR #81 nearly shipped exactly this, exporting
+// `updatePartyHallPipeline` for testability. `npm run check:bundle` caught it
+// (6 secrets in one client chunk); `tsc` and eslint did not. If a function in
+// here needs to be unit-tested, either keep it from touching `fixtures`/`db`/
+// `schema` (see `toPartyHall`, which only touches its typed row argument), or
+// extract the pure logic that needs the export into a client-safe module
+// (see `partyHallTransitionAllowed` in `bookings.ts`). Always re-run
+// `npm run check:bundle` on a clean build before exporting anything new here.
 
 import { createServerFn } from "@tanstack/react-start";
 import { and, eq } from "drizzle-orm";
