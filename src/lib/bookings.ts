@@ -1852,6 +1852,50 @@ const JULY_2026_OCCUPANCY: Record<number, number> = {
   31: 10,
 };
 
+export interface CalendarMonth {
+  year: number;
+  month: number;
+}
+
+/**
+ * Parses the `year`/`month` search params for the admin Calendar and Party
+ * Hall screens. Malformed in *either* piece — non-numeric, `month` outside
+ * 1–12, `year` outside a sane range — falls back to the whole pair, not just
+ * the bad one: a garbled URL lands on "today" entirely, rather than a hybrid
+ * like a valid year paired with today's month that nobody asked for.
+ *
+ * `now` is a parameter (not read internally) so this stays pure and
+ * deterministic to test.
+ */
+export function normalizeCalendarSearch(
+  input: { year?: unknown; month?: unknown },
+  now: Date = new Date(),
+): CalendarMonth {
+  const year = Number(input.year);
+  const month = Number(input.month);
+  const valid =
+    Number.isInteger(year) &&
+    Number.isInteger(month) &&
+    month >= 1 &&
+    month <= 12 &&
+    year >= 1970 &&
+    year <= 2100;
+  if (valid) return { year, month };
+  return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 };
+}
+
+/**
+ * `year`/`month` shifted by `delta` months, rolling the year at the Dec/Jan
+ * boundary — `delta` is ±1 for Prev/Next, but this holds for any integer step.
+ */
+export function shiftCalendarMonth(year: number, month: number, delta: number): CalendarMonth {
+  const zeroBased = month - 1 + delta;
+  return {
+    year: year + Math.floor(zeroBased / 12),
+    month: (((zeroBased % 12) + 12) % 12) + 1,
+  };
+}
+
 /** Occupancy percent → shading band. Thresholds mirror the legend. */
 export function occupancyBand(pct: number): OccupancyBand {
   if (pct >= 100) return "full";

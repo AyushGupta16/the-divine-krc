@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { getCalendarPageData, occupancyBand, ROOM_NUMBERS } from "@/lib/bookings";
+import {
+  getCalendarPageData,
+  normalizeCalendarSearch,
+  occupancyBand,
+  ROOM_NUMBERS,
+  shiftCalendarMonth,
+} from "@/lib/bookings";
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import type { CalendarDay } from "@/types/booking";
 
@@ -111,5 +117,69 @@ describe("occupancyBand", () => {
     expect(occupancyBand(70)).toBe("high");
     expect(occupancyBand(99)).toBe("high");
     expect(occupancyBand(100)).toBe("full");
+  });
+});
+
+describe("shiftCalendarMonth", () => {
+  it("rolls the year forward at the December→January boundary", () => {
+    expect(shiftCalendarMonth(2026, 12, 1)).toEqual({ year: 2027, month: 1 });
+  });
+
+  it("rolls the year backward at the January→December boundary", () => {
+    expect(shiftCalendarMonth(2026, 1, -1)).toEqual({ year: 2025, month: 12 });
+  });
+
+  it("steps within a year without touching it", () => {
+    expect(shiftCalendarMonth(2026, 7, 1)).toEqual({ year: 2026, month: 8 });
+    expect(shiftCalendarMonth(2026, 7, -1)).toEqual({ year: 2026, month: 6 });
+  });
+});
+
+describe("normalizeCalendarSearch", () => {
+  const now = new Date("2026-08-04T12:00:00.000Z");
+
+  it("passes through a well-formed year/month", () => {
+    expect(normalizeCalendarSearch({ year: 2026, month: 3 }, now)).toEqual({
+      year: 2026,
+      month: 3,
+    });
+  });
+
+  it("falls back to today for a non-numeric month", () => {
+    expect(normalizeCalendarSearch({ year: 2026, month: "abc" }, now)).toEqual({
+      year: 2026,
+      month: 8,
+    });
+  });
+
+  it("falls back to today for a month of 0 or 13, not clamped to the nearest bound", () => {
+    expect(normalizeCalendarSearch({ year: 2026, month: 0 }, now)).toEqual({
+      year: 2026,
+      month: 8,
+    });
+    expect(normalizeCalendarSearch({ year: 2026, month: 13 }, now)).toEqual({
+      year: 2026,
+      month: 8,
+    });
+  });
+
+  it("falls back to today for an out-of-range year", () => {
+    expect(normalizeCalendarSearch({ year: 99999, month: 3 }, now)).toEqual({
+      year: 2026,
+      month: 8,
+    });
+  });
+
+  it("falls back to today for both pieces when either is invalid — not a valid year paired with today's month", () => {
+    // year=2030 is otherwise valid, but month is garbage — the whole pair
+    // resets, so this must not come back as { year: 2030, month: 8 }.
+    expect(normalizeCalendarSearch({ year: 2030, month: "x" }, now)).toEqual({
+      year: 2026,
+      month: 8,
+    });
+  });
+
+  it("falls back to today when both are absent", () => {
+    expect(normalizeCalendarSearch({}, now)).toEqual({ year: 2026, month: 8 });
   });
 });
