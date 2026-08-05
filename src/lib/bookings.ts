@@ -1802,55 +1802,12 @@ const CALENDAR_WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const BAND_LABEL: Record<OccupancyBand, string> = {
   low: "Low (<40%)",
   medium: "Medium",
-  high: "High (>70%)",
+  high: "High (70%+)",
   full: "Full",
 };
 
 /** Legend order — matches the design's swatch row. */
 const BAND_ORDER: OccupancyBand[] = ["low", "medium", "high", "full"];
-
-/**
- * Occupied-room count per day of July 2026, mirroring `Admin Calendar.dc.html`.
- *
- * As with the rooms floor board, the booking seed is too small to paint a
- * plausible month, so the display month is seeded; every other month derives
- * from the live booking set via `occupiedRoomsOn`. The design fixes *percents*,
- * but they are all exactly `round(n / 14 * 100)` for a whole n, so we seed n and
- * derive the percent back — that keeps the "% + n/14" pair honest by construction.
- */
-const JULY_2026_OCCUPANCY: Record<number, number> = {
-  1: 5,
-  2: 6,
-  3: 7,
-  4: 10,
-  5: 9,
-  6: 7,
-  7: 6,
-  8: 8,
-  9: 9,
-  10: 11,
-  11: 12,
-  12: 10,
-  13: 9,
-  14: 9,
-  15: 7,
-  16: 8,
-  17: 10,
-  18: 11,
-  19: 13,
-  20: 12,
-  21: 9,
-  22: 10,
-  23: 11,
-  24: 12,
-  25: 14,
-  26: 14,
-  27: 12,
-  28: 10,
-  29: 9,
-  30: 11,
-  31: 10,
-};
 
 export interface CalendarMonth {
   year: number;
@@ -1929,8 +1886,24 @@ export async function getCalendarPageData(
   year = 2026,
   month = 7,
 ): Promise<CalendarPageData> {
-  const total = ROOM_NUMBERS.length;
-  const isDisplayMonth = year === 2026 && month === 7;
+  // The denominator is live and maintenance-aware: a room under maintenance
+  // isn't sellable inventory, so it comes out of the total rather than
+  // counting toward it (a `cleaning` room is a same-day turnover state, still
+  // sellable, and stays in). This isn't a per-day figure — room status has no
+  // date-ranged history in this schema — so every day in the grid is measured
+  // against the same sellable count, computed once here.
+  //
+  // KNOWN LIMITATION: because there's no history, this is also today's
+  // maintenance status applied retroactively. Put a room into maintenance
+  // this morning and every past day in the currently-rendered month reflects
+  // that room as unsellable, including days last week when it was actually
+  // available and sold. Past-month occupancy percentages are therefore not
+  // historically reliable — they reflect current room status, not the status
+  // in force on the date shown. Fixing this needs a room-status history
+  // table; not worth building for this fix.
+  const rooms = data.rooms ?? defaultRoomTiles();
+  const maintenanceRooms = rooms.filter((r) => r.status === "maintenance").length;
+  const total = rooms.length - maintenanceRooms;
   const events = eventsForMonth(data.partyHall, year, month);
 
   // UTC throughout: local-time dates shift the weekday offset west of GMT.
@@ -1943,9 +1916,7 @@ export async function getCalendarPageData(
 
   for (let day = 1; day <= daysInMonth; day++) {
     const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    const occupied = isDisplayMonth
-      ? JULY_2026_OCCUPANCY[day]
-      : occupiedRoomsOn(data.bookings, date).size;
+    const occupied = occupiedRoomsOn(data.bookings, date).size;
     const pct = Math.round((occupied / total) * 100);
     cells.push({
       kind: "day",
@@ -1953,6 +1924,7 @@ export async function getCalendarPageData(
       day,
       occupied,
       total,
+      maintenanceRooms,
       pct,
       band: occupancyBand(pct),
       event: events.get(date) ?? null,
@@ -1973,6 +1945,7 @@ export async function getCalendarPageData(
     cells,
     legend: BAND_ORDER.map((band) => ({ band, label: BAND_LABEL[band] })),
     totalRooms: total,
+    maintenanceRooms,
   };
 }
 

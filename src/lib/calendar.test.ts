@@ -8,7 +8,7 @@ import {
   shiftCalendarMonth,
 } from "@/lib/bookings";
 import { fixtures } from "@/lib/__fixtures__/bookings";
-import type { CalendarDay } from "@/types/booking";
+import type { Booking, CalendarDay, RoomTile } from "@/types/booking";
 
 const daysOf = (cells: Awaited<ReturnType<typeof getCalendarPageData>>["cells"]) =>
   cells.filter((c): c is { kind: "day" } & CalendarDay => c.kind === "day");
@@ -37,26 +37,50 @@ describe("getCalendarPageData", () => {
     });
   });
 
-  it("derives the percent from occupied/14 so the pair can't disagree", async () => {
-    const { cells, totalRooms } = await getCalendarPageData(fixtures, 2026, 7);
-    expect(totalRooms).toBe(ROOM_NUMBERS.length);
+  it("derives the percent from occupied/total (sellable rooms) so the pair can't disagree", async () => {
+    const { cells, totalRooms, maintenanceRooms } = await getCalendarPageData(fixtures, 2026, 7);
+    // The fixture seed has one room (105) under maintenance — sellable
+    // inventory is the physical count minus that, not the raw room count.
+    expect(maintenanceRooms).toBe(1);
+    expect(totalRooms).toBe(ROOM_NUMBERS.length - 1);
 
     for (const d of daysOf(cells)) {
-      expect(d.total).toBe(14);
-      expect(d.occupied).toBeLessThanOrEqual(14);
-      expect(d.pct).toBe(Math.round((d.occupied / 14) * 100));
+      expect(d.total).toBe(totalRooms);
+      expect(d.maintenanceRooms).toBe(maintenanceRooms);
+      expect(d.occupied).toBeLessThanOrEqual(totalRooms);
+      expect(d.pct).toBe(Math.round((d.occupied / totalRooms) * 100));
     }
   });
 
-  it("mirrors the design's occupancy percents for July", async () => {
+  it("reaches every band through real bookings, no seeded/fabricated data", async () => {
+    // Replaces the deleted JULY_2026_OCCUPANCY table's fictional 93%/100%
+    // figures. These are genuine fixture bookings landing in each band via
+    // occupiedRoomsOn — see the "late-July occupancy ramp" fixtures.
     const { cells } = await getCalendarPageData(fixtures, 2026, 7);
     const pctByDay = new Map(daysOf(cells).map((d) => [d.day, d.pct]));
-    // Spot-checks across the ramp, from `Admin Calendar.dc.html`.
-    expect(pctByDay.get(1)).toBe(36);
-    expect(pctByDay.get(4)).toBe(71);
-    expect(pctByDay.get(19)).toBe(93);
+    const bandByDay = new Map(daysOf(cells).map((d) => [d.day, d.band]));
+
+    // Before any booking starts — genuinely empty, not a placeholder.
+    expect(pctByDay.get(1)).toBe(0);
+    expect(bandByDay.get(1)).toBe("low");
+
+    // 6 of 13 sellable rooms.
+    expect(pctByDay.get(23)).toBe(46);
+    expect(bandByDay.get(23)).toBe("medium");
+
+    // 10 of 13.
+    expect(pctByDay.get(24)).toBe(77);
+    expect(bandByDay.get(24)).toBe("high");
+
+    // 13 of 13 — a genuine full house, reachable through the real derivation.
     expect(pctByDay.get(25)).toBe(100);
-    expect(pctByDay.get(31)).toBe(71);
+    expect(bandByDay.get(25)).toBe("full");
+    expect(pctByDay.get(26)).toBe(100);
+    expect(bandByDay.get(26)).toBe("full");
+
+    // Checked out (exclusive) — back down, not still full.
+    expect(pctByDay.get(27)).toBe(0);
+    expect(bandByDay.get(27)).toBe("low");
   });
 
   it("bands each day per the legend thresholds", async () => {
@@ -69,7 +93,10 @@ describe("getCalendarPageData", () => {
   it("legend names all four bands of the ramp, low to full", async () => {
     const { legend } = await getCalendarPageData(fixtures, 2026, 7);
     expect(legend.map((l) => l.band)).toEqual(["low", "medium", "high", "full"]);
-    expect(legend.map((l) => l.label)).toEqual(["Low (<40%)", "Medium", "High (>70%)", "Full"]);
+    // Code is inclusive at every boundary (>=40, >=70, >=100) — the label
+    // text must say so, not the exclusive-reading "(>70%)" that used to
+    // contradict a day at exactly 70% rendering as high.
+    expect(legend.map((l) => l.label)).toEqual(["Low (<40%)", "Medium", "High (70%+)", "Full"]);
   });
 
   it("flags party-hall events on their own day and nowhere else", async () => {
@@ -181,5 +208,95 @@ describe("normalizeCalendarSearch", () => {
 
   it("falls back to today when both are absent", () => {
     expect(normalizeCalendarSearch({}, now)).toEqual({ year: 2026, month: 8 });
+  });
+});
+
+// A synthetic 100-sellable-room inventory — deliberately not the real 14-room
+// property — so occupied-room counts map to whole percents 1:1 and every
+// legend boundary (39/40/69/70/99/100) is reachable exactly, through
+// getCalendarPageData's real derivation rather than occupancyBand in isolation.
+function syntheticRoom(no: string): RoomTile {
+  return { no, type: "deluxe", floor: 1, status: "available", detail: "Ready" };
+}
+
+function syntheticBooking(roomNo: string): Booking {
+  return {
+    id: `SYN-${roomNo}`,
+    guestId: "SYN-GUEST",
+    roomNo,
+    roomType: "deluxe",
+    checkIn: "2027-01-01",
+    checkOut: "2027-01-02",
+    urn: 1,
+    source: "direct",
+    mealPlan: "CP",
+    revenue: { room: 0, earlyCheckIn: 0, lateCheckOut: 0, other: 0, discount: 0, taxPct: 0 },
+    collection: {
+      paidToHotel: 0,
+      otaCollection: 0,
+      otaCommission: 0,
+      complimentary: 0,
+      pending: 0,
+    },
+    status: "confirmed",
+    createdAt: "2026-12-01T00:00:00.000Z",
+    totalBill: 0,
+  };
+}
+
+describe("getCalendarPageData — band boundaries", () => {
+  const rooms: RoomTile[] = Array.from({ length: 100 }, (_, i) => syntheticRoom(`R${i + 1}`));
+
+  async function pctFor(occupiedCount: number) {
+    const bookings = Array.from({ length: occupiedCount }, (_, i) => syntheticBooking(`R${i + 1}`));
+    const { cells } = await getCalendarPageData(
+      { bookings, guests: [], partyHall: [], rooms },
+      2027,
+      1,
+    );
+    const day1 = daysOf(cells).find((d) => d.day === 1)!;
+    return day1;
+  }
+
+  it("39% is low, 40% is medium — the low/medium boundary", async () => {
+    expect((await pctFor(39)).pct).toBe(39);
+    expect((await pctFor(39)).band).toBe("low");
+    expect((await pctFor(40)).pct).toBe(40);
+    expect((await pctFor(40)).band).toBe("medium");
+  });
+
+  it("69% is medium, 70% is high — the medium/high boundary", async () => {
+    expect((await pctFor(69)).pct).toBe(69);
+    expect((await pctFor(69)).band).toBe("medium");
+    expect((await pctFor(70)).pct).toBe(70);
+    expect((await pctFor(70)).band).toBe("high");
+  });
+
+  it("99% is high, 100% is full — the high/full boundary", async () => {
+    expect((await pctFor(99)).pct).toBe(99);
+    expect((await pctFor(99)).band).toBe("high");
+    expect((await pctFor(100)).pct).toBe(100);
+    expect((await pctFor(100)).band).toBe("full");
+  });
+
+  it("the maintenance-adjusted full case: 12 booked of 12 sellable (2 of 14 under maintenance) is full, not 86%", async () => {
+    const fourteenRooms: RoomTile[] = [
+      ...Array.from({ length: 12 }, (_, i) => syntheticRoom(`M${i + 1}`)),
+      { no: "M13", type: "deluxe", floor: 1, status: "maintenance", detail: "Repair" },
+      { no: "M14", type: "deluxe", floor: 1, status: "maintenance", detail: "Repair" },
+    ];
+    const bookings = Array.from({ length: 12 }, (_, i) => syntheticBooking(`M${i + 1}`));
+    const { cells, totalRooms, maintenanceRooms } = await getCalendarPageData(
+      { bookings, guests: [], partyHall: [], rooms: fourteenRooms },
+      2027,
+      1,
+    );
+    expect(maintenanceRooms).toBe(2);
+    expect(totalRooms).toBe(12);
+    const day1 = daysOf(cells).find((d) => d.day === 1)!;
+    expect(day1.occupied).toBe(12);
+    expect(day1.total).toBe(12);
+    expect(day1.pct).toBe(100);
+    expect(day1.band).toBe("full");
   });
 });

@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 
 import { shiftCalendarMonth } from "@/lib/bookings";
+import { cn } from "@/lib/utils";
 import type {
   CalendarCell,
   CalendarDay,
@@ -103,7 +104,15 @@ function DayCell({ day }: { day: CalendarDay }) {
     <button
       type="button"
       aria-label={`${day.date} — ${day.pct}% occupied`}
-      className="relative min-h-14.5 border-b border-r border-[#f2ede2] px-1.25 py-1.5 text-left transition-colors hover:brightness-[0.98] sm:min-h-26 sm:px-2.25 sm:py-2"
+      className={cn(
+        "relative min-h-14.5 border-b border-r border-[#f2ede2] px-1.25 py-1.5 text-left transition-colors hover:brightness-[0.98] sm:min-h-26 sm:px-2.25 sm:py-2",
+        // Extra bottom clearance so the absolutely-positioned event pill
+        // never overlaps the occupancy caption above it — the caption can
+        // now run onto a second line (the maintenance note), and the pill's
+        // `bottom` offset is anchored to the padding edge regardless of how
+        // much padding there is, so only increasing it actually makes room.
+        day.event && "pb-6 sm:pb-7",
+      )}
       style={{ background: t.cell }}
     >
       <div className="flex items-center justify-between">
@@ -121,6 +130,7 @@ function DayCell({ day }: { day: CalendarDay }) {
         </div>
         <div className="mt-1.25 hidden text-[10px] sm:block" style={{ color: t.occText }}>
           {day.occupied}/{day.total} rooms
+          {day.maintenanceRooms > 0 && ` (${day.maintenanceRooms} under maintenance)`}
         </div>
       </div>
 

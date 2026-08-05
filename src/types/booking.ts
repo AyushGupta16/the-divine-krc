@@ -430,7 +430,13 @@ export interface CalendarDay {
   day: number;
   /** Rooms held on this date, of `total`. */
   occupied: number;
+  /** Sellable rooms — physical inventory minus any currently under
+   *  maintenance. Not date-specific (room status carries no history), so
+   *  this is the same figure on every day in the grid. */
   total: number;
+  /** How many of the physical inventory are excluded from `total` above.
+   *  0 on a hotel with nothing under maintenance. */
+  maintenanceRooms: number;
   /** `occupied / total` as a whole percent — derived, never seeded. */
   pct: number;
   band: OccupancyBand;
@@ -455,8 +461,11 @@ export interface CalendarPageData {
   /** Always a whole number of weeks — blanks pad both ends. */
   cells: CalendarCell[];
   legend: CalendarLegendItem[];
-  /** Room inventory the occupancy is measured against (14). */
+  /** Sellable room inventory the occupancy is measured against — live,
+   *  minus anything currently under maintenance. */
   totalRooms: number;
+  /** How many of the physical inventory are currently under maintenance. */
+  maintenanceRooms: number;
 }
 
 // ── Admin party hall (PR #7) ─────────────────────────────────────────────
