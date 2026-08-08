@@ -2057,9 +2057,9 @@ export function partyHallCtaKinds(
     case "quote_sent":
       return ["whatsapp", "decline", "record_advance"];
     case "advance_paid":
-      return ["cancel", "invoice", "confirm"];
+      return ["invoice", "cancel", "confirm"];
     case "confirmed":
-      return e.date < today ? ["invoice"] : ["view_details", "cancel", "invoice"];
+      return e.date < today ? ["invoice"] : ["invoice", "cancel", "view_details"];
     case "declined":
       return ["reopen"];
     case "cancelled":

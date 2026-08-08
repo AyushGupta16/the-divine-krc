@@ -273,8 +273,8 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
                       href={whatsAppLink!}
                       target="_blank"
                       rel="noopener noreferrer"
-                      aria-label="Quote on WhatsApp"
-                      title="Quote on WhatsApp"
+                      aria-label="Resend quote on WhatsApp"
+                      title="Resend quote on WhatsApp"
                       className="flex items-center justify-center rounded border border-[#d9d0bd] bg-white p-2.25 text-warm-gray hover:bg-black/[0.03]"
                     >
                       <MessageCircle className="size-3" />

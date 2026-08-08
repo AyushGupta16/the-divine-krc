@@ -112,9 +112,9 @@ describe("getPartyHallPageData", () => {
     expect(events.find((e) => e.enquiry.title.includes("Rao family"))!.ctas).toEqual(["invoice"]);
     // Confirmed, event date on/after the anchor (2026-08-16 > 2026-08-08).
     expect(events.find((e) => e.enquiry.title.includes("Pillai family"))!.ctas).toEqual([
-      "view_details",
-      "cancel",
       "invoice",
+      "cancel",
+      "view_details",
     ]);
   });
 
@@ -297,28 +297,28 @@ describe("partyHallCtaKinds", () => {
     ]);
   });
 
-  it("advance_paid → cancel, invoice, confirm (primary rightmost) — no whatsapp, the quote conversation is over", () => {
+  it("advance_paid → invoice, cancel, confirm (primary rightmost) — no whatsapp, the quote conversation is over", () => {
     expect(
       partyHallCtaKinds(
         enquiry({ status: "advance_paid", amount: 50000, advanceAmount: 12500 }),
         TODAY,
       ),
-    ).toEqual(["cancel", "invoice", "confirm"]);
+    ).toEqual(["invoice", "cancel", "confirm"]);
   });
 
-  it("confirmed, event date in the future → view details, cancel, invoice", () => {
+  it("confirmed, event date in the future → invoice, cancel, view details", () => {
     expect(partyHallCtaKinds(enquiry({ status: "confirmed", date: "2026-08-09" }), TODAY)).toEqual([
-      "view_details",
-      "cancel",
       "invoice",
+      "cancel",
+      "view_details",
     ]);
   });
 
   it("confirmed, event date today → treated as not-yet-past (still the future set)", () => {
     expect(partyHallCtaKinds(enquiry({ status: "confirmed", date: TODAY }), TODAY)).toEqual([
-      "view_details",
-      "cancel",
       "invoice",
+      "cancel",
+      "view_details",
     ]);
   });
 
