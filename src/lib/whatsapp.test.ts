@@ -145,12 +145,15 @@ describe("composeWhatsAppQuoteMessage variants", () => {
     expect(msg).not.toContain("Following up");
   });
 
-  it("'resend' opens with a follow-up frame and dates validity from when it was sent", () => {
+  it("'resend' opens with a follow-up frame and dates validity from the quoted date, not delivery", () => {
     const msg = composeWhatsAppQuoteMessage(enquiry, 25, "resend");
     expect(msg).toContain(
       "Following up on your enquiry — here are the details again for 22 Aug 2026 (Evening), 140 guests:",
     );
-    expect(msg).toContain("This quote is valid for 7 days from when it was sent.");
+    // Not "from when it was sent" — the first WhatsApp draft may never have
+    // actually reached the guest (popup blocked, tab closed unsent), so the
+    // validity line can't claim delivery it can't verify.
+    expect(msg).toContain("This quote is valid for 7 days from the date quoted.");
     expect(msg).not.toContain("Thank you for your enquiry");
   });
 

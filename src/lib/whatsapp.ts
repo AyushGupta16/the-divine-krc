@@ -131,7 +131,7 @@ export function composeWhatsAppQuoteMessage(
   const closing =
     variant === "first"
       ? "This quote is valid for 7 days."
-      : "This quote is valid for 7 days from when it was sent.";
+      : "This quote is valid for 7 days from the date quoted.";
 
   return [greeting, opening, ...quoteFigureLines(e, advancePct), "", closing].join("\n");
 }
