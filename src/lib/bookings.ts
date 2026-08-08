@@ -44,7 +44,7 @@ import type {
   PaymentsTxnItem,
   PaymentTransaction,
   PartyHallCalendarCell,
-  PartyHallCtaAction,
+  PartyHallCtaKind,
   PartyHallEnquiry,
   PartyHallEventItem,
   PartyHallMiniCalendar,
@@ -2029,35 +2029,55 @@ function amountLabel(status: PartyHallStatus, quotedAt?: string): string {
 }
 
 /**
- * The one action that matters for this event, keyed by status. Every status
- * but `cancelled` and `completed` owes someone a next step, so more than
- * `enquiry` now gets a primary CTA — `EventCard` reads `ctaAction` to decide
- * which server function the click calls.
+ * The exhaustive status → actions matrix — the single place that decides
+ * which CTAs a Party Hall card offers, and in what order. `EventCard` reads
+ * this list rather than each status scattering its own
+ * `canDecline`/`canCancel`/`ctaAction`-style boolean, which is how the set
+ * used to drift out of sync per status.
+ *
+ * `today` is an ISO date (`YYYY-MM-DD`); `date` is TEXT in the schema, so
+ * the past/future split for `confirmed` is a lexicographic string compare —
+ * the same kind of comparison every other date check in this file already
+ * relies on (e.g. `nextBookingId`'s prefix match, `isUpcomingEvent`'s
+ * callers). `isUpcomingEvent` itself does *not* do this: it only tests
+ * status (excludes `cancelled`/`completed`/`declined`), never the date, so
+ * it can't stand in for the future/past test below.
+ *
+ * Order matters: `EventCard` renders left to right, and the design puts the
+ * one primary (dark) action rightmost, so the primary kind is always last
+ * in the returned list.
  */
-function ctaFor(status: PartyHallStatus): {
-  cta: string;
-  ctaPrimary: boolean;
-  ctaAction: PartyHallCtaAction;
-} {
-  switch (status) {
+export function partyHallCtaKinds(
+  e: Pick<PartyHallEnquiry, "status" | "date" | "refundedAt">,
+  today: string = new Date().toISOString().slice(0, 10),
+): PartyHallCtaKind[] {
+  switch (e.status) {
     case "enquiry":
-      return { cta: "Send quote", ctaPrimary: true, ctaAction: "send_quote" };
+      return ["decline", "send_quote"];
     case "quote_sent":
-      return { cta: "Record advance", ctaPrimary: true, ctaAction: "record_advance" };
+      return ["whatsapp", "decline", "record_advance"];
     case "advance_paid":
-      return { cta: "Confirm", ctaPrimary: true, ctaAction: "confirm" };
-    case "cancelled":
-      return { cta: "View details", ctaPrimary: false, ctaAction: "none" };
+      return ["invoice", "cancel", "confirm"];
+    case "confirmed":
+      return e.date < today ? ["invoice"] : ["invoice", "cancel", "view_details"];
     case "declined":
-      return { cta: "Reopen", ctaPrimary: false, ctaAction: "reopen" };
+      return ["reopen"];
+    case "cancelled":
+      // cancelPartyHallEvent only ever fires from advance_paid/confirmed —
+      // both already have money on the books — and always stamps
+      // refundedAt. This guard only matters for legacy rows cancelled
+      // before that field existed, where nothing is known to have moved.
+      return e.refundedAt != null ? ["invoice"] : [];
     case "completed":
-      return { cta: "Invoice", ctaPrimary: false, ctaAction: "none" };
-    default:
-      return { cta: "View details", ctaPrimary: false, ctaAction: "none" };
+      return ["invoice"];
   }
 }
 
-function buildEventItem(e: PartyHallEnquiry): PartyHallEventItem {
+function buildEventItem(
+  e: PartyHallEnquiry,
+  advancePct: number,
+  today: string,
+): PartyHallEventItem {
   const day = e.date.slice(8, 10);
   const monthName = new Date(`${e.date}T00:00:00Z`).toLocaleDateString("en-IN", {
     month: "short",
@@ -2074,9 +2094,8 @@ function buildEventItem(e: PartyHallEnquiry): PartyHallEventItem {
     amountLabel: amountLabel(e.status, e.quotedAt),
     // An un-quoted enquiry has no number yet — say so rather than show "₹0".
     amount: e.amount > 0 ? formatINRCompact(e.amount) : "₹—",
-    canDecline: e.status === "enquiry" || e.status === "quote_sent",
-    canCancel: e.status === "advance_paid" || e.status === "confirmed",
-    ...ctaFor(e.status),
+    advancePct,
+    ctas: partyHallCtaKinds(e, today),
   };
 }
 
@@ -2139,6 +2158,7 @@ export async function getPartyHallPageData(
   data: BookingData,
   year = 2026,
   month = 8,
+  today: string = new Date().toISOString().slice(0, 10),
 ): Promise<PartyHallPageData> {
   const events = [...data.partyHall].sort(
     (a, b) =>
@@ -2148,6 +2168,8 @@ export async function getPartyHallPageData(
       // this the pair would be ordered by row order, which Postgres does not have.
       a.id.localeCompare(b.id),
   );
+
+  const advancePct = resolvePartyHallRates(data.partyHallRateOverrides).phAdvancePct;
 
   const newEnquiries = events.filter((e) => e.status === "enquiry").length;
   const confirmedUpcoming = events.filter(
@@ -2185,7 +2207,7 @@ export async function getPartyHallPageData(
     subtitle: `Up to 150 guests · tailored pricing · ${newEnquiries} enquiries need a quote`,
     stats,
     pills,
-    events: events.map(buildEventItem),
+    events: events.map((e) => buildEventItem(e, advancePct, today)),
     calendar: miniCalendar(data.partyHall, year, month),
     packages: PARTY_HALL_PACKAGES,
     addOnsLine: `Add-ons: catering ₹450/plate · decor · DJ. ${PARTY_HALL_ADVANCE_PCT}% advance to confirm.`,

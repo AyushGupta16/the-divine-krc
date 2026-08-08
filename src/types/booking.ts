@@ -493,8 +493,19 @@ export interface PartyHallPill {
 }
 
 /** One enquiry/event card: the raw record plus its rendered copy. */
-/** Which server action a Party Hall card's primary CTA click calls. */
-export type PartyHallCtaAction = "send_quote" | "record_advance" | "confirm" | "reopen" | "none";
+/** Every action a Party Hall card can offer, across every status. Which of
+ *  these actually appear for a given card — and in what order — comes from
+ *  `partyHallCtaKinds` alone; nothing else decides. */
+export type PartyHallCtaKind =
+  | "send_quote"
+  | "decline"
+  | "whatsapp"
+  | "record_advance"
+  | "confirm"
+  | "cancel"
+  | "invoice"
+  | "view_details"
+  | "reopen";
 
 export interface PartyHallEventItem {
   enquiry: PartyHallEnquiry;
@@ -511,19 +522,14 @@ export interface PartyHallEventItem {
   amountLabel: string;
   /** Pre-formatted amount, or "₹—" before a quote exists. */
   amount: string;
-  /** Context action, e.g. "Send quote" when new, else View/Invoice. */
-  cta: string;
-  /** Only the action that moves the enquiry forward at its current status is emphasised. */
-  ctaPrimary: boolean;
-  /** Which server action the primary CTA click calls. */
-  ctaAction: PartyHallCtaAction;
-  /** A quoted-but-undecided enquiry can also be declined — a secondary
-   *  action next to the primary CTA, not a replacement for it. */
-  canDecline: boolean;
-  /** A booking with money already on record (`advance_paid`/`confirmed`) can
-   *  be called off — distinct from `canDecline`, which only applies before
-   *  any advance exists. */
-  canCancel: boolean;
+  /** Resolved `phAdvancePct` at render time — threaded to the WhatsApp quote
+   *  composer so it can state a real advance figure without recomputing a
+   *  rate the enquiry itself doesn't carry. */
+  advancePct: number;
+  /** The card's full action set, in display order — from `partyHallCtaKinds`,
+   *  the one exhaustive status → actions matrix. `EventCard` renders each
+   *  kind via a fixed per-kind lookup; it never decides presence itself. */
+  ctas: PartyHallCtaKind[];
 }
 
 /** A day slot in the rail's availability mini-calendar. */
