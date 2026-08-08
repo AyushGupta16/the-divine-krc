@@ -213,6 +213,11 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
     : null;
   const hasWhatsApp = item.ctas.includes("whatsapp");
   const hasInvoice = item.ctas.includes("invoice");
+  // Billing needs contact info at advance_paid+ (hasInvoice); WhatsApp needs
+  // it as early as enquiry (to have a phone in hand by the time "Send quote"
+  // fires) and at quote_sent (Resend). Gating this purely on hasInvoice left
+  // no way to enter a phone before quoting at all.
+  const canEditContact = hasInvoice || hasWhatsApp || item.ctas.includes("send_quote");
   // The matrix says whatsapp belongs on this card's status; whether it can
   // actually render still depends on data the matrix doesn't see — a phone
   // that resolves.
@@ -250,13 +255,13 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
               </span>
             ))}
           </div>
-          {hasInvoice && (
+          {canEditContact && (
             <button
               type="button"
               onClick={() => setEditingContact((v) => !v)}
               className="mt-2.5 text-[11px] font-semibold text-[#3a6ea5] hover:opacity-75"
             >
-              {item.enquiry.contactName ? "Edit billing contact" : "Add billing contact"}
+              {item.enquiry.contactName ? "Edit contact info" : "Add contact info"}
             </button>
           )}
           {editingContact && (
