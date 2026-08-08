@@ -35,15 +35,15 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 /** The server fn behind each single-click CTA kind — everything that isn't
- *  Decline/Cancel/Invoice/WhatsApp/View details, which each need their own
- *  handling (a confirm-style dialog, a fetch-then-open, a link, or nothing
- *  yet, respectively). Keyed by `PartyHallCtaKind` so it stays in lockstep
- *  with `partyHallCtaKinds` — the matrix in `bookings.ts` decides *whether*
- *  a kind appears on a card; this only decides what clicking it does. */
+ *  Decline/Cancel/Invoice/WhatsApp/View details/Send quote, which each need
+ *  their own handling (a confirm-style dialog, a fetch-then-open, a link,
+ *  nothing yet, or the send-quote-then-open-WhatsApp chain, respectively).
+ *  Keyed by `PartyHallCtaKind` so it stays in lockstep with
+ *  `partyHallCtaKinds` — the matrix in `bookings.ts` decides *whether* a
+ *  kind appears on a card; this only decides what clicking it does. */
 const KIND_ACTION_FN: Partial<
   Record<PartyHallCtaKind, (id: string) => Promise<{ ok: boolean; error?: string }>>
 > = {
-  send_quote: (id) => sendPartyHallQuoteFn({ data: { id } }),
   record_advance: (id) => recordPartyHallAdvanceFn({ data: { id } }),
   confirm: (id) => confirmPartyHallEventFn({ data: { id } }),
   reopen: (id) => reopenPartyHallEnquiryFn({ data: { id } }),
@@ -130,6 +130,49 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
     if (res.ok) window.open(`/invoice/${res.invoiceNo}`, "_blank", "noopener,noreferrer");
   }
 
+  /**
+   * "Send quote" both commits the quote and opens the WhatsApp draft in one
+   * click. The blank tab must open synchronously, inside this click handler
+   * — Chrome only honours `window.open()` while it's still inside the
+   * original user-gesture call stack, and an `await`ed server round-trip
+   * falls outside that window and gets silently popup-blocked. So the tab
+   * opens blank first and is only navigated once the quote (and its
+   * `quoteBreakdown`) exist to build the message from.
+   */
+  async function sendQuoteAndOpenWhatsApp() {
+    const waWindow = window.open("", "_blank");
+    setActing(true);
+    const res = await sendPartyHallQuoteFn({ data: { id: item.enquiry.id } });
+    setActing(false);
+    if (!res.ok) {
+      waWindow?.close();
+      toast.error(res.error ?? "That didn't go through.");
+      return;
+    }
+    const phone = res.enquiry.contactPhone ? normalizePhone(res.enquiry.contactPhone) : null;
+    if (phone && res.enquiry.amount > 0) {
+      const link = buildWhatsAppQuoteLink(
+        phone,
+        composeWhatsAppQuoteMessage(res.enquiry, item.advancePct, "first"),
+      );
+      if (waWindow) {
+        // Severs the new tab's `window.opener` before navigating it away —
+        // same effect as `rel="noopener"`, just applied after the fact
+        // since a pre-opened `noopener` tab can't be navigated later.
+        waWindow.opener = null;
+        waWindow.location.href = link;
+      } else {
+        toast.error(
+          "Quote recorded, but your browser blocked the WhatsApp tab. Use the Resend icon to open it.",
+        );
+      }
+    } else {
+      waWindow?.close();
+      toast.success("Quote recorded. No valid phone on file to message.");
+    }
+    await router.invalidate();
+  }
+
   async function runKind(kind: PartyHallCtaKind) {
     const fn = KIND_ACTION_FN[kind];
     if (!fn) return;
@@ -177,7 +220,7 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
   const whatsAppLink = canWhatsApp
     ? buildWhatsAppQuoteLink(
         normalizedPhone,
-        composeWhatsAppQuoteMessage(item.enquiry, item.advancePct),
+        composeWhatsAppQuoteMessage(item.enquiry, item.advancePct, "resend"),
       )
     : null;
 
@@ -336,11 +379,21 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
                     </button>
                   );
                 case "send_quote":
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      disabled={acting}
+                      onClick={sendQuoteAndOpenWhatsApp}
+                      className="rounded bg-obsidian px-4 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] text-gold-soft transition-colors hover:bg-[#262626] disabled:opacity-60"
+                    >
+                      {acting ? <Loader2 className="size-3 animate-spin" /> : "Send quote"}
+                    </button>
+                  );
                 case "record_advance":
                 case "confirm":
                 case "reopen": {
                   const label: Record<typeof kind, string> = {
-                    send_quote: "Send quote",
                     record_advance: "Record advance",
                     confirm: "Confirm",
                     reopen: "Reopen",

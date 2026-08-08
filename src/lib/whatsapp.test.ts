@@ -120,6 +120,71 @@ describe("composeWhatsAppQuoteMessage", () => {
   });
 });
 
+describe("composeWhatsAppQuoteMessage variants", () => {
+  const enquiry = {
+    title: "Reception — Priya & Arjun",
+    date: "2026-08-22",
+    slot: "evening" as const,
+    guests: 140,
+    contactName: "Priya",
+    addOns: ["Catering", "Decor"],
+    quoteBreakdown: [
+      { label: "Platinum package", amount: 60000 },
+      { label: "Catering", amount: 63000 },
+      { label: "Decor", amount: 15000 },
+    ],
+    amount: 138000,
+  };
+
+  it("'first' opens with a fresh-enquiry frame and a plain 7-day validity line", () => {
+    const msg = composeWhatsAppQuoteMessage(enquiry, 25, "first");
+    expect(msg).toContain(
+      "Thank you for your enquiry. Here are the details for 22 Aug 2026 (Evening), 140 guests:",
+    );
+    expect(msg).toContain("This quote is valid for 7 days.");
+    expect(msg).not.toContain("Following up");
+  });
+
+  it("'resend' opens with a follow-up frame and dates validity from when it was sent", () => {
+    const msg = composeWhatsAppQuoteMessage(enquiry, 25, "resend");
+    expect(msg).toContain(
+      "Following up on your enquiry — here are the details again for 22 Aug 2026 (Evening), 140 guests:",
+    );
+    expect(msg).toContain("This quote is valid for 7 days from when it was sent.");
+    expect(msg).not.toContain("Thank you for your enquiry");
+  });
+
+  it("defaults to 'first' when no variant is passed", () => {
+    const withDefault = composeWhatsAppQuoteMessage(enquiry, 25);
+    const explicitFirst = composeWhatsAppQuoteMessage(enquiry, 25, "first");
+    expect(withDefault).toBe(explicitFirst);
+  });
+
+  it("renders an identical figures block — breakdown, total, advance line — in both variants", () => {
+    const first = composeWhatsAppQuoteMessage(enquiry, 25, "first");
+    const resend = composeWhatsAppQuoteMessage(enquiry, 25, "resend");
+
+    // Everything from the breakdown's first line through the advance line:
+    // strip the two-line opening (greeting + framing sentence) and the
+    // two-line closing (blank + validity sentence), which are the only
+    // parts allowed to differ.
+    const figuresBlock = (msg: string) => msg.split("\n").slice(2, -2).join("\n");
+
+    expect(figuresBlock(first)).toBe(figuresBlock(resend));
+    expect(figuresBlock(first)).toBe(
+      [
+        "- Platinum package: ₹60,000",
+        "- Catering: ₹63,000",
+        "- Decor: ₹15,000",
+        "",
+        "Total: ₹1,38,000",
+        "",
+        "Advance to confirm: ₹34,500 (25% of total)",
+      ].join("\n"),
+    );
+  });
+});
+
 describe("buildWhatsAppQuoteLink", () => {
   it("builds a wa.me link with URL-encoded newlines and rupee sign", () => {
     const link = buildWhatsAppQuoteLink("+919876543210", "Hi,\nTotal: ₹1,000");
