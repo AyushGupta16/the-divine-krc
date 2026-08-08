@@ -168,7 +168,12 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
   const normalizedPhone = item.enquiry.contactPhone
     ? normalizePhone(item.enquiry.contactPhone)
     : null;
-  const canWhatsApp = normalizedPhone != null && item.enquiry.amount > 0;
+  // Re-contacting a guest about their quote is only a live action while the
+  // quote is outstanding or the advance is pending — a confirmed/completed
+  // event needs no re-send, and a declined one shouldn't be chased here.
+  const quoteIsLive =
+    item.enquiry.status === "quote_sent" || item.enquiry.status === "advance_paid";
+  const canWhatsApp = normalizedPhone != null && item.enquiry.amount > 0 && quoteIsLive;
   const whatsAppLink = canWhatsApp
     ? buildWhatsAppQuoteLink(
         normalizedPhone,
@@ -249,7 +254,7 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
               {item.amountLabel}
             </div>
             <div className="font-display text-[19px]">{item.amount}</div>
-            {item.enquiry.contactPhone && normalizedPhone === null && (
+            {quoteIsLive && item.enquiry.contactPhone && normalizedPhone === null && (
               <div className="mt-1 text-[10.5px] text-[#a49d8d]">
                 Couldn't parse phone —{" "}
                 <span className="select-all font-semibold text-warm-gray">
@@ -264,10 +269,11 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
                 href={whatsAppLink!}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1.25 rounded border border-[#d9d0bd] bg-white px-3 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] text-warm-gray hover:bg-black/[0.03]"
+                aria-label="Quote on WhatsApp"
+                title="Quote on WhatsApp"
+                className="flex items-center justify-center rounded border border-[#d9d0bd] bg-white p-2.25 text-warm-gray hover:bg-black/[0.03]"
               >
                 <MessageCircle className="size-3" />
-                Quote on WhatsApp
               </a>
             )}
             {canInvoice(item.enquiry.status) && (
