@@ -10,6 +10,7 @@ import {
   PARTY_HALL_ADVANCE_PCT,
   PARTY_HALL_RATE_DEFAULTS,
   partyHallAdvance,
+  partyHallCtaKinds,
   partyHallTransitionAllowed,
   recordPartyHallAdvance,
   reopenPartyHallEnquiry,
@@ -101,33 +102,20 @@ describe("getPartyHallPageData", () => {
     expect(events[0].enquiry.status).toBe("enquiry");
   });
 
-  it("gives every unresolved pipeline stage its own primary CTA", async () => {
-    const { events } = await getPartyHallPageData(fixtures);
-    const primaryCta: Partial<Record<PartyHallStatus, string>> = {
-      enquiry: "Send quote",
-      quote_sent: "Record advance",
-      advance_paid: "Confirm",
-    };
-
+  it("gives every card exactly the CTA set its status (and date, for confirmed) implies", async () => {
+    const { events } = await getPartyHallPageData(fixtures, 2026, 8, "2026-08-08");
     for (const e of events) {
-      const expected = primaryCta[e.enquiry.status];
-      if (expected) {
-        expect(e.cta).toBe(expected);
-        expect(e.ctaPrimary).toBe(true);
-      } else {
-        expect(e.ctaPrimary).toBe(false);
-      }
+      expect(e.ctas).toEqual(partyHallCtaKinds(e.enquiry, "2026-08-08"));
     }
-    expect(events.find((e) => e.enquiry.status === "completed")!.cta).toBe("Invoice");
-    expect(events.find((e) => e.enquiry.status === "confirmed")!.cta).toBe("View details");
-  });
-
-  it("only a quoted-but-undecided enquiry can be declined", async () => {
-    const { events } = await getPartyHallPageData(fixtures);
-    for (const e of events) {
-      const expected = e.enquiry.status === "enquiry" || e.enquiry.status === "quote_sent";
-      expect(e.canDecline).toBe(expected);
-    }
+    expect(events.find((e) => e.enquiry.status === "completed")!.ctas).toEqual(["invoice"]);
+    // Confirmed, event date before the anchor (2026-07-30 < 2026-08-08).
+    expect(events.find((e) => e.enquiry.title.includes("Rao family"))!.ctas).toEqual(["invoice"]);
+    // Confirmed, event date on/after the anchor (2026-08-16 > 2026-08-08).
+    expect(events.find((e) => e.enquiry.title.includes("Pillai family"))!.ctas).toEqual([
+      "view_details",
+      "cancel",
+      "invoice",
+    ]);
   });
 
   it("shows a dash rather than a false zero before an enquiry is quoted", async () => {
@@ -290,6 +278,77 @@ function enquiry(patch: Partial<PartyHallEnquiry>): PartyHallEnquiry {
   }
   return withAdvance(merged, merged.advancePct);
 }
+
+describe("partyHallCtaKinds", () => {
+  const TODAY = "2026-08-08";
+
+  it("enquiry → send quote, decline", () => {
+    expect(partyHallCtaKinds(enquiry({ status: "enquiry" }), TODAY)).toEqual([
+      "send_quote",
+      "decline",
+    ]);
+  });
+
+  it("quote_sent → whatsapp, decline, record advance", () => {
+    expect(partyHallCtaKinds(enquiry({ status: "quote_sent", amount: 50000 }), TODAY)).toEqual([
+      "whatsapp",
+      "decline",
+      "record_advance",
+    ]);
+  });
+
+  it("advance_paid → confirm, cancel, invoice — no whatsapp, the quote conversation is over", () => {
+    expect(
+      partyHallCtaKinds(
+        enquiry({ status: "advance_paid", amount: 50000, advanceAmount: 12500 }),
+        TODAY,
+      ),
+    ).toEqual(["confirm", "cancel", "invoice"]);
+  });
+
+  it("confirmed, event date in the future → view details, cancel, invoice", () => {
+    expect(partyHallCtaKinds(enquiry({ status: "confirmed", date: "2026-08-09" }), TODAY)).toEqual([
+      "view_details",
+      "cancel",
+      "invoice",
+    ]);
+  });
+
+  it("confirmed, event date today → treated as not-yet-past (still the future set)", () => {
+    expect(partyHallCtaKinds(enquiry({ status: "confirmed", date: TODAY }), TODAY)).toEqual([
+      "view_details",
+      "cancel",
+      "invoice",
+    ]);
+  });
+
+  it("confirmed, event date in the past → invoice only", () => {
+    expect(partyHallCtaKinds(enquiry({ status: "confirmed", date: "2026-08-07" }), TODAY)).toEqual([
+      "invoice",
+    ]);
+  });
+
+  it("declined → reopen only", () => {
+    expect(partyHallCtaKinds(enquiry({ status: "declined" }), TODAY)).toEqual(["reopen"]);
+  });
+
+  it("cancelled with refundedAt set (money had moved) → invoice", () => {
+    expect(
+      partyHallCtaKinds(
+        enquiry({ status: "cancelled", refundedAt: "2026-08-01T00:00:00.000Z" }),
+        TODAY,
+      ),
+    ).toEqual(["invoice"]);
+  });
+
+  it("cancelled with no refundedAt (legacy pre-field row) → no actions", () => {
+    expect(partyHallCtaKinds(enquiry({ status: "cancelled" }), TODAY)).toEqual([]);
+  });
+
+  it("completed → invoice only", () => {
+    expect(partyHallCtaKinds(enquiry({ status: "completed" }), TODAY)).toEqual(["invoice"]);
+  });
+});
 
 describe("computePartyHallQuote", () => {
   it("adds the package base to flat and per-guest add-ons at the resolved rates", () => {

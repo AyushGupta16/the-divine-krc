@@ -11,7 +11,7 @@ import {
 } from "@/lib/whatsapp";
 import type {
   PartyHallCalendarCell,
-  PartyHallCtaAction,
+  PartyHallCtaKind,
   PartyHallEventItem,
   PartyHallMiniCalendar,
   PartyHallPackage,
@@ -34,20 +34,20 @@ import { adminIssueInvoiceFn } from "@/lib/invoices-data";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-/** One server fn per CTA action — `EventCard` just looks its action up here. */
-const CTA_ACTION_FN: Partial<
-  Record<PartyHallCtaAction, (id: string) => Promise<{ ok: boolean; error?: string }>>
+/** The server fn behind each single-click CTA kind — everything that isn't
+ *  Decline/Cancel/Invoice/WhatsApp/View details, which each need their own
+ *  handling (a confirm-style dialog, a fetch-then-open, a link, or nothing
+ *  yet, respectively). Keyed by `PartyHallCtaKind` so it stays in lockstep
+ *  with `partyHallCtaKinds` — the matrix in `bookings.ts` decides *whether*
+ *  a kind appears on a card; this only decides what clicking it does. */
+const KIND_ACTION_FN: Partial<
+  Record<PartyHallCtaKind, (id: string) => Promise<{ ok: boolean; error?: string }>>
 > = {
   send_quote: (id) => sendPartyHallQuoteFn({ data: { id } }),
   record_advance: (id) => recordPartyHallAdvanceFn({ data: { id } }),
   confirm: (id) => confirmPartyHallEventFn({ data: { id } }),
   reopen: (id) => reopenPartyHallEnquiryFn({ data: { id } }),
 };
-
-/** Invoices need someone to bill — enquiries have no earlier stage that asks. */
-function canInvoice(status: PartyHallStatus): boolean {
-  return status === "advance_paid" || status === "confirmed" || status === "completed";
-}
 
 // ── Tokens ──────────────────────────────────────────────────────────────────
 
@@ -130,8 +130,8 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
     if (res.ok) window.open(`/invoice/${res.invoiceNo}`, "_blank", "noopener,noreferrer");
   }
 
-  async function runCta() {
-    const fn = CTA_ACTION_FN[item.ctaAction];
+  async function runKind(kind: PartyHallCtaKind) {
+    const fn = KIND_ACTION_FN[kind];
     if (!fn) return;
     setActing(true);
     const res = await fn(item.enquiry.id);
@@ -168,12 +168,12 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
   const normalizedPhone = item.enquiry.contactPhone
     ? normalizePhone(item.enquiry.contactPhone)
     : null;
-  // Re-contacting a guest about their quote is only a live action while the
-  // quote is outstanding or the advance is pending — a confirmed/completed
-  // event needs no re-send, and a declined one shouldn't be chased here.
-  const quoteIsLive =
-    item.enquiry.status === "quote_sent" || item.enquiry.status === "advance_paid";
-  const canWhatsApp = normalizedPhone != null && item.enquiry.amount > 0 && quoteIsLive;
+  const hasWhatsApp = item.ctas.includes("whatsapp");
+  const hasInvoice = item.ctas.includes("invoice");
+  // The matrix says whatsapp belongs on this card's status; whether it can
+  // actually render still depends on data the matrix doesn't see — a phone
+  // that resolves.
+  const canWhatsApp = hasWhatsApp && normalizedPhone != null;
   const whatsAppLink = canWhatsApp
     ? buildWhatsAppQuoteLink(
         normalizedPhone,
@@ -207,7 +207,7 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
               </span>
             ))}
           </div>
-          {canInvoice(item.enquiry.status) && (
+          {hasInvoice && (
             <button
               type="button"
               onClick={() => setEditingContact((v) => !v)}
@@ -254,7 +254,7 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
               {item.amountLabel}
             </div>
             <div className="font-display text-[19px]">{item.amount}</div>
-            {quoteIsLive && item.enquiry.contactPhone && normalizedPhone === null && (
+            {hasWhatsApp && item.enquiry.contactPhone && normalizedPhone === null && (
               <div className="mt-1 text-[10.5px] text-[#a49d8d]">
                 Couldn't parse phone —{" "}
                 <span className="select-all font-semibold text-warm-gray">
@@ -264,66 +264,109 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
             )}
           </div>
           <div className="flex items-center gap-2">
-            {canWhatsApp && (
-              <a
-                href={whatsAppLink!}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Quote on WhatsApp"
-                title="Quote on WhatsApp"
-                className="flex items-center justify-center rounded border border-[#d9d0bd] bg-white p-2.25 text-warm-gray hover:bg-black/[0.03]"
-              >
-                <MessageCircle className="size-3" />
-              </a>
-            )}
-            {canInvoice(item.enquiry.status) && (
-              <button
-                type="button"
-                disabled={issuing}
-                onClick={openInvoice}
-                className="flex items-center gap-1.25 rounded border border-[#d9d0bd] bg-white px-3 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] text-warm-gray hover:bg-black/[0.03] disabled:opacity-60"
-              >
-                {issuing ? (
-                  <Loader2 className="size-3 animate-spin" />
-                ) : (
-                  <FileText className="size-3" />
-                )}
-                Invoice
-              </button>
-            )}
-            {item.canDecline && (
-              <button
-                type="button"
-                disabled={acting}
-                onClick={decline}
-                className="rounded border border-[#e3c9c0] bg-white px-3 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#b4553f] hover:bg-[#f7e6e0] disabled:opacity-60"
-              >
-                Decline
-              </button>
-            )}
-            {item.canCancel && (
-              <button
-                type="button"
-                disabled={acting}
-                onClick={cancel}
-                className="rounded border border-[#e3c9c0] bg-white px-3 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#b4553f] hover:bg-[#f7e6e0] disabled:opacity-60"
-              >
-                Cancel
-              </button>
-            )}
-            <button
-              type="button"
-              disabled={acting || item.ctaAction === "none"}
-              onClick={runCta}
-              className={cn(
-                "rounded px-4 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors disabled:opacity-60",
-                item.ctaPrimary
-                  ? "bg-obsidian text-gold-soft hover:bg-[#262626]"
-                  : "border border-[#d9d0bd] bg-white text-warm-gray hover:bg-black/[0.03]",
-              )}
-            >
-              {acting ? <Loader2 className="size-3 animate-spin" /> : item.cta}
-            </button>
+            {item.ctas.map((kind) => {
+              switch (kind) {
+                case "whatsapp":
+                  return canWhatsApp ? (
+                    <a
+                      key={kind}
+                      href={whatsAppLink!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label="Quote on WhatsApp"
+                      title="Quote on WhatsApp"
+                      className="flex items-center justify-center rounded border border-[#d9d0bd] bg-white p-2.25 text-warm-gray hover:bg-black/[0.03]"
+                    >
+                      <MessageCircle className="size-3" />
+                    </a>
+                  ) : null;
+                case "invoice":
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      disabled={issuing}
+                      onClick={openInvoice}
+                      className="flex items-center gap-1.25 rounded border border-[#d9d0bd] bg-white px-3 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] text-warm-gray hover:bg-black/[0.03] disabled:opacity-60"
+                    >
+                      {issuing ? (
+                        <Loader2 className="size-3 animate-spin" />
+                      ) : (
+                        <FileText className="size-3" />
+                      )}
+                      Invoice
+                    </button>
+                  );
+                case "decline":
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      disabled={acting}
+                      onClick={decline}
+                      className="rounded border border-[#e3c9c0] bg-white px-3 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#b4553f] hover:bg-[#f7e6e0] disabled:opacity-60"
+                    >
+                      Decline
+                    </button>
+                  );
+                case "cancel":
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      disabled={acting}
+                      onClick={cancel}
+                      className="rounded border border-[#e3c9c0] bg-white px-3 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#b4553f] hover:bg-[#f7e6e0] disabled:opacity-60"
+                    >
+                      Cancel
+                    </button>
+                  );
+                case "view_details":
+                  // No details view exists yet — inert until one is built,
+                  // rather than a link to a page that isn't there.
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      disabled
+                      title="Not built yet"
+                      className="rounded border border-[#d9d0bd] bg-white px-3 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] text-warm-gray opacity-60"
+                    >
+                      View details
+                    </button>
+                  );
+                case "send_quote":
+                case "record_advance":
+                case "confirm":
+                case "reopen": {
+                  const label: Record<typeof kind, string> = {
+                    send_quote: "Send quote",
+                    record_advance: "Record advance",
+                    confirm: "Confirm",
+                    reopen: "Reopen",
+                  };
+                  const primary = kind !== "reopen";
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      disabled={acting}
+                      onClick={() => runKind(kind)}
+                      className={cn(
+                        "rounded px-4 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors disabled:opacity-60",
+                        primary
+                          ? "bg-obsidian text-gold-soft hover:bg-[#262626]"
+                          : "border border-[#d9d0bd] bg-white text-warm-gray hover:bg-black/[0.03]",
+                      )}
+                    >
+                      {acting ? <Loader2 className="size-3 animate-spin" /> : label[kind]}
+                    </button>
+                  );
+                }
+                default:
+                  return null;
+              }
+            })}
           </div>
         </div>
       </div>
