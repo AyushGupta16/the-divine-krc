@@ -54,6 +54,7 @@ import type {
   PartyHallRateKey,
   PartyHallRateSetting,
   PartyHallSlot,
+  PartyHallSource,
   PartyHallStat,
   PartyHallStatus,
   PaymentsMonthlyRollup,
@@ -716,11 +717,21 @@ export interface NewPartyHallEnquiryInput {
  *
  * `status` always starts `"enquiry"` and `amount` always starts `0` — an
  * admin quoting/confirming the event is Tier 2, out of scope here.
+ *
+ * `source` and `allowPastDate` are caller-set, never part of `input`: the
+ * public enquiry form's data is client-controlled and passes straight
+ * through this function's `.validator`, so a permissive-date flag living on
+ * `input` would let that unauthenticated caller waive its own past-date
+ * check. Only `createPartyHallEnquiryAdminFn` (behind `requireBookingWriter`)
+ * passes `allowPastDate: true`.
  */
 export function createPartyHallEnquiry(
   state: { partyHall: PartyHallEnquiry[] },
   input: NewPartyHallEnquiryInput,
   today: string = new Date().toISOString().slice(0, 10),
+  { source, allowPastDate = false }: { source: PartyHallSource; allowPastDate?: boolean } = {
+    source: "direct",
+  },
 ): Result<{ enquiry: PartyHallEnquiry }> {
   const eventType = input.eventType.trim();
   const occasionName = (input.occasionName ?? "").trim();
@@ -735,7 +746,9 @@ export function createPartyHallEnquiry(
     return { ok: false, error: `Event title must be ${OCCASION_NAME_MAX} characters or fewer.` };
   }
   if (!input.date) return { ok: false, error: "Event date is required." };
-  if (input.date < today) return { ok: false, error: "Event date cannot be in the past." };
+  if (!allowPastDate && input.date < today) {
+    return { ok: false, error: "Event date cannot be in the past." };
+  }
   if (!PARTY_HALL_SLOT_SET.has(input.slot)) return { ok: false, error: "Invalid time slot." };
   if (!Number.isInteger(input.guests) || input.guests < 1 || input.guests > MAX_PARTY_HALL_GUESTS) {
     return { ok: false, error: `Guest count must be between 1 and ${MAX_PARTY_HALL_GUESTS}.` };
@@ -769,6 +782,7 @@ export function createPartyHallEnquiry(
     contactName,
     contactPhone,
     contactEmail: contactEmail || undefined,
+    source,
   });
 
   return { ok: true, enquiry };

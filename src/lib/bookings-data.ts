@@ -108,6 +108,7 @@ import type {
   PartyHallPageData,
   PartyHallRateKey,
   PartyHallSlot,
+  PartyHallSource,
   PartyHallStatus,
   PaymentsPageData,
   ReportsPageData,
@@ -211,6 +212,7 @@ export function toPartyHall(r: PartyHallRow, advancePct: number): PartyHallEnqui
       contactName: r.contactName ?? undefined,
       contactPhone: r.contactPhone ?? undefined,
       contactEmail: r.contactEmail ?? undefined,
+      source: (r.source as PartyHallSource) ?? undefined,
     },
     advancePct,
   );
@@ -477,6 +479,7 @@ async function insertPartyHallEnquiry(enquiry: PartyHallEnquiry): Promise<void> 
     contactName: enquiry.contactName ?? null,
     contactPhone: enquiry.contactPhone ?? null,
     contactEmail: enquiry.contactEmail ?? null,
+    source: enquiry.source ?? null,
   });
 }
 
@@ -490,6 +493,32 @@ export const createPartyHallEnquiryFn = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<Result<{ enquiry: PartyHallEnquiry }>> => {
     const current = await load();
     const res = createPartyHallEnquiry(current, data);
+    if (!res.ok) return res;
+
+    await insertPartyHallEnquiry(res.enquiry);
+    return { ok: true, enquiry: res.enquiry };
+  });
+
+/**
+ * The Party Hall screen's "New event" drawer — a front-desk staffer recording
+ * a walk-in or phoned-in enquiry. Same `createPartyHallEnquiry` rule as the
+ * public form, but authenticated (`requireBookingWriter`, same gate as
+ * `createBookingFn`) and passes `allowPastDate: true` so a same-day or
+ * already-happened walk-in can still be recorded. `source` is required here
+ * — never defaulted — so every hand-entered row states walk-in or phone
+ * explicitly rather than inheriting the guest form's "direct".
+ */
+export const createPartyHallEnquiryAdminFn = createServerFn({ method: "POST" })
+  .validator((data: NewPartyHallEnquiryInput & { source: "walk_in" | "phone" }) => data)
+  .handler(async ({ data }): Promise<Result<{ enquiry: PartyHallEnquiry }>> => {
+    const auth = await requireBookingWriter();
+    if (!auth.ok) return auth;
+
+    const current = await load();
+    const res = createPartyHallEnquiry(current, data, undefined, {
+      source: data.source,
+      allowPastDate: true,
+    });
     if (!res.ok) return res;
 
     await insertPartyHallEnquiry(res.enquiry);

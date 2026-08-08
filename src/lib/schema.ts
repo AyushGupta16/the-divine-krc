@@ -175,6 +175,12 @@ export const partyHallEnquiries = pgTable("party_hall_enquiries", {
   contactName: text("contact_name"),
   contactPhone: text("contact_phone"),
   contactEmail: text("contact_email"),
+
+  /** Channel the enquiry arrived through — `"direct"` for every guest-form
+   *  submission (written explicitly by `createPartyHallEnquiry`), `"walk_in"`
+   *  / `"phone"` for admin hand-entry. Null means "predates this column",
+   *  never backfilled — same convention as `quoteBreakdown`. */
+  source: text("source"),
 });
 
 /**

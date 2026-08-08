@@ -32,6 +32,7 @@ import {
 } from "@/lib/bookings-data";
 import { adminIssueInvoiceFn } from "@/lib/invoices-data";
 import { Input } from "@/components/ui/input";
+import { PartyHallEntryForm } from "@/components/admin/PartyHallEntryForm";
 import { cn } from "@/lib/utils";
 
 /** The server fn behind each single-click CTA kind — everything that isn't
@@ -591,6 +592,7 @@ export function PartyHall({
   month: number;
 }) {
   const [pillFilter, setPillFilter] = useState<PartyHallPillKey>("all");
+  const [entryOpen, setEntryOpen] = useState(false);
 
   const visibleEvents = useMemo(
     () => data.events.filter((item) => matchesPill(item.enquiry.status, pillFilter)),
@@ -603,12 +605,15 @@ export function PartyHall({
         <p className="text-[12px] tracking-[0.01em] text-[#7a746a]">{data.subtitle}</p>
         <button
           type="button"
+          onClick={() => setEntryOpen(true)}
           className="inline-flex items-center gap-2 rounded-md bg-gold px-3 py-2 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
         >
           <Plus className="size-4" />
           New event
         </button>
       </div>
+
+      <PartyHallEntryForm open={entryOpen} onOpenChange={setEntryOpen} />
 
       <div className="grid grid-cols-2 gap-4.5 lg:grid-cols-4">
         {data.stats.map((stat) => (

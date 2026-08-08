@@ -188,7 +188,15 @@ export interface PartyHallEnquiry {
   contactName?: string;
   contactPhone?: string;
   contactEmail?: string;
+  /** Channel the enquiry arrived through. `"direct"` for the guest form,
+   *  `"walk_in"` / `"phone"` for admin hand-entry. Undefined means "predates
+   *  this field" — never backfilled. */
+  source?: PartyHallSource;
 }
+
+/** Subset of `BookingSource` relevant to Party Hall — no OTA channel books
+ *  an event, so those options are left out rather than reused wholesale. */
+export type PartyHallSource = "direct" | "walk_in" | "phone";
 
 // ── Admin dashboard (PR #3) ──────────────────────────────────────────────
 // Shapes for the dashboard screen. The mock data layer seeds figures that
