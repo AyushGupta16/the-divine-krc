@@ -2042,6 +2042,10 @@ function amountLabel(status: PartyHallStatus, quotedAt?: string): string {
  * callers). `isUpcomingEvent` itself does *not* do this: it only tests
  * status (excludes `cancelled`/`completed`/`declined`), never the date, so
  * it can't stand in for the future/past test below.
+ *
+ * Order matters: `EventCard` renders left to right, and the design puts the
+ * one primary (dark) action rightmost, so the primary kind is always last
+ * in the returned list.
  */
 export function partyHallCtaKinds(
   e: Pick<PartyHallEnquiry, "status" | "date" | "refundedAt">,
@@ -2049,11 +2053,11 @@ export function partyHallCtaKinds(
 ): PartyHallCtaKind[] {
   switch (e.status) {
     case "enquiry":
-      return ["send_quote", "decline"];
+      return ["decline", "send_quote"];
     case "quote_sent":
       return ["whatsapp", "decline", "record_advance"];
     case "advance_paid":
-      return ["confirm", "cancel", "invoice"];
+      return ["cancel", "invoice", "confirm"];
     case "confirmed":
       return e.date < today ? ["invoice"] : ["view_details", "cancel", "invoice"];
     case "declined":

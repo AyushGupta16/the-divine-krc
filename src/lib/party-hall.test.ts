@@ -282,10 +282,10 @@ function enquiry(patch: Partial<PartyHallEnquiry>): PartyHallEnquiry {
 describe("partyHallCtaKinds", () => {
   const TODAY = "2026-08-08";
 
-  it("enquiry → send quote, decline", () => {
+  it("enquiry → decline, send quote (primary rightmost)", () => {
     expect(partyHallCtaKinds(enquiry({ status: "enquiry" }), TODAY)).toEqual([
-      "send_quote",
       "decline",
+      "send_quote",
     ]);
   });
 
@@ -297,13 +297,13 @@ describe("partyHallCtaKinds", () => {
     ]);
   });
 
-  it("advance_paid → confirm, cancel, invoice — no whatsapp, the quote conversation is over", () => {
+  it("advance_paid → cancel, invoice, confirm (primary rightmost) — no whatsapp, the quote conversation is over", () => {
     expect(
       partyHallCtaKinds(
         enquiry({ status: "advance_paid", amount: 50000, advanceAmount: 12500 }),
         TODAY,
       ),
-    ).toEqual(["confirm", "cancel", "invoice"]);
+    ).toEqual(["cancel", "invoice", "confirm"]);
   });
 
   it("confirmed, event date in the future → view details, cancel, invoice", () => {
