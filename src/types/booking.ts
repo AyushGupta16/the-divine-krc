@@ -517,6 +517,10 @@ export interface PartyHallEventItem {
   ctaPrimary: boolean;
   /** Which server action the primary CTA click calls. */
   ctaAction: PartyHallCtaAction;
+  /** Resolved `phAdvancePct` at render time — threaded to the WhatsApp quote
+   *  composer so it can state a real advance figure without recomputing a
+   *  rate the enquiry itself doesn't carry. */
+  advancePct: number;
   /** A quoted-but-undecided enquiry can also be declined — a secondary
    *  action next to the primary CTA, not a replacement for it. */
   canDecline: boolean;

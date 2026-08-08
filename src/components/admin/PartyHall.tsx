@@ -1,9 +1,14 @@
 import { useMemo, useState } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
-import { ChevronLeft, ChevronRight, FileText, Loader2, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileText, Loader2, MessageCircle, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import { shiftCalendarMonth } from "@/lib/bookings";
+import {
+  buildWhatsAppQuoteLink,
+  composeWhatsAppQuoteMessage,
+  normalizePhone,
+} from "@/lib/whatsapp";
 import type {
   PartyHallCalendarCell,
   PartyHallCtaAction,
@@ -160,6 +165,17 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
     await router.invalidate();
   }
 
+  const normalizedPhone = item.enquiry.contactPhone
+    ? normalizePhone(item.enquiry.contactPhone)
+    : null;
+  const canWhatsApp = normalizedPhone != null && item.enquiry.amount > 0;
+  const whatsAppLink = canWhatsApp
+    ? buildWhatsAppQuoteLink(
+        normalizedPhone,
+        composeWhatsAppQuoteMessage(item.enquiry, item.advancePct),
+      )
+    : null;
+
   return (
     <div className="rounded-lg border border-[#eae4d6] bg-white px-5 py-4.5 transition-colors hover:border-[#d9cba6]">
       <div className="flex flex-wrap items-start gap-3.5">
@@ -233,8 +249,27 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
               {item.amountLabel}
             </div>
             <div className="font-display text-[19px]">{item.amount}</div>
+            {item.enquiry.contactPhone && normalizedPhone === null && (
+              <div className="mt-1 text-[10.5px] text-[#a49d8d]">
+                Couldn't parse phone —{" "}
+                <span className="select-all font-semibold text-warm-gray">
+                  {item.enquiry.contactPhone}
+                </span>
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2">
+            {canWhatsApp && (
+              <a
+                href={whatsAppLink!}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.25 rounded border border-[#d9d0bd] bg-white px-3 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] text-warm-gray hover:bg-black/[0.03]"
+              >
+                <MessageCircle className="size-3" />
+                Quote on WhatsApp
+              </a>
+            )}
             {canInvoice(item.enquiry.status) && (
               <button
                 type="button"

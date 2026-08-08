@@ -2057,7 +2057,7 @@ function ctaFor(status: PartyHallStatus): {
   }
 }
 
-function buildEventItem(e: PartyHallEnquiry): PartyHallEventItem {
+function buildEventItem(e: PartyHallEnquiry, advancePct: number): PartyHallEventItem {
   const day = e.date.slice(8, 10);
   const monthName = new Date(`${e.date}T00:00:00Z`).toLocaleDateString("en-IN", {
     month: "short",
@@ -2076,6 +2076,7 @@ function buildEventItem(e: PartyHallEnquiry): PartyHallEventItem {
     amount: e.amount > 0 ? formatINRCompact(e.amount) : "₹—",
     canDecline: e.status === "enquiry" || e.status === "quote_sent",
     canCancel: e.status === "advance_paid" || e.status === "confirmed",
+    advancePct,
     ...ctaFor(e.status),
   };
 }
@@ -2149,6 +2150,8 @@ export async function getPartyHallPageData(
       a.id.localeCompare(b.id),
   );
 
+  const advancePct = resolvePartyHallRates(data.partyHallRateOverrides).phAdvancePct;
+
   const newEnquiries = events.filter((e) => e.status === "enquiry").length;
   const confirmedUpcoming = events.filter(
     (e) => e.status === "confirmed" && isUpcomingEvent(e),
@@ -2185,7 +2188,7 @@ export async function getPartyHallPageData(
     subtitle: `Up to 150 guests · tailored pricing · ${newEnquiries} enquiries need a quote`,
     stats,
     pills,
-    events: events.map(buildEventItem),
+    events: events.map((e) => buildEventItem(e, advancePct)),
     calendar: miniCalendar(data.partyHall, year, month),
     packages: PARTY_HALL_PACKAGES,
     addOnsLine: `Add-ons: catering ₹450/plate · decor · DJ. ${PARTY_HALL_ADVANCE_PCT}% advance to confirm.`,
