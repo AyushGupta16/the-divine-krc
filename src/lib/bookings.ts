@@ -54,6 +54,7 @@ import type {
   PartyHallRateKey,
   PartyHallRateSetting,
   PartyHallSlot,
+  PartyHallSource,
   PartyHallStat,
   PartyHallStatus,
   PaymentsMonthlyRollup,
@@ -716,11 +717,26 @@ export interface NewPartyHallEnquiryInput {
  *
  * `status` always starts `"enquiry"` and `amount` always starts `0` — an
  * admin quoting/confirming the event is Tier 2, out of scope here.
+ *
+ * Security property: `source` and `allowPastDate` are caller-set, never part
+ * of `input`. `createPartyHallEnquiryFn` (unauthenticated) passes client data
+ * straight through its `.validator` into `input` — if `allowPastDate` or
+ * `source` lived on `NewPartyHallEnquiryInput`, an anonymous caller could set
+ * either directly: waiving its own past-date check, or claiming
+ * `source: "walk_in"`/`"phone"` to suppress `derivePartyHallNotifications`'s
+ * new-enquiry alert for a submission nobody in the admin has actually seen.
+ * Because both are a separate parameter instead, only server code decides
+ * them — the public fn always gets the `source: "direct"` default and never
+ * passes `allowPastDate`; only `createPartyHallEnquiryAdminFn` (behind
+ * `requireBookingWriter`) sets `allowPastDate: true` and a real source.
  */
 export function createPartyHallEnquiry(
   state: { partyHall: PartyHallEnquiry[] },
   input: NewPartyHallEnquiryInput,
   today: string = new Date().toISOString().slice(0, 10),
+  { source, allowPastDate = false }: { source: PartyHallSource; allowPastDate?: boolean } = {
+    source: "direct",
+  },
 ): Result<{ enquiry: PartyHallEnquiry }> {
   const eventType = input.eventType.trim();
   const occasionName = (input.occasionName ?? "").trim();
@@ -735,7 +751,9 @@ export function createPartyHallEnquiry(
     return { ok: false, error: `Event title must be ${OCCASION_NAME_MAX} characters or fewer.` };
   }
   if (!input.date) return { ok: false, error: "Event date is required." };
-  if (input.date < today) return { ok: false, error: "Event date cannot be in the past." };
+  if (!allowPastDate && input.date < today) {
+    return { ok: false, error: "Event date cannot be in the past." };
+  }
   if (!PARTY_HALL_SLOT_SET.has(input.slot)) return { ok: false, error: "Invalid time slot." };
   if (!Number.isInteger(input.guests) || input.guests < 1 || input.guests > MAX_PARTY_HALL_GUESTS) {
     return { ok: false, error: `Guest count must be between 1 and ${MAX_PARTY_HALL_GUESTS}.` };
@@ -769,6 +787,7 @@ export function createPartyHallEnquiry(
     contactName,
     contactPhone,
     contactEmail: contactEmail || undefined,
+    source,
   });
 
   return { ok: true, enquiry };

@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import { deriveNotifications, groupByDay } from "@/lib/notifications";
+import { deriveNotifications, derivePartyHallNotifications, groupByDay } from "@/lib/notifications";
 import type { Booking } from "@/types/booking";
+import type { PartyHallEvent } from "@/lib/notifications";
+
+function partyHallEvent(
+  id: string,
+  createdAt: string,
+  source: PartyHallEvent["source"] = "direct",
+): PartyHallEvent {
+  return { id, title: "Reception — Test", guests: 80, createdAt, source };
+}
 
 function booking(id: string, createdAt: string, guestId = "G-001"): Booking {
   return {
@@ -85,6 +94,35 @@ describe("deriveNotifications", () => {
       null,
     );
     expect(items[0].title).not.toContain("has requests");
+  });
+});
+
+describe("derivePartyHallNotifications", () => {
+  it("produces a notification for a web-sourced (direct) enquiry", () => {
+    const items = derivePartyHallNotifications(
+      [partyHallEvent("PH-1", "2026-07-15T09:00:00.000Z", "direct")],
+      null,
+    );
+    expect(items.map((i) => i.id)).toEqual(["PH-1"]);
+  });
+
+  it("produces no notification for an admin-sourced enquiry (walk_in or phone)", () => {
+    const items = derivePartyHallNotifications(
+      [
+        partyHallEvent("PH-1", "2026-07-15T09:00:00.000Z", "walk_in"),
+        partyHallEvent("PH-2", "2026-07-15T09:00:00.000Z", "phone"),
+      ],
+      null,
+    );
+    expect(items).toEqual([]);
+  });
+
+  it("still surfaces rows with no source (predates the column)", () => {
+    const items = derivePartyHallNotifications(
+      [partyHallEvent("PH-1", "2026-07-15T09:00:00.000Z", undefined)],
+      null,
+    );
+    expect(items.map((i) => i.id)).toEqual(["PH-1"]);
   });
 });
 

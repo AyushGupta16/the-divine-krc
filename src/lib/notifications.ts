@@ -97,12 +97,19 @@ export function deriveRoomAssignmentNotifications(
 }
 
 /** Only the fields a "party" notification needs. */
-export type PartyHallEvent = Pick<PartyHallEnquiry, "id" | "title" | "guests" | "createdAt">;
+export type PartyHallEvent = Pick<
+  PartyHallEnquiry,
+  "id" | "title" | "guests" | "createdAt" | "source"
+>;
 
 /**
  * One "party" item per enquiry, newest first. Enquiries with no `createdAt`
  * (seed data, hand-entered rows that predate the guest-facing form) produce
- * nothing — same reasoning as `deriveRoomAssignmentNotifications`.
+ * nothing — same reasoning as `deriveRoomAssignmentNotifications`. Rows
+ * entered by an admin (`source` "walk_in" or "phone") produce nothing either
+ * — the admin who typed it thirty seconds ago already knows about it; only
+ * `"direct"` (the guest form) or an undefined `source` (rows that predate the
+ * column) surface a notification.
  */
 export function derivePartyHallNotifications(
   enquiries: PartyHallEvent[],
@@ -110,6 +117,7 @@ export function derivePartyHallNotifications(
 ): NotificationItem[] {
   return enquiries
     .filter((e): e is PartyHallEvent & { createdAt: string } => !!e.createdAt)
+    .filter((e) => e.source !== "walk_in" && e.source !== "phone")
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .map((e) => ({
       id: e.id,
