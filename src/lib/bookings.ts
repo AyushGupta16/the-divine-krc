@@ -718,12 +718,17 @@ export interface NewPartyHallEnquiryInput {
  * `status` always starts `"enquiry"` and `amount` always starts `0` — an
  * admin quoting/confirming the event is Tier 2, out of scope here.
  *
- * `source` and `allowPastDate` are caller-set, never part of `input`: the
- * public enquiry form's data is client-controlled and passes straight
- * through this function's `.validator`, so a permissive-date flag living on
- * `input` would let that unauthenticated caller waive its own past-date
- * check. Only `createPartyHallEnquiryAdminFn` (behind `requireBookingWriter`)
- * passes `allowPastDate: true`.
+ * Security property: `source` and `allowPastDate` are caller-set, never part
+ * of `input`. `createPartyHallEnquiryFn` (unauthenticated) passes client data
+ * straight through its `.validator` into `input` — if `allowPastDate` or
+ * `source` lived on `NewPartyHallEnquiryInput`, an anonymous caller could set
+ * either directly: waiving its own past-date check, or claiming
+ * `source: "walk_in"`/`"phone"` to suppress `derivePartyHallNotifications`'s
+ * new-enquiry alert for a submission nobody in the admin has actually seen.
+ * Because both are a separate parameter instead, only server code decides
+ * them — the public fn always gets the `source: "direct"` default and never
+ * passes `allowPastDate`; only `createPartyHallEnquiryAdminFn` (behind
+ * `requireBookingWriter`) sets `allowPastDate: true` and a real source.
  */
 export function createPartyHallEnquiry(
   state: { partyHall: PartyHallEnquiry[] },
