@@ -47,6 +47,7 @@ import {
   computePartyHallQuote,
   confirmPartyHallEvent,
   createBooking,
+  createGuest,
   createPartyHallEnquiry,
   declinePartyHallEnquiry,
   defaultRoomTiles,
@@ -72,6 +73,7 @@ import {
   resolveRequestedService,
   resolveRoomTypes,
   sendPartyHallQuote,
+  updateGuest,
   withAdvance,
   withTier,
   withTotal,
@@ -80,6 +82,7 @@ import {
   type BookingData,
   type GuestBookingLookup,
   type NewBookingInput,
+  type NewGuestInput,
   type NewPartyHallEnquiryInput,
   type RoomTypeInfo,
 } from "@/lib/bookings";
@@ -751,6 +754,50 @@ async function requireSettingsWriter(): Promise<Result> {
 }
 
 /**
+ * The Guests directory's standalone "New guest" write. Same
+ * fixtures-mutation convenience as `insertRoom` when there is no database —
+ * unlike `insertBooking`'s guest half, this always inserts a genuinely new
+ * row (`createGuest` already ruled out a phone collision), so no
+ * `onConflictDoNothing` guard is needed.
+ */
+async function insertGuest(guest: Guest): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    fixtures.guests.push(guest);
+    return;
+  }
+  await conn.insert(schema.guests).values({
+    id: guest.id,
+    name: guest.name,
+    phone: guest.phone,
+    email: guest.email,
+    city: guest.city,
+    stays: guest.stays,
+    lifetimeValue: guest.lifetimeValue,
+  });
+}
+
+/**
+ * The Guests directory's edit write. Only `name`/`phone`/`email`/`city` are
+ * ever set — `stays`/`lifetimeValue` are untouched, same derived-fields
+ * discipline `updateGuest` enforces at the rule layer.
+ */
+async function updateGuestRow(
+  id: string,
+  patch: { name: string; phone: string; email: string; city: string },
+): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    const guest = fixtures.guests.find((g) => g.id === id);
+    if (guest) Object.assign(guest, patch);
+    return;
+  }
+  await conn.update(schema.guests).set(patch).where(eq(schema.guests.id, id));
+}
+
+/**
  * The Rooms screen's "Add room" and per-tile status popup, and Settings'
  * rate/area fields. Same fixtures-mutation convenience as the other row-store
  * helpers when there is no database — `fixtures.rooms` is mutated in place.
@@ -937,6 +984,49 @@ export const createBookingFn = createServerFn({ method: "POST" })
 
     await insertBooking(res.guest, res.booking);
     return { ok: true, booking: res.booking };
+  });
+
+/**
+ * The "+" chooser's "New guest" write — a standalone guest record, no
+ * booking attached. Same three beats as `createBookingFn`; `createGuest`
+ * holds the phone-collision rule.
+ */
+export const createGuestFn = createServerFn({ method: "POST" })
+  .validator((data: NewGuestInput) => data)
+  .handler(async ({ data }): Promise<Result<{ guest: Guest }>> => {
+    const auth = await requireBookingWriter();
+    if (!auth.ok) return auth;
+
+    const current = await load();
+    const res = createGuest(current, data);
+    if (!res.ok) return res;
+
+    await insertGuest(res.guest);
+    return { ok: true, guest: res.guest };
+  });
+
+/**
+ * The Guests directory's edit write — corrects an existing guest's details.
+ * `updateGuest` re-runs the same phone-collision rule as `createGuestFn`,
+ * excluding the guest's own row.
+ */
+export const updateGuestFn = createServerFn({ method: "POST" })
+  .validator((data: { id: string } & NewGuestInput) => data)
+  .handler(async ({ data }): Promise<Result<{ guest: Guest }>> => {
+    const auth = await requireBookingWriter();
+    if (!auth.ok) return auth;
+
+    const current = await load();
+    const res = updateGuest(current, data.id, data);
+    if (!res.ok) return res;
+
+    await updateGuestRow(data.id, {
+      name: res.guest.name,
+      phone: res.guest.phone,
+      email: res.guest.email,
+      city: res.guest.city,
+    });
+    return { ok: true, guest: res.guest };
   });
 
 /**

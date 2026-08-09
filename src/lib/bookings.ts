@@ -97,6 +97,7 @@ import {
 } from "@/lib/booking-math";
 import { isActive, type Result, type TeamAccount } from "@/lib/team";
 import { initialsOf } from "@/lib/utils";
+import { normalizePhone } from "@/lib/whatsapp";
 
 /**
  * Every row an admin screen derives from, fetched once per request and threaded
@@ -663,6 +664,118 @@ export function createBooking(
   });
 
   return { ok: true, guest, booking };
+}
+
+export interface NewGuestInput {
+  name: string;
+  phone: string;
+  email: string;
+  city: string;
+}
+
+/**
+ * Finds an existing guest whose phone matches `phone`, for the phone-
+ * collision check on create/edit below. Compares by `normalizePhone` when
+ * both sides resolve — so "9876543210" and "+91 98765 43210" collide, unlike
+ * `createBooking`'s raw-string match (see issue #92, filed rather than
+ * changed here: switching that match to normalized comparison is a real
+ * behaviour change with existing-data implications). Falls back to exact
+ * trimmed-string comparison when either side won't normalize, rather than
+ * letting an unresolvable number through unchecked. `excludeId` lets an edit
+ * exclude the guest's own row.
+ */
+function findGuestByPhone(guests: Guest[], phone: string, excludeId?: string): Guest | null {
+  const target = phone.trim();
+  const targetNormalized = normalizePhone(target);
+  return (
+    guests.find((g) => {
+      if (g.id === excludeId) return false;
+      const gNormalized = normalizePhone(g.phone);
+      return targetNormalized !== null && gNormalized !== null
+        ? targetNormalized === gNormalized
+        : g.phone.trim() === target;
+    }) ?? null
+  );
+}
+
+function phoneConflictError(guest: Guest, targetNormalized: string | null): string {
+  const base = `That number already belongs to ${guest.id}, ${guest.name}.`;
+  return targetNormalized
+    ? base
+    : `${base} (This number could not be normalized, so it was matched by exact text.)`;
+}
+
+/**
+ * The Guests directory's standalone "New guest" write (no booking attached)
+ * — reached from the "+" chooser. Phone collisions are blocked, not merged:
+ * merging would mean reassigning existing bookings/invoices to a surviving
+ * guest id, a much bigger feature than this form takes on. See
+ * `findGuestByPhone` for the comparison rule.
+ */
+export function createGuest(
+  state: { guests: Guest[] },
+  input: NewGuestInput,
+): Result<{ guest: Guest }> {
+  const name = input.name.trim();
+  const phone = input.phone.trim();
+  const email = input.email.trim();
+  const city = input.city.trim();
+  if (!name) return { ok: false, error: "Guest name is required." };
+  if (!phone) return { ok: false, error: "Guest phone is required." };
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, error: "Guest email is invalid." };
+  }
+
+  const conflict = findGuestByPhone(state.guests, phone);
+  if (conflict) {
+    return { ok: false, error: phoneConflictError(conflict, normalizePhone(phone)) };
+  }
+
+  const guest = withTier({
+    id: nextGuestId(state.guests),
+    name,
+    phone,
+    email,
+    city,
+    stays: 0,
+    lifetimeValue: 0,
+  });
+  return { ok: true, guest };
+}
+
+/**
+ * The Guests directory's "fix a guest's details" write. Only the
+ * user-entered fields (`name`/`phone`/`email`/`city`) are parameters here —
+ * `stays`/`lifetimeValue`/`tier` are derived (`withTier`) and this function
+ * has no way to accept them, so there is no path for a caller to smuggle a
+ * stat edit through this form. Same phone-collision rule as `createGuest`,
+ * excluding the guest's own row.
+ */
+export function updateGuest(
+  state: { guests: Guest[] },
+  id: string,
+  input: NewGuestInput,
+): Result<{ guest: Guest }> {
+  const existing = state.guests.find((g) => g.id === id);
+  if (!existing) return { ok: false, error: `Guest ${id} does not exist.` };
+
+  const name = input.name.trim();
+  const phone = input.phone.trim();
+  const email = input.email.trim();
+  const city = input.city.trim();
+  if (!name) return { ok: false, error: "Guest name is required." };
+  if (!phone) return { ok: false, error: "Guest phone is required." };
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, error: "Guest email is invalid." };
+  }
+
+  const conflict = findGuestByPhone(state.guests, phone, id);
+  if (conflict) {
+    return { ok: false, error: phoneConflictError(conflict, normalizePhone(phone)) };
+  }
+
+  const guest: Guest = { ...existing, name, phone, email, city };
+  return { ok: true, guest };
 }
 
 /** `PH-YYYYMMDD-nnn` — the next free sequence number for that calendar date,
