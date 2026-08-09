@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { getBookingsPageData, getGuestsPageData, guestTier } from "@/lib/bookings";
+import {
+  createGuest,
+  getBookingsPageData,
+  getGuestsPageData,
+  guestTier,
+  updateGuest,
+} from "@/lib/bookings";
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import { formatINRCompact } from "@/lib/booking-math";
 import type { GuestStat } from "@/types/booking";
@@ -88,5 +94,101 @@ describe("getGuestsPageData", () => {
       expect(g.avatarBg).toMatch(/^#[0-9a-f]{6}$/);
       expect(g.avatarColor).toMatch(/^#[0-9a-f]{6}$/);
     }
+  });
+});
+
+describe("createGuest", () => {
+  const NEW_GUEST = { name: "Rohan Sharma", phone: "+91 90909 12345", email: "", city: "Pune" };
+
+  it("creates a standalone guest with no bookings, stats zeroed", () => {
+    const res = createGuest({ guests: fixtures.guests }, NEW_GUEST);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.guest.name).toBe(NEW_GUEST.name);
+    expect(res.guest.stays).toBe(0);
+    expect(res.guest.lifetimeValue).toBe(0);
+    expect(res.guest.tier).toBe("new");
+    expect(fixtures.guests.some((g) => g.id === res.guest.id)).toBe(false);
+  });
+
+  it("rejects a phone that exact-string matches an existing guest, naming them", () => {
+    const existing = fixtures.guests[0]!;
+    const res = createGuest({ guests: fixtures.guests }, { ...NEW_GUEST, phone: existing.phone });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error).toContain(existing.id);
+    expect(res.error).toContain(existing.name);
+  });
+
+  it("rejects a phone that only normalizes to match — same number, different formatting", () => {
+    const existing = fixtures.guests[0]!; // "+91 98110 22334"
+    const res = createGuest({ guests: fixtures.guests }, { ...NEW_GUEST, phone: "9811022334" });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error).toContain(existing.id);
+  });
+
+  it("rejects a missing name or phone", () => {
+    expect(createGuest({ guests: fixtures.guests }, { ...NEW_GUEST, name: " " }).ok).toBe(false);
+    expect(createGuest({ guests: fixtures.guests }, { ...NEW_GUEST, phone: " " }).ok).toBe(false);
+  });
+
+  it("rejects a malformed email", () => {
+    const res = createGuest({ guests: fixtures.guests }, { ...NEW_GUEST, email: "not-an-email" });
+    expect(res.ok).toBe(false);
+  });
+});
+
+describe("updateGuest", () => {
+  it("updates name/phone/email/city, leaving derived fields untouched", () => {
+    const existing = fixtures.guests[0]!;
+    const res = updateGuest({ guests: fixtures.guests }, existing.id, {
+      name: "Aarav K. Mehta",
+      phone: existing.phone,
+      email: existing.email,
+      city: "Gurugram",
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.guest.name).toBe("Aarav K. Mehta");
+    expect(res.guest.city).toBe("Gurugram");
+    expect(res.guest.id).toBe(existing.id);
+    expect(res.guest.stays).toBe(existing.stays);
+    expect(res.guest.lifetimeValue).toBe(existing.lifetimeValue);
+    expect(res.guest.tier).toBe(existing.tier);
+  });
+
+  it("excludes the guest's own row from the collision check — keeping your own number is fine", () => {
+    const existing = fixtures.guests[0]!;
+    const res = updateGuest({ guests: fixtures.guests }, existing.id, {
+      name: existing.name,
+      phone: existing.phone,
+      email: existing.email,
+      city: existing.city,
+    });
+    expect(res.ok).toBe(true);
+  });
+
+  it("rejects when the new phone (normalized) belongs to a different guest", () => {
+    const [self, other] = fixtures.guests;
+    const res = updateGuest({ guests: fixtures.guests }, self!.id, {
+      name: self!.name,
+      phone: other!.phone,
+      email: self!.email,
+      city: self!.city,
+    });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error).toContain(other!.id);
+  });
+
+  it("rejects an unknown guest id", () => {
+    const res = updateGuest({ guests: fixtures.guests }, "G-999", {
+      name: "Ghost",
+      phone: "+91 90000 00000",
+      email: "",
+      city: "",
+    });
+    expect(res.ok).toBe(false);
   });
 });

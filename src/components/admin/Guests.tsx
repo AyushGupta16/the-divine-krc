@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { Pencil, Plus } from "lucide-react";
 
-import type { GuestListItem, GuestsPageData, GuestTier } from "@/types/booking";
+import type { Guest, GuestListItem, GuestsPageData, GuestTier } from "@/types/booking";
 import { formatINR } from "@/lib/booking-math";
 import {
   Table,
@@ -11,6 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { StatCard } from "@/components/ui/stat-card";
+import { GuestEntryForm } from "@/components/admin/GuestEntryForm";
 import { cn } from "@/lib/utils";
 
 // ── Tokens ──────────────────────────────────────────────────────────────────
@@ -40,7 +43,7 @@ function TierBadge({ tier }: { tier: GuestTier }) {
   );
 }
 
-function GuestRow({ item }: { item: GuestListItem }) {
+function GuestRow({ item, onEdit }: { item: GuestListItem; onEdit: (guest: Guest) => void }) {
   const { guest: g } = item;
   return (
     <TableRow className="border-[#f2ede2] hover:bg-[#faf7ef]">
@@ -84,13 +87,24 @@ function GuestRow({ item }: { item: GuestListItem }) {
         <TierBadge tier={g.tier} />
       </TableCell>
       <TableCell className={cn(cell, "text-right")}>
-        <Link
-          to="/admin/bookings"
-          search={{ guest: g.name }}
-          className="text-[11px] font-semibold text-gold hover:text-[#a8863f]"
-        >
-          View &rarr;
-        </Link>
+        <div className="flex items-center justify-end gap-3">
+          <button
+            type="button"
+            onClick={() => onEdit(g)}
+            aria-label={`Edit ${g.name}`}
+            title="Edit guest"
+            className="flex size-6.5 items-center justify-center rounded-[5px] text-[#a49d8d] transition-colors hover:bg-black/4 hover:text-obsidian"
+          >
+            <Pencil className="size-3.5" />
+          </button>
+          <Link
+            to="/admin/bookings"
+            search={{ guest: g.name }}
+            className="text-[11px] font-semibold text-gold hover:text-[#a8863f]"
+          >
+            View &rarr;
+          </Link>
+        </div>
       </TableCell>
     </TableRow>
   );
@@ -99,9 +113,22 @@ function GuestRow({ item }: { item: GuestListItem }) {
 // ── Page ────────────────────────────────────────────────────────────────────
 
 export function Guests({ data }: { data: GuestsPageData }) {
+  const [editingGuest, setEditingGuest] = useState<Guest | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+
   return (
     <div className="flex flex-col gap-5 p-4 sm:p-6.5">
-      <p className="text-[12px] tracking-[0.01em] text-[#7a746a]">{data.subtitle}</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-[12px] tracking-[0.01em] text-[#7a746a]">{data.subtitle}</p>
+        <button
+          type="button"
+          onClick={() => setCreateOpen(true)}
+          className="inline-flex items-center gap-2 rounded-md bg-gold px-3 py-2 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
+        >
+          <Plus className="size-4" />
+          New guest
+        </button>
+      </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {data.stats.map((stat) => (
@@ -126,11 +153,21 @@ export function Guests({ data }: { data: GuestsPageData }) {
           </TableHeader>
           <TableBody>
             {data.guests.map((item) => (
-              <GuestRow key={item.guest.id} item={item} />
+              <GuestRow key={item.guest.id} item={item} onEdit={setEditingGuest} />
             ))}
           </TableBody>
         </Table>
       </div>
+
+      <GuestEntryForm
+        mode="edit"
+        guest={editingGuest ?? undefined}
+        open={editingGuest !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditingGuest(null);
+        }}
+      />
+      <GuestEntryForm mode="create" open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   );
 }
