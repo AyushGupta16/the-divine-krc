@@ -14,13 +14,21 @@ import { useEntryForms } from "@/components/admin/entry-forms-context";
 // `z.literal("1")` rejected that shape outright and threw out of
 // `validateSearch`, taking the whole route down.
 //
-// `validateSearch` is not called exactly once per navigation — confirmed by
-// instrumenting it directly: one call receives the raw parsed URL value,
-// several subsequent calls receive `true`, the *previous call's output*,
-// as if re-validating it as fresh input. A `.transform()` that changes the
-// value's type ("1"/1 -> true) is therefore not safe here — accepting `true`
-// as a valid input too (in addition to "1" and 1) is what makes re-running
-// the schema against its own prior output a no-op instead of a throw.
+// LANDMINE (found the hard way — see PR #94 review): if you're here because
+// of a crashed route match, an "Invalid literal value" / "invalid_literal"
+// Zod error, or a console warning saying "Error in route match", read this.
+//
+// `validateSearch` is NOT called exactly once per navigation. Confirmed by
+// instrumenting it directly and logging every call: one call receives the
+// raw parsed URL value, several subsequent calls receive the *previous
+// call's own OUTPUT* fed back in as if it were fresh raw input. Any
+// `validateSearch` schema with a `.transform()` that changes the value's
+// shape or type (e.g. "1"/1 -> true) MUST also accept its own OUTPUT as
+// valid input, or every call after the first throws — that throw is what
+// takes down the whole route match. `z.literal(true)` below exists only to
+// make re-running this schema against its own prior output a no-op instead
+// of a crash. Same rule applies to any future `validateSearch` schema in
+// this codebase that transforms rather than passing values through as-is.
 const flagParam = z
   .union([z.literal("1"), z.literal(1), z.literal(true)])
   .transform(() => true as const)
