@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Pencil } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 
 import type { Guest, GuestListItem, GuestsPageData, GuestTier } from "@/types/booking";
 import { formatINR } from "@/lib/booking-math";
@@ -114,10 +114,21 @@ function GuestRow({ item, onEdit }: { item: GuestListItem; onEdit: (guest: Guest
 
 export function Guests({ data }: { data: GuestsPageData }) {
   const [editingGuest, setEditingGuest] = useState<Guest | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
 
   return (
     <div className="flex flex-col gap-5 p-4 sm:p-6.5">
-      <p className="text-[12px] tracking-[0.01em] text-[#7a746a]">{data.subtitle}</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-[12px] tracking-[0.01em] text-[#7a746a]">{data.subtitle}</p>
+        <button
+          type="button"
+          onClick={() => setCreateOpen(true)}
+          className="inline-flex items-center gap-2 rounded-md bg-gold px-3 py-2 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
+        >
+          <Plus className="size-4" />
+          New guest
+        </button>
+      </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {data.stats.map((stat) => (
@@ -156,6 +167,7 @@ export function Guests({ data }: { data: GuestsPageData }) {
           if (!open) setEditingGuest(null);
         }}
       />
+      <GuestEntryForm mode="create" open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   );
 }
