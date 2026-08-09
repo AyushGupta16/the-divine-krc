@@ -75,7 +75,7 @@ function DesktopPopover({
         ref={triggerRef}
         aria-label="Create"
         aria-haspopup="menu"
-        title="Create"
+        title="Create (N)"
         className={cn(
           "flex size-10 items-center justify-center rounded-[5px] outline-none transition-colors duration-120",
           "focus-visible:ring-3 focus-visible:ring-[#f0e7d3]",
