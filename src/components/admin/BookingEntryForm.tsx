@@ -11,6 +11,7 @@ import {
   Sheet,
   SheetContent,
   SheetDescription,
+  SheetEyebrow,
   SheetFooter,
   SheetHeader,
   SheetTitle,
@@ -120,6 +121,7 @@ export function BookingEntryForm({
     >
       <SheetContent className="flex w-full flex-col gap-5 overflow-y-auto sm:max-w-md">
         <SheetHeader>
+          <SheetEyebrow>Front desk</SheetEyebrow>
           <SheetTitle>New booking</SheetTitle>
           <SheetDescription>
             Direct, OYO, phone or walk-in — the totals below are computed, not entered.

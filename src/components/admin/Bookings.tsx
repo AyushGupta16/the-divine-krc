@@ -35,7 +35,7 @@ import {
   updateBookingRoomFn,
   updateBookingStatusFn,
 } from "@/lib/bookings-data";
-import { BookingEntryForm } from "@/components/admin/BookingEntryForm";
+import { useEntryForms } from "@/components/admin/entry-forms-context";
 import {
   Table,
   TableBody,
@@ -889,17 +889,15 @@ const UNASSIGNED_SCOPE_STATUSES = new Set<BookingStatus>([
 
 export function Bookings({
   data,
-  openEntryForm = false,
   guestFilter,
   unassignedOnly = false,
 }: {
   data: BookingsPageData;
-  openEntryForm?: boolean;
   guestFilter?: string;
   unassignedOnly?: boolean;
 }) {
   const [active, setActive] = useState<TabKey>("all");
-  const [entryOpen, setEntryOpen] = useState(openEntryForm);
+  const { openBooking } = useEntryForms();
 
   const byStatus = useMemo(
     () => (active === "all" ? data.rows : data.rows.filter((r) => r.booking.status === active)),
@@ -974,7 +972,7 @@ export function Bookings({
           </button>
           <button
             type="button"
-            onClick={() => setEntryOpen(true)}
+            onClick={openBooking}
             className="inline-flex items-center gap-2 rounded-md bg-gold px-3 py-2 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
           >
             <Plus className="size-4" />
@@ -982,8 +980,6 @@ export function Bookings({
           </button>
         </div>
       </div>
-
-      <BookingEntryForm open={entryOpen} onOpenChange={setEntryOpen} />
 
       {unassignedOnly && (
         <p className="rounded-md border border-[#eae4d6] bg-[#faf7ef] px-3.5 py-2.5 text-[12px] font-semibold text-warm-gray">

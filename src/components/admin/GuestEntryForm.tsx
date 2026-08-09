@@ -10,6 +10,7 @@ import {
   Sheet,
   SheetContent,
   SheetDescription,
+  SheetEyebrow,
   SheetFooter,
   SheetHeader,
   SheetTitle,
@@ -91,6 +92,7 @@ export function GuestEntryForm({
     >
       <SheetContent className="flex w-full flex-col gap-5 overflow-y-auto sm:max-w-md">
         <SheetHeader>
+          <SheetEyebrow>Front desk</SheetEyebrow>
           <SheetTitle>{mode === "edit" ? "Edit guest" : "New guest"}</SheetTitle>
           <SheetDescription>
             {mode === "edit"
