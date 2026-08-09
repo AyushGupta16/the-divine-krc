@@ -1,16 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
-import {
-  Menu,
-  LogOut,
-  ChevronDown,
-  ChevronsLeft,
-  UserPlus,
-  Check,
-  X,
-  Search,
-  Plus,
-} from "lucide-react";
+import { Menu, LogOut, ChevronDown, ChevronsLeft, UserPlus, Check, X, Search } from "lucide-react";
 
 import krcLogo from "@/assets/krc-logo.jpg";
 import {
@@ -24,6 +14,12 @@ import {
 import { logoutFn, type SessionUser } from "@/lib/auth";
 import type { NotificationsData } from "@/lib/notifications-data";
 import { NotificationsBell } from "@/components/admin/NotificationsBell";
+import { BookingEntryForm } from "@/components/admin/BookingEntryForm";
+import { PartyHallEntryForm } from "@/components/admin/PartyHallEntryForm";
+import { GuestEntryForm } from "@/components/admin/GuestEntryForm";
+import { QuickCreatePopover } from "@/components/admin/QuickCreatePopover";
+import type { QuickCreateKey } from "@/components/admin/quick-create-items";
+import { useQuickCreateShortcuts } from "@/hooks/use-quick-create-shortcuts";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -316,13 +312,27 @@ function HeaderTitle({ isDashboard, user }: { isDashboard: boolean; user: Sessio
   );
 }
 
-/** Global header actions — notifications, search, new booking. */
+/**
+ * Global header actions — notifications, search, and the "+" chooser
+ * (`QuickCreatePopover`, spec #19). A menu rather than a single button that
+ * goes straight to one form: the header is mounted above every admin route,
+ * so "+" means "choose what to create" regardless of which page you're on —
+ * a button whose destination depended on the current route would behave
+ * differently depending on where you happened to be, which is worse than
+ * one extra click.
+ */
 function HeaderActions({
   notifications,
   onSearch,
+  popoverOpen,
+  onPopoverOpenChange,
+  onActivate,
 }: {
   notifications: NotificationsData;
   onSearch: () => void;
+  popoverOpen: boolean;
+  onPopoverOpenChange: (open: boolean) => void;
+  onActivate: (key: QuickCreateKey) => void;
 }) {
   return (
     <div className="ml-auto flex items-center gap-2">
@@ -336,15 +346,11 @@ function HeaderActions({
       >
         <Search className="size-4.25" />
       </button>
-      <Link
-        to="/admin/bookings"
-        search={{ new: "1" }}
-        aria-label="New booking"
-        title="New booking"
-        className="flex size-10 items-center justify-center rounded-[5px] bg-gold text-obsidian transition-opacity hover:opacity-90"
-      >
-        <Plus className="size-4.5" strokeWidth={2.4} />
-      </Link>
+      <QuickCreatePopover
+        open={popoverOpen}
+        onOpenChange={onPopoverOpenChange}
+        onActivate={onActivate}
+      />
     </div>
   );
 }
@@ -475,8 +481,29 @@ export function AdminShell({
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [newBookingOpen, setNewBookingOpen] = useState(false);
+  const [newEventOpen, setNewEventOpen] = useState(false);
+  const [newGuestOpen, setNewGuestOpen] = useState(false);
+  const [quickCreateOpen, setQuickCreateOpen] = useState(false);
   const isDashboard = useRouterState({
     select: (s) => (s.location.pathname.replace(/\/$/, "") || "/admin") === "/admin",
+  });
+
+  function onQuickCreateActivate(key: QuickCreateKey) {
+    if (key === "booking") setNewBookingOpen(true);
+    else if (key === "event") setNewEventOpen(true);
+    else setNewGuestOpen(true);
+  }
+
+  // Global B/E/G/N shortcuts (spec #19 §4) — suppressed while a Sheet is
+  // already open, but not by the popover itself: letter keys still act as
+  // global shortcuts while the popover is open (§4's "do not consume").
+  useQuickCreateShortcuts({
+    suppressed: newBookingOpen || newEventOpen || newGuestOpen,
+    onBooking: () => setNewBookingOpen(true),
+    onEvent: () => setNewEventOpen(true),
+    onGuest: () => setNewGuestOpen(true),
+    onOpenPopover: () => setQuickCreateOpen(true),
   });
 
   // Restore + persist the collapsed preference (client-only to avoid SSR flash).
@@ -545,7 +572,13 @@ export function AdminShell({
           </button>
 
           <HeaderTitle isDashboard={isDashboard} user={user} />
-          <HeaderActions notifications={notifications} onSearch={() => setSearchOpen(true)} />
+          <HeaderActions
+            notifications={notifications}
+            onSearch={() => setSearchOpen(true)}
+            popoverOpen={quickCreateOpen}
+            onPopoverOpenChange={setQuickCreateOpen}
+            onActivate={onQuickCreateActivate}
+          />
         </header>
 
         {/* Page content */}
@@ -555,6 +588,19 @@ export function AdminShell({
       </div>
 
       <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} />
+
+      {/*
+       * Mounted here, not inside Bookings/PartyHall/Guests, so the header
+       * "+" chooser works identically from every admin route — same
+       * `open`/`onOpenChange`-only Sheets those pages' own toolbar buttons
+       * use, just a second independent instance/caller of each. Each form's
+       * own `router.invalidate()` on success is unscoped, same convention
+       * every other write in this codebase already follows, so it's safe to
+       * fire from whichever route happens to be active.
+       */}
+      <BookingEntryForm open={newBookingOpen} onOpenChange={setNewBookingOpen} />
+      <PartyHallEntryForm open={newEventOpen} onOpenChange={setNewEventOpen} />
+      <GuestEntryForm mode="create" open={newGuestOpen} onOpenChange={setNewGuestOpen} />
 
       <BottomNav onMore={() => setDrawerOpen(true)} />
     </div>

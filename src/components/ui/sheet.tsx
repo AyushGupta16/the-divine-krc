@@ -76,6 +76,19 @@ const SheetHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElemen
 );
 SheetHeader.displayName = "SheetHeader";
 
+/** Category eyebrow above `SheetTitle` — which quick-create category a record
+ *  belongs to (spec #19 §5.1). Sits above the title, no other header change. */
+const SheetEyebrow = ({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>) => (
+  <span
+    className={cn(
+      "-mb-1 block text-[9.5px] font-bold uppercase tracking-[0.18em] text-gold",
+      className,
+    )}
+    {...props}
+  />
+);
+SheetEyebrow.displayName = "SheetEyebrow";
+
 const SheetFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn("flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2", className)}
@@ -116,6 +129,7 @@ export {
   SheetClose,
   SheetContent,
   SheetHeader,
+  SheetEyebrow,
   SheetFooter,
   SheetTitle,
   SheetDescription,
