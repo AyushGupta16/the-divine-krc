@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, Outlet, useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
 import { Menu, LogOut, ChevronDown, ChevronsLeft, UserPlus, Check, X, Search } from "lucide-react";
 
@@ -17,6 +17,7 @@ import { NotificationsBell } from "@/components/admin/NotificationsBell";
 import { BookingEntryForm } from "@/components/admin/BookingEntryForm";
 import { PartyHallEntryForm } from "@/components/admin/PartyHallEntryForm";
 import { GuestEntryForm } from "@/components/admin/GuestEntryForm";
+import { EntryFormsProvider } from "@/components/admin/entry-forms-context";
 import { QuickCreatePopover } from "@/components/admin/QuickCreatePopover";
 import type { QuickCreateKey } from "@/components/admin/quick-create-items";
 import { useQuickCreateShortcuts } from "@/hooks/use-quick-create-shortcuts";
@@ -495,6 +496,17 @@ export function AdminShell({
     else setNewGuestOpen(true);
   }
 
+  // Stable identity for `EntryFormsProvider` — pages read this via
+  // `useEntryForms()` instead of mounting their own copy of these Sheets.
+  const entryForms = useMemo(
+    () => ({
+      openBooking: () => setNewBookingOpen(true),
+      openEvent: () => setNewEventOpen(true),
+      openGuest: () => setNewGuestOpen(true),
+    }),
+    [],
+  );
+
   // Global B/E/G/N shortcuts (spec #19 §4) — suppressed while a Sheet is
   // already open, but not by the popover itself: letter keys still act as
   // global shortcuts while the popover is open (§4's "do not consume").
@@ -583,20 +595,24 @@ export function AdminShell({
 
         {/* Page content */}
         <main className="flex-1">
-          <Outlet />
+          <EntryFormsProvider value={entryForms}>
+            <Outlet />
+          </EntryFormsProvider>
         </main>
       </div>
 
       <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} />
 
       {/*
-       * Mounted here, not inside Bookings/PartyHall/Guests, so the header
-       * "+" chooser works identically from every admin route — same
-       * `open`/`onOpenChange`-only Sheets those pages' own toolbar buttons
-       * use, just a second independent instance/caller of each. Each form's
-       * own `router.invalidate()` on success is unscoped, same convention
-       * every other write in this codebase already follows, so it's safe to
-       * fire from whichever route happens to be active.
+       * The ONLY mount of each create-mode Sheet — not duplicated inside
+       * Bookings/PartyHall/Guests. Those pages' own toolbar buttons reach
+       * these same three via `useEntryForms()` (`EntryFormsProvider` above),
+       * since a prop can't cross `<Outlet/>`. `GuestEntryForm`'s edit-mode
+       * instance is a separate, legitimate mount — it's Guests.tsx's own
+       * per-row concern, not this chooser's. Each form's own
+       * `router.invalidate()` on success is unscoped, same convention every
+       * other write in this codebase already follows, so it's safe to fire
+       * from whichever route happens to be active.
        */}
       <BookingEntryForm open={newBookingOpen} onOpenChange={setNewBookingOpen} />
       <PartyHallEntryForm open={newEventOpen} onOpenChange={setNewEventOpen} />

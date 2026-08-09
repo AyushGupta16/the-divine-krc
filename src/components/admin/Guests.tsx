@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/table";
 import { StatCard } from "@/components/ui/stat-card";
 import { GuestEntryForm } from "@/components/admin/GuestEntryForm";
+import { useEntryForms } from "@/components/admin/entry-forms-context";
 import { cn } from "@/lib/utils";
 
 // ── Tokens ──────────────────────────────────────────────────────────────────
@@ -114,7 +115,7 @@ function GuestRow({ item, onEdit }: { item: GuestListItem; onEdit: (guest: Guest
 
 export function Guests({ data }: { data: GuestsPageData }) {
   const [editingGuest, setEditingGuest] = useState<Guest | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
+  const { openGuest } = useEntryForms();
 
   return (
     <div className="flex flex-col gap-5 p-4 sm:p-6.5">
@@ -122,7 +123,7 @@ export function Guests({ data }: { data: GuestsPageData }) {
         <p className="text-[12px] tracking-[0.01em] text-[#7a746a]">{data.subtitle}</p>
         <button
           type="button"
-          onClick={() => setCreateOpen(true)}
+          onClick={openGuest}
           className="inline-flex items-center gap-2 rounded-md bg-gold px-3 py-2 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
         >
           <Plus className="size-4" />
@@ -167,7 +168,6 @@ export function Guests({ data }: { data: GuestsPageData }) {
           if (!open) setEditingGuest(null);
         }}
       />
-      <GuestEntryForm mode="create" open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   );
 }

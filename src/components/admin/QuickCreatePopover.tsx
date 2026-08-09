@@ -8,6 +8,7 @@ import {
   QUICK_CREATE_CATEGORY_LABEL,
   QUICK_CREATE_CATEGORY_ORDER,
   QUICK_CREATE_ITEMS,
+  QUICK_CREATE_POPOVER_ID,
   type QuickCreateItem,
   type QuickCreateKey,
 } from "@/components/admin/quick-create-items";
@@ -87,7 +88,7 @@ function DesktopPopover({
       </DropdownMenuPrimitive.Trigger>
       <DropdownMenuPrimitive.Portal>
         <DropdownMenuPrimitive.Content
-          id="quick-create-popover"
+          id={QUICK_CREATE_POPOVER_ID}
           align="end"
           side="bottom"
           sideOffset={8}
@@ -189,6 +190,7 @@ function MobileSheet({
           )}
         />
         <DialogPrimitive.Content
+          id={QUICK_CREATE_POPOVER_ID}
           className={cn(
             "fixed inset-x-0 bottom-0 z-50 max-h-[min(70vh,480px)] overflow-y-auto rounded-t-[5px] bg-[#fdfcf9] outline-none",
             "data-[state=open]:animate-in data-[state=closed]:animate-out",

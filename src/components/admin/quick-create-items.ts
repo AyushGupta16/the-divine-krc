@@ -18,6 +18,13 @@ export const QUICK_CREATE_CATEGORY_LABEL: Record<QuickCreateCategory, string> = 
   ops: "Ops",
 };
 
+/** Id on both the desktop popover's and the mobile bottom sheet's content
+ *  element — the global shortcut suppression check (`use-quick-create-
+ *  shortcuts.ts`) excludes this one popper by id, since letter keys must
+ *  keep firing while the chooser itself is open (spec #19 §4's "do not
+ *  consume"), unlike every other open listbox/menu/dialog in the app. */
+export const QUICK_CREATE_POPOVER_ID = "quick-create-popover";
+
 export type QuickCreateKey = "booking" | "event" | "guest";
 
 export interface QuickCreateItem {
