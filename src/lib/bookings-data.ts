@@ -1277,7 +1277,7 @@ const ADD_ON_LABEL: Record<AddOnServiceKey, string> = {
 
 /** Settings' Slice B add-on rate fields. */
 export const updateAddOnSettingsFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { key: AddOnServiceKey; price: number }) => data)
+  .validator((data: { key: AddOnServiceKey; price: number }) => data)
   .handler(async ({ data }): Promise<Result> => {
     const auth = await requireSettingsWriter();
     if (!auth.ok) return auth;
@@ -1296,7 +1296,7 @@ export const updateAddOnSettingsFn = createServerFn({ method: "POST" })
  * only loads, asks, and persists.
  */
 export const resolveRequestedServiceFn = createServerFn({ method: "POST" })
-  .inputValidator(
+  .validator(
     (data: {
       id: string;
       service: AddOnServiceKey;
