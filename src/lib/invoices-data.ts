@@ -209,7 +209,7 @@ async function insertInvoice(row: InvoiceRow): Promise<void> {
  * booked together already look like a group by construction.
  */
 export const issueInvoiceForBookingFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { bookingId: string }) => data)
+  .validator((data: { bookingId: string }) => data)
   .handler(async ({ data }): Promise<Result<{ invoiceNo: string }>> => {
     const { bookings } = await loadInvoiceParty();
     const party = resolveInvoiceParty(data.bookingId, bookings);
@@ -248,7 +248,7 @@ export const issueInvoiceForBookingFn = createServerFn({ method: "POST" })
   });
 
 export const issueInvoiceForPartyHallFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { enquiryId: string }) => data)
+  .validator((data: { enquiryId: string }) => data)
   .handler(async ({ data }): Promise<Result<{ invoiceNo: string }>> => {
     const { partyHall } = await loadInvoiceParty();
     const enquiry = partyHall.find((e) => e.id === data.enquiryId);
@@ -269,7 +269,7 @@ export const issueInvoiceForPartyHallFn = createServerFn({ method: "POST" })
 
 /** The public `/invoice/:invoiceNo` route's read — no login, matches the README's endpoint. */
 export const getInvoiceFn = createServerFn({ method: "GET" })
-  .inputValidator((invoiceNo: string) => invoiceNo)
+  .validator((invoiceNo: string) => invoiceNo)
   .handler(async ({ data: invoiceNo }): Promise<Result<{ invoice: Invoice }>> => {
     const row = await findInvoiceByNo(invoiceNo);
     if (!row) return { ok: false, error: "No invoice found for this number." };
@@ -316,7 +316,7 @@ async function requireInvoiceReader(): Promise<Result> {
 
 /** Admin re-download from a Bookings/Payments/Party Hall row action. */
 export const adminIssueInvoiceFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { kind: "booking" | "party_hall"; id: string }) => data)
+  .validator((data: { kind: "booking" | "party_hall"; id: string }) => data)
   .handler(async ({ data }): Promise<Result<{ invoiceNo: string }>> => {
     const auth = await requireInvoiceReader();
     if (!auth.ok) return auth;

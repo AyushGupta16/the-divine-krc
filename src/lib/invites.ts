@@ -130,7 +130,7 @@ export const getInvitePageData = createServerFn({ method: "GET" }).handler(
  * holding a guessed token learns only whether it is live.
  */
 export const getInviteFn = createServerFn({ method: "GET" })
-  .inputValidator((data: { token: string }) => data)
+  .validator((data: { token: string }) => data)
   .handler(async ({ data }): Promise<Result<{ email: string }>> => {
     const invite = await findInviteByToken(data.token);
     if (!invite || inviteStatus(invite) === "Expired") {
@@ -142,7 +142,7 @@ export const getInviteFn = createServerFn({ method: "GET" })
 // --- Mutations ----------------------------------------------------------
 
 export const sendInviteFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { email: string; role: Role; message?: string }) => data)
+  .validator((data: { email: string; role: Role; message?: string }) => data)
   .handler(async ({ data }): Promise<Result<{ email: string }>> => {
     const auth = await requireManager();
     if (!auth.ok) return auth;
@@ -159,7 +159,7 @@ export const sendInviteFn = createServerFn({ method: "POST" })
   });
 
 export const resendInviteFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { token: string }) => data)
+  .validator((data: { token: string }) => data)
   .handler(async ({ data }): Promise<Result<{ email: string }>> => {
     const auth = await requireManager();
     if (!auth.ok) return auth;
@@ -176,7 +176,7 @@ export const resendInviteFn = createServerFn({ method: "POST" })
   });
 
 export const revokeInviteFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { token: string }) => data)
+  .validator((data: { token: string }) => data)
   .handler(async ({ data }): Promise<Result<{ email: string }>> => {
     const auth = await requireManager();
     if (!auth.ok) return auth;
@@ -193,7 +193,7 @@ export const revokeInviteFn = createServerFn({ method: "POST" })
  * it has no account yet by definition.
  */
 export const acceptInviteFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { token: string; password: string }) => data)
+  .validator((data: { token: string; password: string }) => data)
   .handler(async ({ data }): Promise<Result<{ email: string }>> => {
     // Check the password before the token is spent, so a rejected one leaves the
     // invite usable rather than stranding them with a burnt link.
@@ -229,7 +229,7 @@ export const acceptInviteFn = createServerFn({ method: "POST" })
  * unauthenticated.
  */
 export const googleAcceptInviteFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { token: string }) => data)
+  .validator((data: { token: string }) => data)
   .handler(async ({ data }): Promise<Result<{ email: string }>> => {
     const [roster, invite] = await Promise.all([loadRoster(), findInviteByToken(data.token)]);
     const { burn, result } = acceptInvite({ roster, invite });
