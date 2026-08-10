@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
-import { ChevronDown, Plus, Save, Trash2, Zap } from "lucide-react";
+import { ChevronDown, Eye, Plus, Trash2, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 import type {
@@ -130,6 +130,16 @@ function ToggleRow({
 
 // ── Panels ──────────────────────────────────────────────────────────────────
 
+/** Shared with the "Review changes" diff below, so the changed-fields toast
+ *  names a setting the same way its own input labels it. */
+const PROPERTY_FIELDS: { key: keyof PropertyProfile; label: string; wide?: boolean }[] = [
+  { key: "name", label: "Property name", wide: true },
+  { key: "phone", label: "Contact phone" },
+  { key: "whatsapp", label: "WhatsApp" },
+  { key: "checkInTime", label: "Check-in time" },
+  { key: "checkOutTime", label: "Check-out time" },
+];
+
 function PropertyPanel({
   property,
   onChange,
@@ -137,14 +147,6 @@ function PropertyPanel({
   property: PropertyProfile;
   onChange: (patch: Partial<PropertyProfile>) => void;
 }) {
-  const fields: { key: keyof PropertyProfile; label: string; wide?: boolean }[] = [
-    { key: "name", label: "Property name", wide: true },
-    { key: "phone", label: "Contact phone" },
-    { key: "whatsapp", label: "WhatsApp" },
-    { key: "checkInTime", label: "Check-in time" },
-    { key: "checkOutTime", label: "Check-out time" },
-  ];
-
   return (
     <section id="property" className={PANEL}>
       <PanelHead
@@ -152,7 +154,7 @@ function PropertyPanel({
         note="Shown to guests during booking & on confirmations."
       />
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-        {fields.map((f) => (
+        {PROPERTY_FIELDS.map((f) => (
           <div key={f.key} className={cn(f.wide && "sm:col-span-2")}>
             <label className={LABEL} htmlFor={`prop-${f.key}`}>
               {f.label}
@@ -837,11 +839,26 @@ function TeamPanel({ team }: { team: TeamMember[] }) {
 
 // ── Page ────────────────────────────────────────────────────────────────────
 
+/** Height of the sticky "Review changes" bar below (Tailwind `h-14` = 56px) —
+ *  the nav's own sticky offset and the scroll-spy's IntersectionObserver
+ *  margin both need this same number, so it's named once rather than
+ *  repeated as a magic `120` (the global AdminShell header's 64px + this). */
+// The page header's own height differs by breakpoint: its subtitle is hidden
+// below `sm` (decorative — the page title already says "Settings"), so the
+// bar itself is shorter there too. The nav's sticky offset has to track
+// whichever height is actually in effect, not one constant for both.
+const SAVE_BAR_HEIGHT_MOBILE = 44;
+const SAVE_BAR_HEIGHT_DESKTOP = 56;
+const GLOBAL_HEADER_HEIGHT = 64;
+const STICKY_OFFSET_MOBILE = GLOBAL_HEADER_HEIGHT + SAVE_BAR_HEIGHT_MOBILE;
+const STICKY_OFFSET_DESKTOP = GLOBAL_HEADER_HEIGHT + SAVE_BAR_HEIGHT_DESKTOP;
+
 export function Settings({ data }: { data: SettingsPageData }) {
   const [property, setProperty] = useState(data.property);
   const [payToggles, setPayToggles] = useState(data.payments.toggles);
   const [notifications, setNotifications] = useState(data.notifications);
   const [active, setActive] = useState(data.sections[0].id);
+  const navRefs = useRef(new Map<string, HTMLAnchorElement>());
 
   const setToggle = (
     list: ToggleSetting[],
@@ -850,26 +867,118 @@ export function Settings({ data }: { data: SettingsPageData }) {
     on: boolean,
   ) => set(list.map((t) => (t.key === key ? { ...t, on } : t)));
 
+  /** Which toggles in `list` flipped relative to `original`, by label —
+   *  used to name exactly what changed in the review toast rather than a
+   *  generic "settings changed." */
+  function changedToggleLabels(original: ToggleSetting[], list: ToggleSetting[]): string[] {
+    return list
+      .filter((t) => original.find((o) => o.key === t.key)?.on !== t.on)
+      .map((t) => t.label);
+  }
+
+  // "Review changes," not "Save changes": property fields and toggles have
+  // no server fn behind them yet (unlike the rest of this page, which does
+  // persist). Naming the button and its toast for what it actually does —
+  // describing a local change, not saving one — is the fix for the same
+  // failure mode as "Quote sent" claiming a delivery that never happened.
+  function handleReview() {
+    const changedProperty = PROPERTY_FIELDS.filter(
+      (f) => property[f.key] !== data.property[f.key],
+    ).map((f) => f.label);
+    const changedPayToggles = changedToggleLabels(data.payments.toggles, payToggles);
+    const changedNotifications = changedToggleLabels(data.notifications, notifications);
+    const changed = [...changedProperty, ...changedPayToggles, ...changedNotifications];
+
+    if (changed.length === 0) {
+      toast("No changes to review.");
+      return;
+    }
+    const summary = changed.length <= 3 ? changed.join(", ") : `${changed.length} settings`;
+    toast(`Changed locally: ${summary}. Saving to server coming soon.`);
+  }
+
+  // Scroll-spy: the nav highlights whichever section is actually in view,
+  // not just the last one clicked — front-desk scrolls the panel directly
+  // far more often than it clicks the nav. `rootMargin`'s top matches the
+  // combined sticky header height (global 64px header + this page's 56px
+  // save bar), so a section counts as "current" once it clears both bars,
+  // not the instant its top pixel crosses the real viewport edge.
+  useEffect(() => {
+    const ids = data.sections.map((s) => s.id);
+    const els = ids
+      .map((id) => document.getElementById(id))
+      .filter((el): el is HTMLElement => !!el);
+    if (els.length === 0) return;
+
+    // `sm` matches the Tailwind breakpoint the header's own height changes at
+    // (subtitle hidden below it) — matched once at setup, not tracked live,
+    // since a mid-session breakpoint crossing would need a page reload of the
+    // section layout anyway.
+    const offset = window.matchMedia("(min-width: 640px)").matches
+      ? STICKY_OFFSET_DESKTOP
+      : STICKY_OFFSET_MOBILE;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((e) => e.isIntersecting);
+        if (visible.length === 0) return;
+        const topmost = visible.reduce((a, b) =>
+          a.boundingClientRect.top <= b.boundingClientRect.top ? a : b,
+        );
+        setActive(topmost.target.id);
+      },
+      { rootMargin: `-${offset}px 0px -60% 0px`, threshold: 0 },
+    );
+    for (const el of els) observer.observe(el);
+    return () => observer.disconnect();
+  }, [data.sections]);
+
+  // Below `lg` the nav is a horizontally scrolling pill row, and most pills
+  // sit off-screen on a narrow viewport — without this, scroll-spy moves
+  // `active` but the user never sees which pill it landed on. Guarded to
+  // below `lg` only: at `lg` the nav is a vertical column with every pill
+  // already visible, and calling this unconditionally turned every scroll-spy
+  // update into a feedback loop with the user's own scrolling — the page
+  // fought back to the "active" section's scrollIntoView target on every
+  // scroll tick. `block: "nearest"` is still what keeps this from scrolling
+  // the page vertically on top of that: the nav is pinned at a fixed sticky
+  // position whenever it's visible, so the active pill is already vertically
+  // in view and only the horizontal scroll container should move.
+  useEffect(() => {
+    if (window.matchMedia("(min-width: 1024px)").matches) return;
+    navRefs.current.get(active)?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [active]);
+
   return (
-    <div className="flex flex-col gap-4.5 p-4 sm:p-6.5">
-      <div className="flex max-w-[980px] flex-wrap items-center justify-between gap-3">
-        <p className="text-[12px] tracking-[0.01em] text-[#7a746a]">
-          Property, pricing, integrations &amp; team
-        </p>
-        <button
-          type="button"
-          className="flex items-center gap-2 rounded-md bg-gold px-4 py-2.25 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
-        >
-          <Save className="size-4" />
-          Save changes
-        </button>
+    <div className="flex flex-col p-4 sm:p-6.5">
+      <div
+        className="sticky z-10 -mx-4 -mt-4 flex h-11 items-center bg-ivory/95 px-4 backdrop-blur-sm sm:-mx-6.5 sm:-mt-6.5 sm:h-14 sm:px-6.5"
+        style={{ top: GLOBAL_HEADER_HEIGHT }}
+      >
+        <div className="flex w-full max-w-[980px] flex-wrap items-center justify-end gap-3 sm:justify-between">
+          <p className="hidden text-[12px] tracking-[0.01em] text-[#7a746a] sm:block">
+            Property, pricing, integrations &amp; team
+          </p>
+          <button
+            type="button"
+            onClick={handleReview}
+            className="flex items-center gap-2 rounded-md bg-gold px-4 py-2.25 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
+          >
+            <Eye className="size-4" />
+            Review changes
+          </button>
+        </div>
       </div>
 
-      <div className="grid max-w-[980px] grid-cols-1 items-start gap-6 lg:grid-cols-[200px_1fr]">
-        <nav className="flex gap-1.75 overflow-x-auto pb-1 lg:sticky lg:top-0 lg:flex-col lg:gap-0.5 lg:overflow-visible lg:pb-0">
+      <div className="mt-4.5 grid max-w-[980px] grid-cols-1 items-start gap-6 lg:grid-cols-[200px_1fr]">
+        <nav className="sticky top-27 z-5 -mx-4 flex gap-1.75 overflow-x-auto bg-ivory/95 px-4 py-2.5 backdrop-blur-sm sm:top-30 sm:-mx-6.5 sm:px-6.5 lg:mx-0 lg:flex-col lg:gap-0.5 lg:overflow-visible lg:bg-transparent lg:px-0 lg:py-0 lg:backdrop-blur-none">
           {data.sections.map((s) => (
             <a
               key={s.id}
+              ref={(el) => {
+                if (el) navRefs.current.set(s.id, el);
+                else navRefs.current.delete(s.id);
+              }}
               href={`#${s.id}`}
               onClick={() => setActive(s.id)}
               className={cn(
@@ -950,7 +1059,10 @@ export function Settings({ data }: { data: SettingsPageData }) {
                 key={t.key}
                 toggle={t}
                 bordered
-                onChange={(on) => setToggle(notifications, setNotifications, t.key, on)}
+                onChange={(on) => {
+                  setToggle(notifications, setNotifications, t.key, on);
+                  toast.success(`${t.label} ${on ? "enabled" : "disabled"}.`);
+                }}
               />
             ))}
           </section>
