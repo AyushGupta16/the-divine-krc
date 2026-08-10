@@ -76,6 +76,7 @@ import {
   sendPartyHallQuote,
   updateGuest,
   validateAddRoom,
+  validateGstPct,
   withAdvance,
   withTier,
   withTotal,
@@ -274,6 +275,7 @@ async function load(): Promise<BookingData> {
     addOnRows.map((r) => [r.id, r.price]),
   ) as BookingData["partyHallRateOverrides"];
   const advancePct = resolvePartyHallRates(partyHallRateOverrides).phAdvancePct;
+  const gstRateOverride = addOnRows.find((r) => r.id === "gstPct")?.price;
 
   return {
     guests: guestRows.map(toGuest),
@@ -288,6 +290,7 @@ async function load(): Promise<BookingData> {
     ) as BookingData["roomTypeOverrides"],
     addOnRateOverrides,
     partyHallRateOverrides,
+    gstRateOverride,
   };
 }
 
@@ -914,6 +917,23 @@ async function upsertAddOnSettings(
     .onConflictDoUpdate({ target: schema.addOnSettings.id, set: { price } });
 }
 
+/** GST's own `addon_settings` row (Room Settings redesign, slice C) — kept
+ *  separate from `upsertAddOnSettings` for the same reason party-hall rates
+ *  got their own `upsertPartyHallRate`: `AddOnServiceKey` stays exactly the
+ *  three room add-ons it always meant. */
+async function upsertGstSetting(pct: number): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    fixtures.gstRateOverride = pct;
+    return;
+  }
+  await conn
+    .insert(schema.addOnSettings)
+    .values({ id: "gstPct", label: "GST rate", price: pct })
+    .onConflictDoUpdate({ target: schema.addOnSettings.id, set: { price: pct } });
+}
+
 /**
  * Slice B's admin resolution write: whatever `resolveRequestedService`
  * decided — the booking's new revenue, `requestedServices`, and (for
@@ -1416,6 +1436,23 @@ export const updateAddOnSettingsFn = createServerFn({ method: "POST" })
       return { ok: false, error: "Rate must be zero or more." };
     }
     await upsertAddOnSettings(data.key, ADD_ON_LABEL[data.key], Math.round(data.price));
+    return { ok: true };
+  });
+
+/** Room Settings redesign (slice C): GST's own editable rate, same
+ *  blur-to-save round-trip as the add-on rates above. Unlike a plain add-on
+ *  rate, 0 and >100 are both rejected, not just negative — a tax rate has no
+ *  legitimate reason to be either, and this is the one field on the panel
+ *  where a fat-fingered value has compliance consequences on every invoice
+ *  issued after it saves. */
+export const updateGstSettingsFn = createServerFn({ method: "POST" })
+  .validator((data: { pct: number }) => data)
+  .handler(async ({ data }): Promise<Result> => {
+    const auth = await requireSettingsWriter();
+    if (!auth.ok) return auth;
+    const check = validateGstPct(data.pct);
+    if (!check.ok) return check;
+    await upsertGstSetting(Math.round(data.pct));
     return { ok: true };
   });
 

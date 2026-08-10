@@ -375,6 +375,13 @@ export interface RoomTile {
   sizeSqm: number | null;
 }
 
+/** A `RoomTile` as the Settings panel's per-type table renders it — status
+ *  and `occupantName` are both live-derived (Room Settings redesign, slice
+ *  C), never a stored opinion, so this never drifts from the Rooms screen. */
+export interface RoomSettingsRow extends RoomTile {
+  occupantName: string | null;
+}
+
 /** A room-type summary card (photo, count, availability, editable rate). */
 export interface RoomTypeCard {
   type: RoomType;
@@ -828,16 +835,15 @@ export interface RoomTariff {
   pricePerNight: number;
 }
 
-/** A flat charge or rate the property applies on top of the tariff. */
-export interface ChargeSetting {
-  key: "gst";
-  label: string;
-  /** Pre-formatted with its unit, e.g. "12%". */
-  value: string;
+/** The GST rate row — Room Settings redesign (slice C): editable, same
+ *  blur-to-save shape as an add-on rate, backed by its own `addon_settings`
+ *  row (`gstPct`) rather than the `GST_PCT` constant it used to read only. */
+export interface GstSetting {
+  pct: number;
 }
 
 /** One of the three Slice B add-on rates, editable the same way a tariff is
- *  (blur-to-save) — unlike `ChargeSetting`, which is still read-only display. */
+ *  (blur-to-save). */
 export interface AddOnRateSetting {
   key: AddOnServiceKey;
   label: string;
@@ -871,14 +877,14 @@ export interface PartyHallRateSetting {
 
 export interface PricingSettings {
   tariffs: RoomTariff[];
-  charges: ChargeSetting[];
+  gst: GstSetting;
   addOnRates: AddOnRateSetting[];
   partyHallRates: PartyHallRateSetting[];
   /** True while any of the eight placeholder-eligible party-hall rates still
    *  holds its seeded ₹1 stand-in — drives the Settings warning banner. */
   partyHallRatesArePlaceholder: boolean;
   /** The full floor board, so the panel can add/remove/edit individual rooms. */
-  rooms: RoomTile[];
+  rooms: RoomSettingsRow[];
 }
 
 /** An on/off property setting. The screen controls these locally; Save is stubbed. */

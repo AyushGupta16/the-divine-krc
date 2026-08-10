@@ -6,14 +6,10 @@ import {
   ROOM_TYPES,
   getPaymentsPageData,
   getSettingsPageData,
+  validateGstPct,
 } from "@/lib/bookings";
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import { team as roster } from "@/lib/__fixtures__/team";
-import type { ChargeSetting } from "@/types/booking";
-
-function charge(charges: ChargeSetting[], key: ChargeSetting["key"]): string {
-  return charges.find((c) => c.key === key)!.value;
-}
 
 describe("getSettingsPageData", () => {
   it("gives the section nav a panel to scroll to, and every panel a section", async () => {
@@ -47,9 +43,14 @@ describe("getSettingsPageData", () => {
     const { pricing } = await getSettingsPageData(fixtures, roster);
     const bookings = fixtures.bookings;
 
-    expect(charge(pricing.charges, "gst")).toBe(`${GST_PCT}%`);
+    expect(pricing.gst.pct).toBe(GST_PCT);
     // A rate on this screen that no bill applies would be a lie about the price.
     for (const b of bookings) expect(b.revenue.taxPct).toBe(GST_PCT);
+  });
+
+  it("lets the owner override the GST rate, same override-over-default shape as every other rate", async () => {
+    const { pricing } = await getSettingsPageData({ ...fixtures, gstRateOverride: 18 }, roster);
+    expect(pricing.gst.pct).toBe(18);
   });
 
   it("states the advance the party hall actually holds dates for, and it is editable", async () => {
@@ -135,5 +136,31 @@ describe("getSettingsPageData", () => {
     expect(new Set(keys).size).toBe(keys.length);
     expect(payments.toggles.find((t) => t.key === "payAtHotel")!.on).toBe(true);
     expect(payments.gateway.connected).toBe(true);
+  });
+});
+
+describe("validateGstPct", () => {
+  it("rejects zero", () => {
+    expect(validateGstPct(0).ok).toBe(false);
+  });
+
+  it("rejects negative values", () => {
+    expect(validateGstPct(-5).ok).toBe(false);
+  });
+
+  it("rejects anything over 100", () => {
+    expect(validateGstPct(101).ok).toBe(false);
+  });
+
+  it("accepts the current real-world rate", () => {
+    expect(validateGstPct(GST_PCT).ok).toBe(true);
+  });
+
+  it("accepts 100 exactly, the upper boundary", () => {
+    expect(validateGstPct(100).ok).toBe(true);
+  });
+
+  it("rejects non-finite input", () => {
+    expect(validateGstPct(NaN).ok).toBe(false);
   });
 });

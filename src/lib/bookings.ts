@@ -77,11 +77,12 @@ import type {
   RoomType,
   RoomTypeCard,
   ChannelSetting,
-  ChargeSetting,
+  GstSetting,
   PaymentSettings,
   PricingSettings,
   PropertyProfile,
   RequestedServices,
+  RoomSettingsRow,
   RoomTariff,
   SettingsPageData,
   SettingsSection,
@@ -124,6 +125,10 @@ export interface BookingData {
    *  resolved by `resolvePartyHallRates`. Placeholder until real numbers land —
    *  see `PARTY_HALL_PLACEHOLDER_KEYS`. */
   partyHallRateOverrides?: Partial<Record<PartyHallRateKey, number>>;
+  /** Owner-set GST rate (Room Settings redesign, slice C) — its own
+   *  `addon_settings` row (`gstPct`), same "override over default" shape as
+   *  the others. Missing falls back to `GST_PCT`. */
+  gstRateOverride?: number;
 }
 
 export interface AddOnRates {
@@ -1919,6 +1924,25 @@ export function resolveRoomTypes(
  * so a rate shown in Settings, quoted to a guest, and snapshotted onto a
  * booking can never disagree.
  */
+export function resolveGstPct(override?: BookingData["gstRateOverride"]): number {
+  return override ?? GST_PCT;
+}
+
+/**
+ * The GST write-path guard — pulled out as a pure rule, same reason
+ * `validateAddRoom` is, so the write handler and a test can agree on exactly
+ * what "obviously wrong" means without duplicating the bounds. Stricter than
+ * a plain add-on rate (which only rejects negative): 0% and anything over
+ * 100% are both rejected too, since this is the one field on the panel where
+ * a bad save mis-taxes every invoice issued after it, not just one booking.
+ */
+export function validateGstPct(pct: number): Result {
+  if (!Number.isFinite(pct) || pct <= 0 || pct > 100) {
+    return { ok: false, error: "GST rate must be greater than 0 and no more than 100." };
+  }
+  return { ok: true };
+}
+
 export function resolveAddOnRates(overrides?: BookingData["addOnRateOverrides"]): AddOnRates {
   return {
     earlyCheckIn: overrides?.earlyCheckIn ?? EARLY_CHECKIN_FEE,
@@ -3387,10 +3411,11 @@ function tariffSettings(roomTypes: RoomTypeInfo[]): RoomTariff[] {
   }));
 }
 
-/** The two rates still read-only in this panel — GST and the party-hall
- *  advance are out of Slice B's scope. */
-function chargeSettings(): ChargeSetting[] {
-  return [{ key: "gst", label: "GST rate", value: `${GST_PCT}%` }];
+/** GST as its own editable setting (Room Settings redesign, slice C) — was
+ *  read-only display over the `GST_PCT` constant; now backed by the
+ *  `gstPct` `addon_settings` row like every other rate on this panel. */
+function gstSetting(pct: number): GstSetting {
+  return { pct };
 }
 
 const PARTY_HALL_RATE_LABEL: Record<PartyHallRateKey, string> = {
@@ -3469,9 +3494,24 @@ function channelSettings(bookings: Booking[]): ChannelSetting[] {
     .sort((a, b) => b.bookings - a.bookings || a.name.localeCompare(b.name));
 }
 
+/** The Settings panel's per-room rows — status live-overlaid the same way
+ *  the Rooms screen does (`liveRoomTiles`), plus the occupant name
+ *  (`currentOccupant`) for the Guest column. Never trust the stored
+ *  `occupied` opinion here either, so Status and Guest can't disagree. */
+function roomSettingsRows(
+  tiles: RoomTile[],
+  bookings: Booking[],
+  guests: Guest[],
+  today: string,
+): RoomSettingsRow[] {
+  const live = liveRoomTiles(tiles, bookings, guests, today);
+  return live.map((t) => ({ ...t, occupantName: currentOccupant(t.no, bookings, guests, today) }));
+}
+
 export async function getSettingsPageData(
   data: BookingData,
   roster: TeamAccount[],
+  today: string = new Date().toISOString().slice(0, 10),
 ): Promise<SettingsPageData> {
   const bookings = data.bookings;
   const tiles = data.rooms ?? defaultRoomTiles();
@@ -3483,13 +3523,13 @@ export async function getSettingsPageData(
     property: PROPERTY,
     pricing: {
       tariffs: tariffSettings(roomTypes),
-      charges: chargeSettings(),
+      gst: gstSetting(resolveGstPct(data.gstRateOverride)),
       addOnRates: addOnRateSettings(resolveAddOnRates(data.addOnRateOverrides)),
       partyHallRates: partyHallRateSettings(partyHallRates),
       partyHallRatesArePlaceholder: PARTY_HALL_PLACEHOLDER_KEYS.some(
         (key) => partyHallRates[key] === PARTY_HALL_RATE_DEFAULTS[key],
       ),
-      rooms: tiles,
+      rooms: roomSettingsRows(tiles, bookings, data.guests, today),
     },
     payments: paymentSettings(),
     channels: channelSettings(bookings),
