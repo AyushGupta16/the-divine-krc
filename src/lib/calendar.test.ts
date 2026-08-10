@@ -216,7 +216,7 @@ describe("normalizeCalendarSearch", () => {
 // legend boundary (39/40/69/70/99/100) is reachable exactly, through
 // getCalendarPageData's real derivation rather than occupancyBand in isolation.
 function syntheticRoom(no: string): RoomTile {
-  return { no, type: "deluxe", floor: 1, status: "available", detail: "Ready" };
+  return { no, type: "deluxe", floor: 1, status: "available", detail: "Ready", sizeSqm: null };
 }
 
 function syntheticBooking(roomNo: string): Booking {
@@ -282,8 +282,22 @@ describe("getCalendarPageData — band boundaries", () => {
   it("the maintenance-adjusted full case: 12 booked of 12 sellable (2 of 14 under maintenance) is full, not 86%", async () => {
     const fourteenRooms: RoomTile[] = [
       ...Array.from({ length: 12 }, (_, i) => syntheticRoom(`M${i + 1}`)),
-      { no: "M13", type: "deluxe", floor: 1, status: "maintenance", detail: "Repair" },
-      { no: "M14", type: "deluxe", floor: 1, status: "maintenance", detail: "Repair" },
+      {
+        no: "M13",
+        type: "deluxe",
+        floor: 1,
+        status: "maintenance",
+        detail: "Repair",
+        sizeSqm: null,
+      },
+      {
+        no: "M14",
+        type: "deluxe",
+        floor: 1,
+        status: "maintenance",
+        detail: "Repair",
+        sizeSqm: null,
+      },
     ];
     const bookings = Array.from({ length: 12 }, (_, i) => syntheticBooking(`M${i + 1}`));
     const { cells, totalRooms, maintenanceRooms } = await getCalendarPageData(

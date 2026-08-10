@@ -77,11 +77,12 @@ import type {
   RoomType,
   RoomTypeCard,
   ChannelSetting,
-  ChargeSetting,
+  GstSetting,
   PaymentSettings,
   PricingSettings,
   PropertyProfile,
   RequestedServices,
+  RoomSettingsRow,
   RoomTariff,
   SettingsPageData,
   SettingsSection,
@@ -124,6 +125,10 @@ export interface BookingData {
    *  resolved by `resolvePartyHallRates`. Placeholder until real numbers land —
    *  see `PARTY_HALL_PLACEHOLDER_KEYS`. */
   partyHallRateOverrides?: Partial<Record<PartyHallRateKey, number>>;
+  /** Owner-set GST rate (Room Settings redesign, slice C) — its own
+   *  `addon_settings` row (`gstPct`), same "override over default" shape as
+   *  the others. Missing falls back to `GST_PCT`. */
+  gstRateOverride?: number;
 }
 
 export interface AddOnRates {
@@ -1809,6 +1814,7 @@ function buildRoomTile(unit: RoomUnit): RoomTile {
     floor: unit.floor,
     status: seed?.status ?? "available",
     detail: seed?.detail ?? "Ready",
+    sizeSqm: null,
   };
 }
 
@@ -1816,6 +1822,81 @@ function buildRoomTile(unit: RoomUnit): RoomTile {
  *  every function here uses when `data.rooms` is not supplied. */
 export function defaultRoomTiles(): RoomTile[] {
   return ROOM_UNITS.map(buildRoomTile);
+}
+
+/**
+ * Room Settings redesign (slice B): who's actually in `roomNo` tonight, for
+ * the per-room table. Deliberately wider than `liveRoomTiles`'s `occupied`
+ * status — a `confirmed` booking that was never manually flipped to
+ * `checked_in` is still a real body in the room, so both statuses count.
+ * `checkOut` is exclusive (`check_out > today`, not `>=`): a guest checking
+ * out today has already vacated by the time "tonight" is asked about.
+ *
+ * Multiple matches for one room are a data artifact (see #85's drift), not
+ * something to throw on — the earliest `checkIn` wins and one name is always
+ * returned rather than an error surfacing on a settings screen.
+ */
+export function currentOccupant(
+  roomNo: string,
+  bookings: Booking[],
+  guests: Guest[],
+  today: string,
+): string | null {
+  const matches = bookings
+    .filter(
+      (b) =>
+        b.roomNo === roomNo &&
+        (b.status === "checked_in" || b.status === "confirmed") &&
+        b.checkIn <= today &&
+        today < b.checkOut,
+    )
+    .sort((a, b) => a.checkIn.localeCompare(b.checkIn));
+  const occupant = matches[0];
+  if (!occupant) return null;
+  return guests.find((g) => g.id === occupant.guestId)?.name ?? null;
+}
+
+/** Whether `no` is already on the floor board — the duplicate-number guard
+ *  `validateAddRoom` composes with. */
+export function roomNumberTaken(rooms: RoomTile[], no: string): boolean {
+  return rooms.some((r) => r.no === no);
+}
+
+/**
+ * Whether a room can be hard-deleted. Counts *every* booking ever placed in
+ * the room, not just currently-occupying ones — a checked-out booking from
+ * months ago still needs the room row to exist for its history to make
+ * sense, so it blocks deletion exactly like an active one does. No cascade,
+ * no soft-delete: the caller either can't delete, or the row is just gone.
+ */
+export function canDeleteRoom(bookings: Booking[], roomNo: string): boolean {
+  return !bookings.some((b) => b.roomNo === roomNo);
+}
+
+/**
+ * Settings' "Add room" rule — same shape as `createGuest`'s phone-collision
+ * guard: a pure check the server fn asks before it writes, so the error
+ * message that names the conflict lives in one place, not duplicated between
+ * a client-side check and the write path.
+ */
+export function validateAddRoom(
+  rooms: RoomTile[],
+  no: string,
+  floor: 1 | 2,
+  type: RoomType,
+): Result {
+  const trimmed = no.trim();
+  if (!trimmed) return { ok: false, error: "Room number is required." };
+  if (roomNumberTaken(rooms, trimmed)) {
+    return { ok: false, error: `Room ${trimmed} already exists.` };
+  }
+  if (floor !== 1 && floor !== 2) {
+    return { ok: false, error: "Floor must be 1 or 2." };
+  }
+  if (type !== "deluxe" && type !== "deluxe_balcony") {
+    return { ok: false, error: "Unrecognized room type." };
+  }
+  return { ok: true };
 }
 
 /**
@@ -1843,6 +1924,25 @@ export function resolveRoomTypes(
  * so a rate shown in Settings, quoted to a guest, and snapshotted onto a
  * booking can never disagree.
  */
+export function resolveGstPct(override?: BookingData["gstRateOverride"]): number {
+  return override ?? GST_PCT;
+}
+
+/**
+ * The GST write-path guard — pulled out as a pure rule, same reason
+ * `validateAddRoom` is, so the write handler and a test can agree on exactly
+ * what "obviously wrong" means without duplicating the bounds. Stricter than
+ * a plain add-on rate (which only rejects negative): 0% and anything over
+ * 100% are both rejected too, since this is the one field on the panel where
+ * a bad save mis-taxes every invoice issued after it, not just one booking.
+ */
+export function validateGstPct(pct: number): Result {
+  if (!Number.isFinite(pct) || pct <= 0 || pct > 100) {
+    return { ok: false, error: "GST rate must be greater than 0 and no more than 100." };
+  }
+  return { ok: true };
+}
+
 export function resolveAddOnRates(overrides?: BookingData["addOnRateOverrides"]): AddOnRates {
   return {
     earlyCheckIn: overrides?.earlyCheckIn ?? EARLY_CHECKIN_FEE,
@@ -3311,10 +3411,11 @@ function tariffSettings(roomTypes: RoomTypeInfo[]): RoomTariff[] {
   }));
 }
 
-/** The two rates still read-only in this panel — GST and the party-hall
- *  advance are out of Slice B's scope. */
-function chargeSettings(): ChargeSetting[] {
-  return [{ key: "gst", label: "GST rate", value: `${GST_PCT}%` }];
+/** GST as its own editable setting (Room Settings redesign, slice C) — was
+ *  read-only display over the `GST_PCT` constant; now backed by the
+ *  `gstPct` `addon_settings` row like every other rate on this panel. */
+function gstSetting(pct: number): GstSetting {
+  return { pct };
 }
 
 const PARTY_HALL_RATE_LABEL: Record<PartyHallRateKey, string> = {
@@ -3393,9 +3494,24 @@ function channelSettings(bookings: Booking[]): ChannelSetting[] {
     .sort((a, b) => b.bookings - a.bookings || a.name.localeCompare(b.name));
 }
 
+/** The Settings panel's per-room rows — status live-overlaid the same way
+ *  the Rooms screen does (`liveRoomTiles`), plus the occupant name
+ *  (`currentOccupant`) for the Guest column. Never trust the stored
+ *  `occupied` opinion here either, so Status and Guest can't disagree. */
+function roomSettingsRows(
+  tiles: RoomTile[],
+  bookings: Booking[],
+  guests: Guest[],
+  today: string,
+): RoomSettingsRow[] {
+  const live = liveRoomTiles(tiles, bookings, guests, today);
+  return live.map((t) => ({ ...t, occupantName: currentOccupant(t.no, bookings, guests, today) }));
+}
+
 export async function getSettingsPageData(
   data: BookingData,
   roster: TeamAccount[],
+  today: string = new Date().toISOString().slice(0, 10),
 ): Promise<SettingsPageData> {
   const bookings = data.bookings;
   const tiles = data.rooms ?? defaultRoomTiles();
@@ -3407,13 +3523,13 @@ export async function getSettingsPageData(
     property: PROPERTY,
     pricing: {
       tariffs: tariffSettings(roomTypes),
-      charges: chargeSettings(),
+      gst: gstSetting(resolveGstPct(data.gstRateOverride)),
       addOnRates: addOnRateSettings(resolveAddOnRates(data.addOnRateOverrides)),
       partyHallRates: partyHallRateSettings(partyHallRates),
       partyHallRatesArePlaceholder: PARTY_HALL_PLACEHOLDER_KEYS.some(
         (key) => partyHallRates[key] === PARTY_HALL_RATE_DEFAULTS[key],
       ),
-      rooms: tiles,
+      rooms: roomSettingsRows(tiles, bookings, data.guests, today),
     },
     payments: paymentSettings(),
     channels: channelSettings(bookings),

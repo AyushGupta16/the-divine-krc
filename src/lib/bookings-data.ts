@@ -42,6 +42,7 @@ import {
   assignBookingRoom,
   cancelGuestBooking,
   cancelPartyHallEvent,
+  canDeleteRoom,
   checkAvailability,
   checkInEligibilityError,
   computePartyHallQuote,
@@ -74,6 +75,8 @@ import {
   resolveRoomTypes,
   sendPartyHallQuote,
   updateGuest,
+  validateAddRoom,
+  validateGstPct,
   withAdvance,
   withTier,
   withTotal,
@@ -191,6 +194,7 @@ function toRoomTile(r: RoomRow): RoomTile {
     type: r.type as RoomType,
     status: r.status as RoomStatus,
     detail: r.detail,
+    sizeSqm: r.sizeSqm,
   };
 }
 
@@ -271,6 +275,7 @@ async function load(): Promise<BookingData> {
     addOnRows.map((r) => [r.id, r.price]),
   ) as BookingData["partyHallRateOverrides"];
   const advancePct = resolvePartyHallRates(partyHallRateOverrides).phAdvancePct;
+  const gstRateOverride = addOnRows.find((r) => r.id === "gstPct")?.price;
 
   return {
     guests: guestRows.map(toGuest),
@@ -285,6 +290,7 @@ async function load(): Promise<BookingData> {
     ) as BookingData["roomTypeOverrides"],
     addOnRateOverrides,
     partyHallRateOverrides,
+    gstRateOverride,
   };
 }
 
@@ -707,15 +713,17 @@ const PARTY_HALL_RATE_LABEL_FOR_SAVE: Record<PartyHallRateKey, string> = {
 /** Settings' ten Party Hall rate fields. */
 export const updatePartyHallRateSettingsFn = createServerFn({ method: "POST" })
   .validator((data: { key: PartyHallRateKey; price: number }) => data)
-  .handler(async ({ data }): Promise<Result> => {
-    const auth = await requireSettingsWriter();
-    if (!auth.ok) return auth;
-    if (!Number.isFinite(data.price) || data.price < 0) {
-      return { ok: false, error: "Rate must be zero or more." };
-    }
-    await upsertPartyHallRate(data.key, PARTY_HALL_RATE_LABEL_FOR_SAVE[data.key], data.price);
-    return { ok: true };
-  });
+  .handler(({ data }): Promise<Result> =>
+    safely(async () => {
+      const auth = await requireSettingsWriter();
+      if (!auth.ok) return auth;
+      if (!Number.isFinite(data.price) || data.price < 0) {
+        return { ok: false, error: "Rate must be zero or more." };
+      }
+      await upsertPartyHallRate(data.key, PARTY_HALL_RATE_LABEL_FOR_SAVE[data.key], data.price);
+      return { ok: true };
+    }),
+  );
 
 function noDbInsert(): void {
   if (missingDbInProduction()) {
@@ -751,6 +759,29 @@ async function requireSettingsWriter(): Promise<Result> {
     return { ok: false, error: `A ${member.role} account cannot change settings.` };
   }
   return { ok: true };
+}
+
+/**
+ * Every Room Settings write handler runs its body through this rather than
+ * a bare `async ({ data }) => {...}`. A normal `{ ok: false, error }` return
+ * — `validateAddRoom` blocking a duplicate, `canDeleteRoom` blocking a
+ * delete — passes through untouched; only an actual *thrown* exception
+ * (a schema mismatch on an unmigrated branch, a Neon timeout, anything)
+ * gets caught here. That distinction matters: TanStack Start serializes an
+ * uncaught throw into a shape its own client-side deserializer can crash on
+ * ("Cannot read properties of undefined (reading 'includes')," reported
+ * against #96) — a clean `Result`, which every branch in this file already
+ * returns for expected failures, never has that problem. Catching means a
+ * genuine server error is exactly as visible to the user as a validation
+ * error, instead of an unhandled promise rejection with a blank toast.
+ */
+async function safely<T extends Result>(fn: () => Promise<T>): Promise<Result> {
+  try {
+    return await fn();
+  } catch (err) {
+    console.error(err);
+    return { ok: false, error: "Something went wrong — please try again." };
+  }
 }
 
 /**
@@ -818,6 +849,7 @@ async function insertRoom(room: RoomTile): Promise<void> {
       type: room.type,
       status: room.status,
       detail: room.detail,
+      sizeSqm: room.sizeSqm,
     })
     .onConflictDoNothing({ target: schema.rooms.no });
 }
@@ -830,6 +862,18 @@ async function deleteRoom(no: string): Promise<void> {
     return;
   }
   await conn.delete(schema.rooms).where(eq(schema.rooms.no, no));
+}
+
+/** Room Settings redesign (slice B): the tariff panel's per-room size field. */
+async function updateRoomSize(no: string, sizeSqm: number | null): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    const room = fixtures.rooms.find((r) => r.no === no);
+    if (room) room.sizeSqm = sizeSqm;
+    return;
+  }
+  await conn.update(schema.rooms).set({ sizeSqm }).where(eq(schema.rooms.no, no));
 }
 
 async function updateRoom(no: string, status: RoomStatus, detail: string): Promise<void> {
@@ -898,6 +942,23 @@ async function upsertAddOnSettings(
     .onConflictDoUpdate({ target: schema.addOnSettings.id, set: { price } });
 }
 
+/** GST's own `addon_settings` row (Room Settings redesign, slice C) — kept
+ *  separate from `upsertAddOnSettings` for the same reason party-hall rates
+ *  got their own `upsertPartyHallRate`: `AddOnServiceKey` stays exactly the
+ *  three room add-ons it always meant. */
+async function upsertGstSetting(pct: number): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    fixtures.gstRateOverride = pct;
+    return;
+  }
+  await conn
+    .insert(schema.addOnSettings)
+    .values({ id: "gstPct", label: "GST rate", price: pct })
+    .onConflictDoUpdate({ target: schema.addOnSettings.id, set: { price: pct } });
+}
+
 /**
  * Slice B's admin resolution write: whatever `resolveRequestedService`
  * decided — the booking's new revenue, `requestedServices`, and (for
@@ -930,41 +991,6 @@ async function updateBookingServiceCharge(
       requestedServices: patch.requestedServices,
     })
     .where(eq(schema.bookings.id, bookingId));
-}
-
-/**
- * Settings' room-count field: adds or removes rooms of a type until the
- * floor board has exactly `count` of them, since `count` itself is never
- * stored (see `resolveRoomTypes`). New numbers alternate floor 1/2 and
- * continue that floor's highest existing number; shrinking removes the
- * highest-numbered rooms of the type first.
- */
-async function resizeRoomType(type: RoomType, count: number): Promise<Result> {
-  const current = await load();
-  const allRooms = current.rooms ?? [];
-  const ofType = allRooms.filter((r) => r.type === type);
-  const diff = count - ofType.length;
-  if (diff === 0) return { ok: true };
-
-  if (diff > 0) {
-    for (let i = 0; i < diff; i++) {
-      const floor: 1 | 2 = (ofType.length + i) % 2 === 0 ? 1 : 2;
-      const onFloor = allRooms.filter((r) => r.floor === floor);
-      const maxSuffix = Math.max(0, ...onFloor.map((r) => Number(r.no.slice(1)) || 0));
-      const no = `${floor}${String(maxSuffix + 1).padStart(2, "0")}`;
-      if (allRooms.some((r) => r.no === no)) {
-        return { ok: false, error: `Could not generate a free room number on floor ${floor}.` };
-      }
-      await insertRoom({ no, floor, type, status: "available", detail: "Ready" });
-      allRooms.push({ no, floor, type, status: "available", detail: "Ready" });
-    }
-  } else {
-    const toRemove = [...ofType].sort((a, b) => b.no.localeCompare(a.no)).slice(0, -diff);
-    for (const room of toRemove) {
-      await deleteRoom(room.no);
-    }
-  }
-  return { ok: true };
 }
 
 /**
@@ -1290,74 +1316,109 @@ export const updateRoomStatusFn = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-/** Settings' "Add room" form. */
+/** Settings' "Add room" form. `validateAddRoom` holds the duplicate-number
+ *  rule — same pure-rule-then-persist shape as `createGuest`'s phone guard. */
 export const addRoomFn = createServerFn({ method: "POST" })
   .validator((data: { no: string; floor: 1 | 2; type: RoomType }) => data)
-  .handler(async ({ data }): Promise<Result> => {
-    const auth = await requireRoomWriter();
-    if (!auth.ok) return auth;
-    const no = data.no.trim();
-    if (!no) return { ok: false, error: "Room number is required." };
-    const current = await load();
-    if ((current.rooms ?? []).some((r) => r.no === no)) {
-      return { ok: false, error: `Room ${no} already exists.` };
-    }
-    await insertRoom({
-      no,
-      floor: data.floor,
-      type: data.type,
-      status: "available",
-      detail: "Ready",
-    });
-    return { ok: true };
-  });
+  .handler(({ data }): Promise<Result> =>
+    safely(async () => {
+      const auth = await requireRoomWriter();
+      if (!auth.ok) return auth;
+      const current = await load();
+      const no = data.no.trim();
+      const check = validateAddRoom(current.rooms ?? [], no, data.floor, data.type);
+      if (!check.ok) return check;
+      await insertRoom({
+        no,
+        floor: data.floor,
+        type: data.type,
+        status: "available",
+        detail: "Ready",
+        sizeSqm: null,
+      });
+      return { ok: true };
+    }),
+  );
 
 /** Settings' per-room inline floor/type edit. */
 export const updateRoomDetailsFn = createServerFn({ method: "POST" })
   .validator((data: { no: string; floor: 1 | 2; type: RoomType }) => data)
-  .handler(async ({ data }): Promise<Result> => {
-    const auth = await requireRoomWriter();
-    if (!auth.ok) return auth;
-    const current = await load();
-    if (!(current.rooms ?? []).some((r) => r.no === data.no)) {
-      return { ok: false, error: `Room ${data.no} does not exist.` };
-    }
-    await updateRoomDetails(data.no, data.floor, data.type);
-    return { ok: true };
-  });
+  .handler(({ data }): Promise<Result> =>
+    safely(async () => {
+      const auth = await requireRoomWriter();
+      if (!auth.ok) return auth;
+      const current = await load();
+      if (!(current.rooms ?? []).some((r) => r.no === data.no)) {
+        return { ok: false, error: `Room ${data.no} does not exist.` };
+      }
+      await updateRoomDetails(data.no, data.floor, data.type);
+      return { ok: true };
+    }),
+  );
 
-/** Settings' per-room "Remove" action. */
+/** Settings' per-room "Remove" action. `canDeleteRoom` blocks on ANY booking
+ *  history for the room, not just active stays — no cascade, no soft-delete. */
 export const removeRoomFn = createServerFn({ method: "POST" })
   .validator((data: { no: string }) => data)
-  .handler(async ({ data }): Promise<Result> => {
-    const auth = await requireRoomWriter();
-    if (!auth.ok) return auth;
-    await deleteRoom(data.no);
-    return { ok: true };
-  });
+  .handler(({ data }): Promise<Result> =>
+    safely(async () => {
+      const auth = await requireRoomWriter();
+      if (!auth.ok) return auth;
+      const current = await load();
+      if (!canDeleteRoom(current.bookings, data.no)) {
+        return {
+          ok: false,
+          error: `Room ${data.no} has booking history and can't be deleted.`,
+        };
+      }
+      await deleteRoom(data.no);
+      return { ok: true };
+    }),
+  );
+
+/** Room Settings redesign (slice C): per-room size field, blur-to-save. */
+export const updateRoomSizeFn = createServerFn({ method: "POST" })
+  .validator((data: { no: string; sizeSqm: number | null }) => data)
+  .handler(({ data }): Promise<Result> =>
+    safely(async () => {
+      const auth = await requireRoomWriter();
+      if (!auth.ok) return auth;
+      const current = await load();
+      if (!(current.rooms ?? []).some((r) => r.no === data.no)) {
+        return { ok: false, error: `Room ${data.no} does not exist.` };
+      }
+      if (data.sizeSqm !== null && (!Number.isFinite(data.sizeSqm) || data.sizeSqm <= 0)) {
+        return { ok: false, error: "Size must be greater than zero." };
+      }
+      await updateRoomSize(data.no, data.sizeSqm);
+      return { ok: true };
+    }),
+  );
 
 /** Settings' per-type area/rate fields. */
 export const updateRoomTypeSettingsFn = createServerFn({ method: "POST" })
   .validator(
     (data: { type: RoomType; name?: string; areaSqm: number; pricePerNight: number }) => data,
   )
-  .handler(async ({ data }): Promise<Result> => {
-    const auth = await requireSettingsWriter();
-    if (!auth.ok) return auth;
-    if (data.areaSqm <= 0 || data.pricePerNight <= 0) {
-      return { ok: false, error: "Area and rate must be greater than zero." };
-    }
-    const name = data.name?.trim();
-    if (data.name !== undefined && !name) {
-      return { ok: false, error: "Name cannot be empty." };
-    }
-    await upsertRoomTypeSettings(data.type, {
-      name,
-      areaSqm: data.areaSqm,
-      pricePerNight: data.pricePerNight,
-    });
-    return { ok: true };
-  });
+  .handler(({ data }): Promise<Result> =>
+    safely(async () => {
+      const auth = await requireSettingsWriter();
+      if (!auth.ok) return auth;
+      if (data.areaSqm <= 0 || data.pricePerNight <= 0) {
+        return { ok: false, error: "Area and rate must be greater than zero." };
+      }
+      const name = data.name?.trim();
+      if (data.name !== undefined && !name) {
+        return { ok: false, error: "Name cannot be empty." };
+      }
+      await upsertRoomTypeSettings(data.type, {
+        name,
+        areaSqm: data.areaSqm,
+        pricePerNight: data.pricePerNight,
+      });
+      return { ok: true };
+    }),
+  );
 
 const ADD_ON_LABEL: Record<AddOnServiceKey, string> = {
   earlyCheckIn: "Early check-in fee",
@@ -1368,15 +1429,36 @@ const ADD_ON_LABEL: Record<AddOnServiceKey, string> = {
 /** Settings' Slice B add-on rate fields. */
 export const updateAddOnSettingsFn = createServerFn({ method: "POST" })
   .validator((data: { key: AddOnServiceKey; price: number }) => data)
-  .handler(async ({ data }): Promise<Result> => {
-    const auth = await requireSettingsWriter();
-    if (!auth.ok) return auth;
-    if (!Number.isFinite(data.price) || data.price < 0) {
-      return { ok: false, error: "Rate must be zero or more." };
-    }
-    await upsertAddOnSettings(data.key, ADD_ON_LABEL[data.key], Math.round(data.price));
-    return { ok: true };
-  });
+  .handler(({ data }): Promise<Result> =>
+    safely(async () => {
+      const auth = await requireSettingsWriter();
+      if (!auth.ok) return auth;
+      if (!Number.isFinite(data.price) || data.price < 0) {
+        return { ok: false, error: "Rate must be zero or more." };
+      }
+      await upsertAddOnSettings(data.key, ADD_ON_LABEL[data.key], Math.round(data.price));
+      return { ok: true };
+    }),
+  );
+
+/** Room Settings redesign (slice C): GST's own editable rate, same
+ *  blur-to-save round-trip as the add-on rates above. Unlike a plain add-on
+ *  rate, 0 and >100 are both rejected, not just negative — a tax rate has no
+ *  legitimate reason to be either, and this is the one field on the panel
+ *  where a fat-fingered value has compliance consequences on every invoice
+ *  issued after it saves. */
+export const updateGstSettingsFn = createServerFn({ method: "POST" })
+  .validator((data: { pct: number }) => data)
+  .handler(({ data }): Promise<Result> =>
+    safely(async () => {
+      const auth = await requireSettingsWriter();
+      if (!auth.ok) return auth;
+      const check = validateGstPct(data.pct);
+      if (!check.ok) return check;
+      await upsertGstSetting(Math.round(data.pct));
+      return { ok: true };
+    }),
+  );
 
 /**
  * The admin Bookings screen's Apply/Decline/Reverse action on a guest's
@@ -1411,18 +1493,6 @@ export const resolveRequestedServiceFn = createServerFn({ method: "POST" })
     if (!res.ok) return res;
     await updateBookingServiceCharge(data.id, res);
     return { ok: true };
-  });
-
-/** Settings' room-count field — resizes the floor board to match. */
-export const setRoomCountFn = createServerFn({ method: "POST" })
-  .validator((data: { type: RoomType; count: number }) => data)
-  .handler(async ({ data }): Promise<Result> => {
-    const auth = await requireRoomWriter();
-    if (!auth.ok) return auth;
-    if (!Number.isInteger(data.count) || data.count < 0) {
-      return { ok: false, error: "Room count must be a whole number, zero or more." };
-    }
-    return resizeRoomType(data.type, data.count);
   });
 
 /**

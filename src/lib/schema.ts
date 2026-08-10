@@ -249,6 +249,9 @@ export const rooms = pgTable("rooms", {
   status: text("status").notNull().default("available"),
   /** Occupant + checkout for occupied rooms, else a short state note. */
   detail: text("detail").notNull().default("Ready"),
+  /** Room size in m². Nullable — many existing rows have no size on record;
+   *  render null as "—", never "0" (Room Settings redesign, slice C). */
+  sizeSqm: integer("size_sqm"),
 });
 
 /**
