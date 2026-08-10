@@ -189,6 +189,34 @@ const TYPE_LABEL: Record<RoomType, string> = {
   deluxe_balcony: "Deluxe · Balcony",
 };
 
+/**
+ * Every server-fn call on this panel goes through here rather than a bare
+ * `await`. #96 QA caught the gap this closes: a duplicate-room number is
+ * blocked cleanly by `validateAddRoom` and shows a toast — but if the
+ * request throws instead of resolving to a `Result` (a schema mismatch on
+ * an unmigrated preview branch, a network blip, anything), an unhandled
+ * promise rejection left `busy` stuck and no toast, no error, nothing
+ * visible. Every write path in this file now goes through this so a thrown
+ * exception is exactly as loud as a normal `{ ok: false }`.
+ */
+async function runWrite<T extends { ok: boolean; error?: string }>(
+  setBusy: (busy: boolean) => void,
+  action: () => Promise<T>,
+): Promise<T | null> {
+  setBusy(true);
+  try {
+    const res = await action();
+    setBusy(false);
+    if (!res.ok) toast.error(res.error ?? "Something went wrong.");
+    return res;
+  } catch (err) {
+    setBusy(false);
+    console.error(err);
+    toast.error("Something went wrong — please try again.");
+    return null;
+  }
+}
+
 /** One physical room's row: floor edit, live status/guest, and remove,
  *  inside its type's table. Status and Guest are read-only here — both are
  *  derived from the booking ledger (`liveRoomTiles`/`currentOccupant`),
@@ -204,27 +232,19 @@ function RoomRow({ room, onChanged }: { room: RoomSettingsRow; onChanged: () => 
   useEffect(() => setFloor(String(room.floor) as "1" | "2"), [room.floor]);
 
   async function saveFloor(nextFloor: "1" | "2") {
-    setBusy(true);
-    const res = await updateRoomDetailsFn({
-      data: { no: room.no, floor: Number(nextFloor) as 1 | 2, type: room.type },
-    });
-    setBusy(false);
-    if (!res.ok) {
-      toast.error(res.error);
-      return;
-    }
+    const res = await runWrite(setBusy, () =>
+      updateRoomDetailsFn({
+        data: { no: room.no, floor: Number(nextFloor) as 1 | 2, type: room.type },
+      }),
+    );
+    if (!res?.ok) return;
     onChanged();
   }
 
   async function remove() {
-    setBusy(true);
-    const res = await removeRoomFn({ data: { no: room.no } });
-    setBusy(false);
+    const res = await runWrite(setBusy, () => removeRoomFn({ data: { no: room.no } }));
     setConfirmOpen(false);
-    if (!res.ok) {
-      toast.error(res.error);
-      return;
-    }
+    if (!res?.ok) return;
     onChanged();
   }
 
@@ -303,15 +323,10 @@ function AddRoomForm({ type, onAdded }: { type: RoomType; onAdded: () => void })
       toast.error("Room number is required.");
       return;
     }
-    setBusy(true);
-    const res = await addRoomFn({
-      data: { no: no.trim(), floor: Number(floor) as 1 | 2, type },
-    });
-    setBusy(false);
-    if (!res.ok) {
-      toast.error(res.error);
-      return;
-    }
+    const res = await runWrite(setBusy, () =>
+      addRoomFn({ data: { no: no.trim(), floor: Number(floor) as 1 | 2, type } }),
+    );
+    if (!res?.ok) return;
     setNo("");
     onAdded();
   }
@@ -392,15 +407,12 @@ function RoomTypeGroup({
       return;
     }
     if (nextRate === tariff.pricePerNight && nextArea === tariff.areaSqm) return;
-    setBusy(true);
-    const res = await updateRoomTypeSettingsFn({
-      data: { type: tariff.type, areaSqm: nextArea, pricePerNight: nextRate },
-    });
-    setBusy(false);
-    if (!res.ok) {
-      toast.error(res.error);
-      return;
-    }
+    const res = await runWrite(setBusy, () =>
+      updateRoomTypeSettingsFn({
+        data: { type: tariff.type, areaSqm: nextArea, pricePerNight: nextRate },
+      }),
+    );
+    if (!res?.ok) return;
     onSaved();
   }
 
@@ -481,11 +493,10 @@ function AddOnRateRow({ rate, onSaved }: { rate: AddOnRateSetting; onSaved: () =
       return;
     }
     if (next === rate.price) return;
-    setBusy(true);
-    const res = await updateAddOnSettingsFn({ data: { key: rate.key, price: next } });
-    setBusy(false);
-    if (!res.ok) {
-      toast.error(res.error);
+    const res = await runWrite(setBusy, () =>
+      updateAddOnSettingsFn({ data: { key: rate.key, price: next } }),
+    );
+    if (!res?.ok) {
       setPrice(String(rate.price));
       return;
     }
@@ -528,11 +539,10 @@ function PartyHallRateRow({ rate, onSaved }: { rate: PartyHallRateSetting; onSav
       return;
     }
     if (next === rate.price) return;
-    setBusy(true);
-    const res = await updatePartyHallRateSettingsFn({ data: { key: rate.key, price: next } });
-    setBusy(false);
-    if (!res.ok) {
-      toast.error(res.error);
+    const res = await runWrite(setBusy, () =>
+      updatePartyHallRateSettingsFn({ data: { key: rate.key, price: next } }),
+    );
+    if (!res?.ok) {
       setPrice(String(rate.price));
       return;
     }
@@ -576,11 +586,8 @@ function GstRateRow({ gst, onSaved }: { gst: GstSetting; onSaved: () => void }) 
       return;
     }
     if (next === gst.pct) return;
-    setBusy(true);
-    const res = await updateGstSettingsFn({ data: { pct: next } });
-    setBusy(false);
-    if (!res.ok) {
-      toast.error(res.error);
+    const res = await runWrite(setBusy, () => updateGstSettingsFn({ data: { pct: next } }));
+    if (!res?.ok) {
       setPct(String(gst.pct));
       return;
     }
