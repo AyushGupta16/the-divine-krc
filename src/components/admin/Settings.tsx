@@ -837,6 +837,14 @@ function TeamPanel({ team }: { team: TeamMember[] }) {
 
 // ── Page ────────────────────────────────────────────────────────────────────
 
+/** Height of the sticky "Save changes" bar below (Tailwind `h-14` = 56px) —
+ *  the nav's own sticky offset and the scroll-spy's IntersectionObserver
+ *  margin both need this same number, so it's named once rather than
+ *  repeated as a magic `120` (the global AdminShell header's 64px + this). */
+const SAVE_BAR_HEIGHT = 56;
+const GLOBAL_HEADER_HEIGHT = 64;
+const STICKY_OFFSET = GLOBAL_HEADER_HEIGHT + SAVE_BAR_HEIGHT;
+
 export function Settings({ data }: { data: SettingsPageData }) {
   const [property, setProperty] = useState(data.property);
   const [payToggles, setPayToggles] = useState(data.payments.toggles);
@@ -850,23 +858,59 @@ export function Settings({ data }: { data: SettingsPageData }) {
     on: boolean,
   ) => set(list.map((t) => (t.key === key ? { ...t, on } : t)));
 
+  // Scroll-spy: the nav highlights whichever section is actually in view,
+  // not just the last one clicked — front-desk scrolls the panel directly
+  // far more often than it clicks the nav. `rootMargin`'s top matches the
+  // combined sticky header height (global 64px header + this page's 56px
+  // save bar), so a section counts as "current" once it clears both bars,
+  // not the instant its top pixel crosses the real viewport edge.
+  useEffect(() => {
+    const ids = data.sections.map((s) => s.id);
+    const els = ids
+      .map((id) => document.getElementById(id))
+      .filter((el): el is HTMLElement => !!el);
+    if (els.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((e) => e.isIntersecting);
+        if (visible.length === 0) return;
+        const topmost = visible.reduce((a, b) =>
+          a.boundingClientRect.top <= b.boundingClientRect.top ? a : b,
+        );
+        setActive(topmost.target.id);
+      },
+      { rootMargin: `-${STICKY_OFFSET}px 0px -60% 0px`, threshold: 0 },
+    );
+    for (const el of els) observer.observe(el);
+    return () => observer.disconnect();
+  }, [data.sections]);
+
   return (
-    <div className="flex flex-col gap-4.5 p-4 sm:p-6.5">
-      <div className="flex max-w-[980px] flex-wrap items-center justify-between gap-3">
-        <p className="text-[12px] tracking-[0.01em] text-[#7a746a]">
-          Property, pricing, integrations &amp; team
-        </p>
-        <button
-          type="button"
-          className="flex items-center gap-2 rounded-md bg-gold px-4 py-2.25 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
-        >
-          <Save className="size-4" />
-          Save changes
-        </button>
+    <div className="flex flex-col p-4 sm:p-6.5">
+      <div
+        className="sticky z-10 -mx-4 -mt-4 flex h-14 items-center bg-ivory/95 px-4 backdrop-blur-sm sm:-mx-6.5 sm:-mt-6.5 sm:px-6.5"
+        style={{ top: GLOBAL_HEADER_HEIGHT }}
+      >
+        <div className="flex w-full max-w-[980px] flex-wrap items-center justify-between gap-3">
+          <p className="text-[12px] tracking-[0.01em] text-[#7a746a]">
+            Property, pricing, integrations &amp; team
+          </p>
+          <button
+            type="button"
+            className="flex items-center gap-2 rounded-md bg-gold px-4 py-2.25 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
+          >
+            <Save className="size-4" />
+            Save changes
+          </button>
+        </div>
       </div>
 
-      <div className="grid max-w-[980px] grid-cols-1 items-start gap-6 lg:grid-cols-[200px_1fr]">
-        <nav className="flex gap-1.75 overflow-x-auto pb-1 lg:sticky lg:top-0 lg:flex-col lg:gap-0.5 lg:overflow-visible lg:pb-0">
+      <div className="mt-4.5 grid max-w-[980px] grid-cols-1 items-start gap-6 lg:grid-cols-[200px_1fr]">
+        <nav
+          className="flex gap-1.75 overflow-x-auto pb-1 lg:sticky lg:flex-col lg:gap-0.5 lg:overflow-visible lg:pb-0"
+          style={{ top: STICKY_OFFSET }}
+        >
           {data.sections.map((s) => (
             <a
               key={s.id}
@@ -950,7 +994,10 @@ export function Settings({ data }: { data: SettingsPageData }) {
                 key={t.key}
                 toggle={t}
                 bordered
-                onChange={(on) => setToggle(notifications, setNotifications, t.key, on)}
+                onChange={(on) => {
+                  setToggle(notifications, setNotifications, t.key, on);
+                  toast.success(`${t.label} ${on ? "enabled" : "disabled"}.`);
+                }}
               />
             ))}
           </section>
