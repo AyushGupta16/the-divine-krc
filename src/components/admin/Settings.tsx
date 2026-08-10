@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
 import { ChevronDown, Eye, Plus, Trash2, Zap } from "lucide-react";
 import { toast } from "sonner";
@@ -843,15 +843,22 @@ function TeamPanel({ team }: { team: TeamMember[] }) {
  *  the nav's own sticky offset and the scroll-spy's IntersectionObserver
  *  margin both need this same number, so it's named once rather than
  *  repeated as a magic `120` (the global AdminShell header's 64px + this). */
-const SAVE_BAR_HEIGHT = 56;
+// The page header's own height differs by breakpoint: its subtitle is hidden
+// below `sm` (decorative — the page title already says "Settings"), so the
+// bar itself is shorter there too. The nav's sticky offset has to track
+// whichever height is actually in effect, not one constant for both.
+const SAVE_BAR_HEIGHT_MOBILE = 44;
+const SAVE_BAR_HEIGHT_DESKTOP = 56;
 const GLOBAL_HEADER_HEIGHT = 64;
-const STICKY_OFFSET = GLOBAL_HEADER_HEIGHT + SAVE_BAR_HEIGHT;
+const STICKY_OFFSET_MOBILE = GLOBAL_HEADER_HEIGHT + SAVE_BAR_HEIGHT_MOBILE;
+const STICKY_OFFSET_DESKTOP = GLOBAL_HEADER_HEIGHT + SAVE_BAR_HEIGHT_DESKTOP;
 
 export function Settings({ data }: { data: SettingsPageData }) {
   const [property, setProperty] = useState(data.property);
   const [payToggles, setPayToggles] = useState(data.payments.toggles);
   const [notifications, setNotifications] = useState(data.notifications);
   const [active, setActive] = useState(data.sections[0].id);
+  const navRefs = useRef(new Map<string, HTMLAnchorElement>());
 
   const setToggle = (
     list: ToggleSetting[],
@@ -903,6 +910,14 @@ export function Settings({ data }: { data: SettingsPageData }) {
       .filter((el): el is HTMLElement => !!el);
     if (els.length === 0) return;
 
+    // `sm` matches the Tailwind breakpoint the header's own height changes at
+    // (subtitle hidden below it) — matched once at setup, not tracked live,
+    // since a mid-session breakpoint crossing would need a page reload of the
+    // section layout anyway.
+    const offset = window.matchMedia("(min-width: 640px)").matches
+      ? STICKY_OFFSET_DESKTOP
+      : STICKY_OFFSET_MOBILE;
+
     const observer = new IntersectionObserver(
       (entries) => {
         const visible = entries.filter((e) => e.isIntersecting);
@@ -912,20 +927,31 @@ export function Settings({ data }: { data: SettingsPageData }) {
         );
         setActive(topmost.target.id);
       },
-      { rootMargin: `-${STICKY_OFFSET}px 0px -60% 0px`, threshold: 0 },
+      { rootMargin: `-${offset}px 0px -60% 0px`, threshold: 0 },
     );
     for (const el of els) observer.observe(el);
     return () => observer.disconnect();
   }, [data.sections]);
 
+  // Below `lg` the nav is a horizontally scrolling pill row, and most pills
+  // sit off-screen on a narrow viewport — without this, scroll-spy moves
+  // `active` but the user never sees which pill it landed on. `block:
+  // "nearest"` keeps this from also scrolling the page vertically: the nav
+  // itself is pinned at a fixed sticky position whenever it's visible, so the
+  // active pill is already vertically in view and only the horizontal scroll
+  // container moves.
+  useEffect(() => {
+    navRefs.current.get(active)?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [active]);
+
   return (
     <div className="flex flex-col p-4 sm:p-6.5">
       <div
-        className="sticky z-10 -mx-4 -mt-4 flex h-14 items-center bg-ivory/95 px-4 backdrop-blur-sm sm:-mx-6.5 sm:-mt-6.5 sm:px-6.5"
+        className="sticky z-10 -mx-4 -mt-4 flex h-11 items-center bg-ivory/95 px-4 backdrop-blur-sm sm:-mx-6.5 sm:-mt-6.5 sm:h-14 sm:px-6.5"
         style={{ top: GLOBAL_HEADER_HEIGHT }}
       >
-        <div className="flex w-full max-w-[980px] flex-wrap items-center justify-between gap-3">
-          <p className="text-[12px] tracking-[0.01em] text-[#7a746a]">
+        <div className="flex w-full max-w-[980px] flex-wrap items-center justify-end gap-3 sm:justify-between">
+          <p className="hidden text-[12px] tracking-[0.01em] text-[#7a746a] sm:block">
             Property, pricing, integrations &amp; team
           </p>
           <button
@@ -940,13 +966,14 @@ export function Settings({ data }: { data: SettingsPageData }) {
       </div>
 
       <div className="mt-4.5 grid max-w-[980px] grid-cols-1 items-start gap-6 lg:grid-cols-[200px_1fr]">
-        <nav
-          className="flex gap-1.75 overflow-x-auto pb-1 lg:sticky lg:flex-col lg:gap-0.5 lg:overflow-visible lg:pb-0"
-          style={{ top: STICKY_OFFSET }}
-        >
+        <nav className="sticky top-27 z-5 -mx-4 flex gap-1.75 overflow-x-auto bg-ivory/95 px-4 py-2.5 backdrop-blur-sm sm:top-30 sm:-mx-6.5 sm:px-6.5 lg:static lg:mx-0 lg:flex-col lg:gap-0.5 lg:overflow-visible lg:bg-transparent lg:px-0 lg:py-0 lg:backdrop-blur-none">
           {data.sections.map((s) => (
             <a
               key={s.id}
+              ref={(el) => {
+                if (el) navRefs.current.set(s.id, el);
+                else navRefs.current.delete(s.id);
+              }}
               href={`#${s.id}`}
               onClick={() => setActive(s.id)}
               className={cn(
