@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
-import { ChevronDown, Plus, Save, Trash2, Zap } from "lucide-react";
+import { ChevronDown, Eye, Plus, Trash2, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 import type {
@@ -130,7 +130,7 @@ function ToggleRow({
 
 // ── Panels ──────────────────────────────────────────────────────────────────
 
-/** Shared with the "Save changes" diff below, so the changed-fields toast
+/** Shared with the "Review changes" diff below, so the changed-fields toast
  *  names a setting the same way its own input labels it. */
 const PROPERTY_FIELDS: { key: keyof PropertyProfile; label: string; wide?: boolean }[] = [
   { key: "name", label: "Property name", wide: true },
@@ -839,7 +839,7 @@ function TeamPanel({ team }: { team: TeamMember[] }) {
 
 // ── Page ────────────────────────────────────────────────────────────────────
 
-/** Height of the sticky "Save changes" bar below (Tailwind `h-14` = 56px) —
+/** Height of the sticky "Review changes" bar below (Tailwind `h-14` = 56px) —
  *  the nav's own sticky offset and the scroll-spy's IntersectionObserver
  *  margin both need this same number, so it's named once rather than
  *  repeated as a magic `120` (the global AdminShell header's 64px + this). */
@@ -861,15 +861,20 @@ export function Settings({ data }: { data: SettingsPageData }) {
   ) => set(list.map((t) => (t.key === key ? { ...t, on } : t)));
 
   /** Which toggles in `list` flipped relative to `original`, by label —
-   *  used to name exactly what changed in the Save toast rather than a
-   *  generic "settings saved." */
+   *  used to name exactly what changed in the review toast rather than a
+   *  generic "settings changed." */
   function changedToggleLabels(original: ToggleSetting[], list: ToggleSetting[]): string[] {
     return list
       .filter((t) => original.find((o) => o.key === t.key)?.on !== t.on)
       .map((t) => t.label);
   }
 
-  function handleSave() {
+  // "Review changes," not "Save changes": property fields and toggles have
+  // no server fn behind them yet (unlike the rest of this page, which does
+  // persist). Naming the button and its toast for what it actually does —
+  // describing a local change, not saving one — is the fix for the same
+  // failure mode as "Quote sent" claiming a delivery that never happened.
+  function handleReview() {
     const changedProperty = PROPERTY_FIELDS.filter(
       (f) => property[f.key] !== data.property[f.key],
     ).map((f) => f.label);
@@ -878,11 +883,11 @@ export function Settings({ data }: { data: SettingsPageData }) {
     const changed = [...changedProperty, ...changedPayToggles, ...changedNotifications];
 
     if (changed.length === 0) {
-      toast("No changes to save.");
+      toast("No changes to review.");
       return;
     }
     const summary = changed.length <= 3 ? changed.join(", ") : `${changed.length} settings`;
-    toast.success(`Saved: ${summary}.`);
+    toast(`Changed locally: ${summary}. Saving to server coming soon.`);
   }
 
   // Scroll-spy: the nav highlights whichever section is actually in view,
@@ -925,11 +930,11 @@ export function Settings({ data }: { data: SettingsPageData }) {
           </p>
           <button
             type="button"
-            onClick={handleSave}
+            onClick={handleReview}
             className="flex items-center gap-2 rounded-md bg-gold px-4 py-2.25 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
           >
-            <Save className="size-4" />
-            Save changes
+            <Eye className="size-4" />
+            Review changes
           </button>
         </div>
       </div>
