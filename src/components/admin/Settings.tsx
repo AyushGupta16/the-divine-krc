@@ -371,10 +371,39 @@ function AddRoomForm({ type, onAdded }: { type: RoomType; onAdded: () => void })
   );
 }
 
+const GROUP_OPEN_STORAGE_PREFIX = "krc-settings-room-group-open:";
+
+/** `sessionStorage` (not `localStorage`) — survives navigating away from
+ *  Settings and back within a session, but resets on a fresh browser
+ *  session so nobody inherits a collapsed panel from days ago. Keyed per
+ *  room type so a new type can never inherit another's state. `null`
+ *  means "nothing stored," not "closed" — the caller falls back to its own
+ *  default in that case. Both directions are wrapped in try/catch:
+ *  `sessionStorage` throws in private browsing on some browsers, and a
+ *  settings panel that won't render because storage is unavailable is
+ *  worse than one that just forgets between visits. */
+function readStoredGroupOpen(type: RoomType): boolean | null {
+  try {
+    const raw = sessionStorage.getItem(`${GROUP_OPEN_STORAGE_PREFIX}${type}`);
+    return raw === null ? null : raw === "1";
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredGroupOpen(type: RoomType, open: boolean): void {
+  try {
+    sessionStorage.setItem(`${GROUP_OPEN_STORAGE_PREFIX}${type}`, open ? "1" : "0");
+  } catch {
+    // Private browsing or storage disabled — the toggle still works this
+    // visit, it just won't be remembered next time. Not fatal.
+  }
+}
+
 /** One room type's collapsible group: header (name, rate, expand/collapse),
- *  its rooms table, and a scoped add-room form. Session-only expand state —
- *  front-desk usage is "open, edit, done," so nothing here persists across
- *  navigation or reload. */
+ *  its rooms table, and a scoped add-room form. Expand state persists to
+ *  `sessionStorage` per type; `defaultOpen` (Deluxe expanded, others
+ *  collapsed) is only the fallback for a type with nothing stored yet. */
 function RoomTypeGroup({
   tariff,
   rooms,
@@ -390,6 +419,19 @@ function RoomTypeGroup({
   const [rate, setRate] = useState(String(tariff.pricePerNight));
   const [areaSqm, setAreaSqm] = useState(String(tariff.areaSqm));
   const [busy, setBusy] = useState(false);
+
+  // Reads `sessionStorage` only after mount, never during render — the
+  // server has no access to it, so agreeing on `defaultOpen` first is what
+  // keeps SSR and hydration from disagreeing about the initial markup.
+  useEffect(() => {
+    const stored = readStoredGroupOpen(tariff.type);
+    if (stored !== null) setOpen(stored);
+  }, [tariff.type]);
+
+  function handleOpenChange(next: boolean) {
+    setOpen(next);
+    writeStoredGroupOpen(tariff.type, next);
+  }
 
   useEffect(() => setRate(String(tariff.pricePerNight)), [tariff.pricePerNight]);
   useEffect(() => setAreaSqm(String(tariff.areaSqm)), [tariff.areaSqm]);
@@ -417,7 +459,11 @@ function RoomTypeGroup({
   }
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className={cn(ROW, "mb-3 overflow-hidden")}>
+    <Collapsible
+      open={open}
+      onOpenChange={handleOpenChange}
+      className={cn(ROW, "mb-3 overflow-hidden")}
+    >
       <div className="flex flex-wrap items-center gap-3 bg-[#faf7ef] px-3.5 py-3">
         <CollapsibleTrigger asChild>
           <button type="button" className="flex flex-1 items-center gap-2 text-left">
