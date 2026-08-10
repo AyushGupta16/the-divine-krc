@@ -781,10 +781,24 @@ describe("checkAvailability", () => {
 
 describe("assignBookingRoom", () => {
   const rooms: RoomTile[] = [
-    { no: "101", floor: 1, type: "deluxe", status: "available", detail: "Ready" },
-    { no: "102", floor: 1, type: "deluxe", status: "maintenance", detail: "AC repair" },
-    { no: "103", floor: 1, type: "deluxe", status: "available", detail: "Ready" },
-    { no: "201", floor: 2, type: "deluxe_balcony", status: "available", detail: "Ready" },
+    { no: "101", floor: 1, type: "deluxe", status: "available", detail: "Ready", sizeSqm: null },
+    {
+      no: "102",
+      floor: 1,
+      type: "deluxe",
+      status: "maintenance",
+      detail: "AC repair",
+      sizeSqm: null,
+    },
+    { no: "103", floor: 1, type: "deluxe", status: "available", detail: "Ready", sizeSqm: null },
+    {
+      no: "201",
+      floor: 2,
+      type: "deluxe_balcony",
+      status: "available",
+      detail: "Ready",
+      sizeSqm: null,
+    },
   ];
 
   /** A confirmed deluxe booking, unassigned, over the given dates, with a
@@ -916,8 +930,15 @@ describe("assignBookingRoom", () => {
 
 describe("checkInEligibilityError", () => {
   const rooms: RoomTile[] = [
-    { no: "101", floor: 1, type: "deluxe", status: "available", detail: "Ready" },
-    { no: "102", floor: 1, type: "deluxe", status: "maintenance", detail: "AC repair" },
+    { no: "101", floor: 1, type: "deluxe", status: "available", detail: "Ready", sizeSqm: null },
+    {
+      no: "102",
+      floor: 1,
+      type: "deluxe",
+      status: "maintenance",
+      detail: "AC repair",
+      sizeSqm: null,
+    },
   ];
 
   function makeBooking(roomNo: string | null) {

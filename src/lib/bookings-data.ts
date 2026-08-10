@@ -42,6 +42,7 @@ import {
   assignBookingRoom,
   cancelGuestBooking,
   cancelPartyHallEvent,
+  canDeleteRoom,
   checkAvailability,
   checkInEligibilityError,
   computePartyHallQuote,
@@ -74,6 +75,7 @@ import {
   resolveRoomTypes,
   sendPartyHallQuote,
   updateGuest,
+  validateAddRoom,
   withAdvance,
   withTier,
   withTotal,
@@ -191,6 +193,7 @@ function toRoomTile(r: RoomRow): RoomTile {
     type: r.type as RoomType,
     status: r.status as RoomStatus,
     detail: r.detail,
+    sizeSqm: r.sizeSqm,
   };
 }
 
@@ -818,6 +821,7 @@ async function insertRoom(room: RoomTile): Promise<void> {
       type: room.type,
       status: room.status,
       detail: room.detail,
+      sizeSqm: room.sizeSqm,
     })
     .onConflictDoNothing({ target: schema.rooms.no });
 }
@@ -830,6 +834,18 @@ async function deleteRoom(no: string): Promise<void> {
     return;
   }
   await conn.delete(schema.rooms).where(eq(schema.rooms.no, no));
+}
+
+/** Room Settings redesign (slice B): the tariff panel's per-room size field. */
+async function updateRoomSize(no: string, sizeSqm: number | null): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    const room = fixtures.rooms.find((r) => r.no === no);
+    if (room) room.sizeSqm = sizeSqm;
+    return;
+  }
+  await conn.update(schema.rooms).set({ sizeSqm }).where(eq(schema.rooms.no, no));
 }
 
 async function updateRoom(no: string, status: RoomStatus, detail: string): Promise<void> {
@@ -955,8 +971,8 @@ async function resizeRoomType(type: RoomType, count: number): Promise<Result> {
       if (allRooms.some((r) => r.no === no)) {
         return { ok: false, error: `Could not generate a free room number on floor ${floor}.` };
       }
-      await insertRoom({ no, floor, type, status: "available", detail: "Ready" });
-      allRooms.push({ no, floor, type, status: "available", detail: "Ready" });
+      await insertRoom({ no, floor, type, status: "available", detail: "Ready", sizeSqm: null });
+      allRooms.push({ no, floor, type, status: "available", detail: "Ready", sizeSqm: null });
     }
   } else {
     const toRemove = [...ofType].sort((a, b) => b.no.localeCompare(a.no)).slice(0, -diff);
@@ -1290,24 +1306,24 @@ export const updateRoomStatusFn = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-/** Settings' "Add room" form. */
+/** Settings' "Add room" form. `validateAddRoom` holds the duplicate-number
+ *  rule — same pure-rule-then-persist shape as `createGuest`'s phone guard. */
 export const addRoomFn = createServerFn({ method: "POST" })
   .validator((data: { no: string; floor: 1 | 2; type: RoomType }) => data)
   .handler(async ({ data }): Promise<Result> => {
     const auth = await requireRoomWriter();
     if (!auth.ok) return auth;
-    const no = data.no.trim();
-    if (!no) return { ok: false, error: "Room number is required." };
     const current = await load();
-    if ((current.rooms ?? []).some((r) => r.no === no)) {
-      return { ok: false, error: `Room ${no} already exists.` };
-    }
+    const no = data.no.trim();
+    const check = validateAddRoom(current.rooms ?? [], no, data.floor, data.type);
+    if (!check.ok) return check;
     await insertRoom({
       no,
       floor: data.floor,
       type: data.type,
       status: "available",
       detail: "Ready",
+      sizeSqm: null,
     });
     return { ok: true };
   });
@@ -1326,13 +1342,38 @@ export const updateRoomDetailsFn = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-/** Settings' per-room "Remove" action. */
+/** Settings' per-room "Remove" action. `canDeleteRoom` blocks on ANY booking
+ *  history for the room, not just active stays — no cascade, no soft-delete. */
 export const removeRoomFn = createServerFn({ method: "POST" })
   .validator((data: { no: string }) => data)
   .handler(async ({ data }): Promise<Result> => {
     const auth = await requireRoomWriter();
     if (!auth.ok) return auth;
+    const current = await load();
+    if (!canDeleteRoom(current.bookings, data.no)) {
+      return {
+        ok: false,
+        error: `Room ${data.no} has booking history and can't be deleted.`,
+      };
+    }
     await deleteRoom(data.no);
+    return { ok: true };
+  });
+
+/** Room Settings redesign (slice C): per-room size field, blur-to-save. */
+export const updateRoomSizeFn = createServerFn({ method: "POST" })
+  .validator((data: { no: string; sizeSqm: number | null }) => data)
+  .handler(async ({ data }): Promise<Result> => {
+    const auth = await requireRoomWriter();
+    if (!auth.ok) return auth;
+    const current = await load();
+    if (!(current.rooms ?? []).some((r) => r.no === data.no)) {
+      return { ok: false, error: `Room ${data.no} does not exist.` };
+    }
+    if (data.sizeSqm !== null && (!Number.isFinite(data.sizeSqm) || data.sizeSqm <= 0)) {
+      return { ok: false, error: "Size must be greater than zero." };
+    }
+    await updateRoomSize(data.no, data.sizeSqm);
     return { ok: true };
   });
 

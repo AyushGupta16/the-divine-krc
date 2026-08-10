@@ -371,6 +371,8 @@ export interface RoomTile {
   status: RoomStatus;
   /** Occupant + checkout for occupied rooms, else a short state note. */
   detail: string;
+  /** m². Null when not on record — render as "—", never "0". */
+  sizeSqm: number | null;
 }
 
 /** A room-type summary card (photo, count, availability, editable rate). */
