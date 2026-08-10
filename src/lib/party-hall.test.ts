@@ -82,8 +82,12 @@ describe("getPartyHallPageData", () => {
   });
 
   it("names the soonest event still ahead as the next one", async () => {
-    const { stats } = await getPartyHallPageData(fixtures);
-    expect(statValue(stats, "nextEvent")).toBe("30 Jul · Evening");
+    // Pinned `today`: "next event" excludes past-dated confirmed events (a
+    // stale `confirmed` row never auto-transitions to `completed`), so this
+    // result depends on `today` relative to the fixture dates and must not
+    // drift with the real wall clock.
+    const { stats } = await getPartyHallPageData(fixtures, 2026, 8, "2026-08-10");
+    expect(statValue(stats, "nextEvent")).toBe("12 Aug · Afternoon");
   });
 
   it("orders cards up the pipeline, new first and completed last", async () => {
@@ -208,6 +212,14 @@ describe("getPartyHallPageData", () => {
     expect(bookedDays(calendar.cells)).toEqual([]);
   });
 
+  it("still marks a past month's booked days when today is later — history, not a forecast", async () => {
+    // July 2026 is entirely in the past relative to "today" below, but the
+    // rail must still show it was booked: a `confirmed`/`completed` event
+    // that already happened is not something a date filter should erase.
+    const july = await getPartyHallPageData(fixtures, 2026, 7, "2026-08-10");
+    expect(bookedDays(july.calendar.cells)).toEqual([30]);
+  });
+
   it("drops cancelled events from confirmed·upcoming and the calendar's booked days", async () => {
     const custom = {
       ...fixtures,
@@ -216,9 +228,21 @@ describe("getPartyHallPageData", () => {
         enquiry({ id: "PH-CONFIRMED", status: "confirmed", date: "2026-08-16", amount: 100000 }),
       ],
     };
-    const { stats, calendar } = await getPartyHallPageData(custom, 2026, 8);
+    const { stats, calendar } = await getPartyHallPageData(custom, 2026, 8, "2026-08-10");
     expect(statValue(stats, "confirmed")).toBe("1");
     expect(bookedDays(calendar.cells)).toEqual([16]);
+  });
+
+  it("drops a past confirmed event from confirmed·upcoming — nothing marks it completed on its own", async () => {
+    const custom = {
+      ...fixtures,
+      partyHall: [
+        enquiry({ id: "PH-PAST", status: "confirmed", date: "2026-08-05", amount: 100000 }),
+        enquiry({ id: "PH-FUTURE", status: "confirmed", date: "2026-08-20", amount: 100000 }),
+      ],
+    };
+    const { stats } = await getPartyHallPageData(custom, 2026, 8, "2026-08-10");
+    expect(statValue(stats, "confirmed")).toBe("1");
   });
 
   it("degrades the quoted-on label to no date for a pre-migration row with no quotedAt", async () => {
