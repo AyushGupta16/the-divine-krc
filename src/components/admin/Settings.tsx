@@ -935,12 +935,17 @@ export function Settings({ data }: { data: SettingsPageData }) {
 
   // Below `lg` the nav is a horizontally scrolling pill row, and most pills
   // sit off-screen on a narrow viewport — without this, scroll-spy moves
-  // `active` but the user never sees which pill it landed on. `block:
-  // "nearest"` keeps this from also scrolling the page vertically: the nav
-  // itself is pinned at a fixed sticky position whenever it's visible, so the
-  // active pill is already vertically in view and only the horizontal scroll
-  // container moves.
+  // `active` but the user never sees which pill it landed on. Guarded to
+  // below `lg` only: at `lg` the nav is a vertical column with every pill
+  // already visible, and calling this unconditionally turned every scroll-spy
+  // update into a feedback loop with the user's own scrolling — the page
+  // fought back to the "active" section's scrollIntoView target on every
+  // scroll tick. `block: "nearest"` is still what keeps this from scrolling
+  // the page vertically on top of that: the nav is pinned at a fixed sticky
+  // position whenever it's visible, so the active pill is already vertically
+  // in view and only the horizontal scroll container should move.
   useEffect(() => {
+    if (window.matchMedia("(min-width: 1024px)").matches) return;
     navRefs.current.get(active)?.scrollIntoView({ inline: "nearest", block: "nearest" });
   }, [active]);
 
@@ -966,7 +971,7 @@ export function Settings({ data }: { data: SettingsPageData }) {
       </div>
 
       <div className="mt-4.5 grid max-w-[980px] grid-cols-1 items-start gap-6 lg:grid-cols-[200px_1fr]">
-        <nav className="sticky top-27 z-5 -mx-4 flex gap-1.75 overflow-x-auto bg-ivory/95 px-4 py-2.5 backdrop-blur-sm sm:top-30 sm:-mx-6.5 sm:px-6.5 lg:static lg:mx-0 lg:flex-col lg:gap-0.5 lg:overflow-visible lg:bg-transparent lg:px-0 lg:py-0 lg:backdrop-blur-none">
+        <nav className="sticky top-27 z-5 -mx-4 flex gap-1.75 overflow-x-auto bg-ivory/95 px-4 py-2.5 backdrop-blur-sm sm:top-30 sm:-mx-6.5 sm:px-6.5 lg:mx-0 lg:flex-col lg:gap-0.5 lg:overflow-visible lg:bg-transparent lg:px-0 lg:py-0 lg:backdrop-blur-none">
           {data.sections.map((s) => (
             <a
               key={s.id}
