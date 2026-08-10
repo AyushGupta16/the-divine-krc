@@ -241,7 +241,9 @@ function PartyHallCard({ hall }: { hall: RoomsPartyHall }) {
         </div>
         <div className="text-right">
           <div className="text-[11px] font-semibold text-[#f0c96a]">Next: {hall.nextLabel}</div>
-          <div className="mt-0.75 text-[11px] text-[#8a8479]">{hall.availability}</div>
+          {hall.availability && (
+            <div className="mt-0.75 text-[11px] text-[#8a8479]">{hall.availability}</div>
+          )}
         </div>
       </div>
     </div>

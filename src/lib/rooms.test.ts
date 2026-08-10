@@ -9,7 +9,23 @@ import {
   validateAddRoom,
 } from "@/lib/bookings";
 import { fixtures } from "@/lib/__fixtures__/bookings";
-import type { Booking, Guest, RoomTile } from "@/types/booking";
+import type { Booking, Guest, PartyHallEnquiry, RoomTile } from "@/types/booking";
+
+function event(patch: Partial<PartyHallEnquiry>): PartyHallEnquiry {
+  return {
+    id: "PH-SYN-001",
+    title: "Synthetic event",
+    date: "2027-01-01",
+    slot: "evening",
+    guests: 100,
+    package: "Gold",
+    addOns: [],
+    status: "confirmed",
+    amount: 100000,
+    advancePaid: 0,
+    ...patch,
+  };
+}
 
 function tile(no: string, overrides: Partial<RoomTile> = {}): RoomTile {
   return {
@@ -104,6 +120,96 @@ describe("getRoomsPageData", () => {
     const available = data.legend.find((l) => l.status === "available")!.count;
     expect(data.summaryLine).toContain(`${occupied} occupied`);
     expect(data.summaryLine).toContain(`${available} available`);
+  });
+});
+
+describe("getRoomsPageData party hall tile", () => {
+  const today = "2027-01-01";
+
+  it("no upcoming events: no next line and no availability line", async () => {
+    const data = await getRoomsPageData({ ...fixtures, partyHall: [] }, today);
+    expect(data.partyHall.nextLabel).toBe("No events scheduled");
+    expect(data.partyHall.availability).toBe("");
+  });
+
+  it("whole week free: today is day 1, range spans today through day 7", async () => {
+    const data = await getRoomsPageData(
+      { ...fixtures, partyHall: [event({ date: "2027-02-01" })] },
+      today,
+    );
+    expect(data.partyHall.availability).toBe("Available 1 Jan – 7 Jan");
+  });
+
+  it("earlier run wins when two runs tie for longest", async () => {
+    // Day 1 free, day 2 taken, days 3-4 free (len 2), day 5 taken, days 6-7
+    // free (len 2, same length as 3-4). Earlier run must win.
+    const data = await getRoomsPageData(
+      {
+        ...fixtures,
+        partyHall: [
+          event({ id: "PH-A", date: "2027-01-02" }),
+          event({ id: "PH-B", date: "2027-01-05" }),
+        ],
+      },
+      today,
+    );
+    expect(data.partyHall.availability).toBe("Available 3 Jan – 4 Jan");
+  });
+
+  it("longest run may be a single day and renders as one date", async () => {
+    const data = await getRoomsPageData(
+      {
+        ...fixtures,
+        partyHall: [
+          event({ id: "PH-A", date: "2027-01-01" }),
+          event({ id: "PH-B", date: "2027-01-02" }),
+          event({ id: "PH-C", date: "2027-01-04" }),
+          event({ id: "PH-D", date: "2027-01-05" }),
+          event({ id: "PH-E", date: "2027-01-06" }),
+          event({ id: "PH-F", date: "2027-01-07" }),
+        ],
+      },
+      today,
+    );
+    expect(data.partyHall.availability).toBe("Available 3 Jan");
+  });
+
+  it("fully booked week renders the line, not an empty string", async () => {
+    const data = await getRoomsPageData(
+      {
+        ...fixtures,
+        partyHall: [0, 1, 2, 3, 4, 5, 6].map((n) =>
+          event({ id: `PH-${n}`, date: `2027-01-0${n + 1}` }),
+        ),
+      },
+      today,
+    );
+    expect(data.partyHall.nextLabel).not.toBe("No events scheduled");
+    expect(data.partyHall.availability).toBe("Fully booked this week");
+  });
+
+  it("an un-quoted enquiry does not block a date", async () => {
+    const data = await getRoomsPageData(
+      { ...fixtures, partyHall: [event({ date: today, status: "enquiry" })] },
+      today,
+    );
+    expect(data.partyHall.availability).toBe("Available 1 Jan – 7 Jan");
+  });
+
+  it("a quote sent but unpaid does not block a date", async () => {
+    const data = await getRoomsPageData(
+      { ...fixtures, partyHall: [event({ date: today, status: "quote_sent" })] },
+      today,
+    );
+    expect(data.partyHall.availability).toBe("Available 1 Jan – 7 Jan");
+  });
+
+  it("an advance-paid event blocks its date", async () => {
+    const data = await getRoomsPageData(
+      { ...fixtures, partyHall: [event({ date: "2027-01-03", status: "advance_paid" })] },
+      today,
+    );
+    expect(data.partyHall.availability).toBe("Available 4 Jan – 7 Jan");
   });
 });
 

@@ -320,15 +320,67 @@ function nextPartyHallEvent(partyHall: PartyHallEnquiry[]): PartyHallEnquiry | u
   return [...partyHall].filter(isUpcomingEvent).sort((a, b) => a.date.localeCompare(b.date))[0];
 }
 
-/** "30 Jul · Evening" — the shared next-event line. */
-function nextEventLabel(e: PartyHallEnquiry | undefined): string {
-  if (!e) return "No events booked";
-  const date = new Date(`${e.date}T00:00:00Z`).toLocaleDateString("en-IN", {
+/** "30 Jul" style day/month label, shared by the next-event line and the
+ *  rooms-tile availability window. */
+function dateLabel(date: string): string {
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString("en-IN", {
     day: "numeric",
     month: "short",
     timeZone: "UTC",
   });
-  return `${date} · ${SLOT_LABEL[e.slot]}`;
+}
+
+/** "30 Jul · Evening" — the shared next-event line. */
+function nextEventLabel(e: PartyHallEnquiry | undefined): string {
+  if (!e) return "No events scheduled";
+  return `${dateLabel(e.date)} · ${SLOT_LABEL[e.slot]}`;
+}
+
+/**
+ * Statuses that hold a date on the rooms tile: money has moved or the event
+ * is committed. Deliberately narrower than `isUpcomingEvent` (which the
+ * calendar rail's `bookedDaysIn` uses) — an un-quoted `enquiry` or a
+ * `quote_sent` nobody has paid on doesn't hold the hall, and telling the
+ * front desk a date is unavailable over a speculative ask would lose real
+ * bookings. Do not widen this to match the calendar; the two screens answer
+ * different questions.
+ */
+const TILE_BLOCKING_STATUS = new Set<PartyHallStatus>(["advance_paid", "confirmed"]);
+
+/**
+ * Ground-floor party-hall tile's availability line: the longest run of
+ * consecutive free days in the next 7 (today included). A day counts as
+ * taken only when it has a committed event — see `TILE_BLOCKING_STATUS`.
+ */
+function partyHallAvailability(partyHall: PartyHallEnquiry[], today: string): string {
+  const blocked = new Set(
+    partyHall.filter((e) => TILE_BLOCKING_STATUS.has(e.status)).map((e) => e.date),
+  );
+  const days = Array.from({ length: 7 }, (_, i) => shiftDate(today, i));
+
+  let bestStart = -1;
+  let bestLen = 0;
+  let runStart = -1;
+  for (let i = 0; i <= days.length; i++) {
+    const free = i < days.length && !blocked.has(days[i]);
+    if (free) {
+      if (runStart === -1) runStart = i;
+    } else if (runStart !== -1) {
+      const len = i - runStart;
+      if (len > bestLen) {
+        bestLen = len;
+        bestStart = runStart;
+      }
+      runStart = -1;
+    }
+  }
+
+  if (bestLen === 0) return "Fully booked this week";
+  const start = days[bestStart];
+  const end = days[bestStart + bestLen - 1];
+  return bestLen === 1
+    ? `Available ${dateLabel(start)}`
+    : `Available ${dateLabel(start)} – ${dateLabel(end)}`;
 }
 
 /** Room types are inventory, not booking data — static config, safe to ship. */
@@ -2009,9 +2061,15 @@ export async function getRoomsPageData(
     };
   });
 
+  const nextEvent = nextPartyHallEvent(data.partyHall);
   const partyHall = {
-    nextLabel: nextEventLabel(nextPartyHallEvent(data.partyHall)),
-    availability: "Available 14–21 Jul",
+    nextLabel: nextEventLabel(nextEvent),
+    // No events at all: "Next" already says "No events scheduled" — an
+    // availability window under that is noise, so this line stays empty.
+    // Once there's a next event, the line always renders, including the
+    // fully-booked case ("Fully booked this week") — an absent line there
+    // would read as a broken tile, not a true "nothing free".
+    availability: nextEvent ? partyHallAvailability(data.partyHall, today) : "",
   };
 
   const summaryLine = `${tiles.length} rooms · ${countByStatus.occupied} occupied · ${countByStatus.available} available tonight · 1 party hall`;
