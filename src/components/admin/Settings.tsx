@@ -130,6 +130,16 @@ function ToggleRow({
 
 // ── Panels ──────────────────────────────────────────────────────────────────
 
+/** Shared with the "Save changes" diff below, so the changed-fields toast
+ *  names a setting the same way its own input labels it. */
+const PROPERTY_FIELDS: { key: keyof PropertyProfile; label: string; wide?: boolean }[] = [
+  { key: "name", label: "Property name", wide: true },
+  { key: "phone", label: "Contact phone" },
+  { key: "whatsapp", label: "WhatsApp" },
+  { key: "checkInTime", label: "Check-in time" },
+  { key: "checkOutTime", label: "Check-out time" },
+];
+
 function PropertyPanel({
   property,
   onChange,
@@ -137,14 +147,6 @@ function PropertyPanel({
   property: PropertyProfile;
   onChange: (patch: Partial<PropertyProfile>) => void;
 }) {
-  const fields: { key: keyof PropertyProfile; label: string; wide?: boolean }[] = [
-    { key: "name", label: "Property name", wide: true },
-    { key: "phone", label: "Contact phone" },
-    { key: "whatsapp", label: "WhatsApp" },
-    { key: "checkInTime", label: "Check-in time" },
-    { key: "checkOutTime", label: "Check-out time" },
-  ];
-
   return (
     <section id="property" className={PANEL}>
       <PanelHead
@@ -152,7 +154,7 @@ function PropertyPanel({
         note="Shown to guests during booking & on confirmations."
       />
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-        {fields.map((f) => (
+        {PROPERTY_FIELDS.map((f) => (
           <div key={f.key} className={cn(f.wide && "sm:col-span-2")}>
             <label className={LABEL} htmlFor={`prop-${f.key}`}>
               {f.label}
@@ -858,6 +860,31 @@ export function Settings({ data }: { data: SettingsPageData }) {
     on: boolean,
   ) => set(list.map((t) => (t.key === key ? { ...t, on } : t)));
 
+  /** Which toggles in `list` flipped relative to `original`, by label —
+   *  used to name exactly what changed in the Save toast rather than a
+   *  generic "settings saved." */
+  function changedToggleLabels(original: ToggleSetting[], list: ToggleSetting[]): string[] {
+    return list
+      .filter((t) => original.find((o) => o.key === t.key)?.on !== t.on)
+      .map((t) => t.label);
+  }
+
+  function handleSave() {
+    const changedProperty = PROPERTY_FIELDS.filter(
+      (f) => property[f.key] !== data.property[f.key],
+    ).map((f) => f.label);
+    const changedPayToggles = changedToggleLabels(data.payments.toggles, payToggles);
+    const changedNotifications = changedToggleLabels(data.notifications, notifications);
+    const changed = [...changedProperty, ...changedPayToggles, ...changedNotifications];
+
+    if (changed.length === 0) {
+      toast("No changes to save.");
+      return;
+    }
+    const summary = changed.length <= 3 ? changed.join(", ") : `${changed.length} settings`;
+    toast.success(`Saved: ${summary}.`);
+  }
+
   // Scroll-spy: the nav highlights whichever section is actually in view,
   // not just the last one clicked — front-desk scrolls the panel directly
   // far more often than it clicks the nav. `rootMargin`'s top matches the
@@ -898,6 +925,7 @@ export function Settings({ data }: { data: SettingsPageData }) {
           </p>
           <button
             type="button"
+            onClick={handleSave}
             className="flex items-center gap-2 rounded-md bg-gold px-4 py-2.25 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
           >
             <Save className="size-4" />
