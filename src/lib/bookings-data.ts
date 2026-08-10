@@ -969,41 +969,6 @@ async function updateBookingServiceCharge(
 }
 
 /**
- * Settings' room-count field: adds or removes rooms of a type until the
- * floor board has exactly `count` of them, since `count` itself is never
- * stored (see `resolveRoomTypes`). New numbers alternate floor 1/2 and
- * continue that floor's highest existing number; shrinking removes the
- * highest-numbered rooms of the type first.
- */
-async function resizeRoomType(type: RoomType, count: number): Promise<Result> {
-  const current = await load();
-  const allRooms = current.rooms ?? [];
-  const ofType = allRooms.filter((r) => r.type === type);
-  const diff = count - ofType.length;
-  if (diff === 0) return { ok: true };
-
-  if (diff > 0) {
-    for (let i = 0; i < diff; i++) {
-      const floor: 1 | 2 = (ofType.length + i) % 2 === 0 ? 1 : 2;
-      const onFloor = allRooms.filter((r) => r.floor === floor);
-      const maxSuffix = Math.max(0, ...onFloor.map((r) => Number(r.no.slice(1)) || 0));
-      const no = `${floor}${String(maxSuffix + 1).padStart(2, "0")}`;
-      if (allRooms.some((r) => r.no === no)) {
-        return { ok: false, error: `Could not generate a free room number on floor ${floor}.` };
-      }
-      await insertRoom({ no, floor, type, status: "available", detail: "Ready", sizeSqm: null });
-      allRooms.push({ no, floor, type, status: "available", detail: "Ready", sizeSqm: null });
-    }
-  } else {
-    const toRemove = [...ofType].sort((a, b) => b.no.localeCompare(a.no)).slice(0, -diff);
-    for (const room of toRemove) {
-      await deleteRoom(room.no);
-    }
-  }
-  return { ok: true };
-}
-
-/**
  * Wires the Bookings toolbar's `+ New booking` button and the header FAB
  * (spec 19) to the write path above. Mirrors `sendInviteFn`'s three beats:
  * load state, ask the rule, persist what it decided.
@@ -1489,18 +1454,6 @@ export const resolveRequestedServiceFn = createServerFn({ method: "POST" })
     if (!res.ok) return res;
     await updateBookingServiceCharge(data.id, res);
     return { ok: true };
-  });
-
-/** Settings' room-count field — resizes the floor board to match. */
-export const setRoomCountFn = createServerFn({ method: "POST" })
-  .validator((data: { type: RoomType; count: number }) => data)
-  .handler(async ({ data }): Promise<Result> => {
-    const auth = await requireRoomWriter();
-    if (!auth.ok) return auth;
-    if (!Number.isInteger(data.count) || data.count < 0) {
-      return { ok: false, error: "Room count must be a whole number, zero or more." };
-    }
-    return resizeRoomType(data.type, data.count);
   });
 
 /**
