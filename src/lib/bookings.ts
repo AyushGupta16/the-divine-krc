@@ -310,25 +310,105 @@ export function withAdvance(
  * Events still ahead of the hall — anything not called off and not already
  * settled. This is the one rule behind "next event", the rooms card and the
  * calendar's event flags, so the three can never disagree about what counts.
+ *
+ * `today` is optional and off by default: passing it additionally requires
+ * `e.date >= today` (inclusive — an event happening today is still upcoming,
+ * the front desk needs tonight's event in "Next event", not have it vanish
+ * at midnight). TEXT dates are fixed-width ISO, so lexicographic `>=` is a
+ * safe date comparison (documented in #84).
+ *
+ * Leave `today` unset for a status-only check: `bookedDaysIn` and
+ * `eventsForMonth` render whatever month the admin is looking at, past or
+ * future, and a past event that actually happened should still show as
+ * booked there — that's history, not a forecast, so those two callers must
+ * not start dropping past dates.
+ *
+ * Everywhere else — "next event", the rooms tile, "confirmed · upcoming" —
+ * answers a forward-looking question, so those callers should pass `today`.
+ * Nothing here transitions a past `confirmed` event to `completed` on its
+ * own (there's no such mechanism yet); this only changes what's *displayed*
+ * as upcoming, not the underlying row.
  */
-function isUpcomingEvent(e: PartyHallEnquiry): boolean {
-  return e.status !== "cancelled" && e.status !== "completed" && e.status !== "declined";
+function isUpcomingEvent(e: PartyHallEnquiry, today?: string): boolean {
+  return (
+    e.status !== "cancelled" &&
+    e.status !== "completed" &&
+    e.status !== "declined" &&
+    (today === undefined || e.date >= today)
+  );
 }
 
 /** Soonest upcoming event, or undefined when the hall has nothing booked. */
-function nextPartyHallEvent(partyHall: PartyHallEnquiry[]): PartyHallEnquiry | undefined {
-  return [...partyHall].filter(isUpcomingEvent).sort((a, b) => a.date.localeCompare(b.date))[0];
+function nextPartyHallEvent(
+  partyHall: PartyHallEnquiry[],
+  today: string,
+): PartyHallEnquiry | undefined {
+  return [...partyHall]
+    .filter((e) => isUpcomingEvent(e, today))
+    .sort((a, b) => a.date.localeCompare(b.date))[0];
 }
 
-/** "30 Jul · Evening" — the shared next-event line. */
-function nextEventLabel(e: PartyHallEnquiry | undefined): string {
-  if (!e) return "No events booked";
-  const date = new Date(`${e.date}T00:00:00Z`).toLocaleDateString("en-IN", {
+/** "30 Jul" style day/month label, shared by the next-event line and the
+ *  rooms-tile availability window. */
+function dateLabel(date: string): string {
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString("en-IN", {
     day: "numeric",
     month: "short",
     timeZone: "UTC",
   });
-  return `${date} · ${SLOT_LABEL[e.slot]}`;
+}
+
+/** "30 Jul · Evening" — the shared next-event line. */
+function nextEventLabel(e: PartyHallEnquiry | undefined): string {
+  if (!e) return "No events scheduled";
+  return `${dateLabel(e.date)} · ${SLOT_LABEL[e.slot]}`;
+}
+
+/**
+ * Statuses that hold a date on the rooms tile: money has moved or the event
+ * is committed. Deliberately narrower than `isUpcomingEvent` (which the
+ * calendar rail's `bookedDaysIn` uses) — an un-quoted `enquiry` or a
+ * `quote_sent` nobody has paid on doesn't hold the hall, and telling the
+ * front desk a date is unavailable over a speculative ask would lose real
+ * bookings. Do not widen this to match the calendar; the two screens answer
+ * different questions.
+ */
+const TILE_BLOCKING_STATUS = new Set<PartyHallStatus>(["advance_paid", "confirmed"]);
+
+/**
+ * Ground-floor party-hall tile's availability line: the longest run of
+ * consecutive free days in the next 7 (today included). A day counts as
+ * taken only when it has a committed event — see `TILE_BLOCKING_STATUS`.
+ */
+function partyHallAvailability(partyHall: PartyHallEnquiry[], today: string): string {
+  const blocked = new Set(
+    partyHall.filter((e) => TILE_BLOCKING_STATUS.has(e.status)).map((e) => e.date),
+  );
+  const days = Array.from({ length: 7 }, (_, i) => shiftDate(today, i));
+
+  let bestStart = -1;
+  let bestLen = 0;
+  let runStart = -1;
+  for (let i = 0; i <= days.length; i++) {
+    const free = i < days.length && !blocked.has(days[i]);
+    if (free) {
+      if (runStart === -1) runStart = i;
+    } else if (runStart !== -1) {
+      const len = i - runStart;
+      if (len > bestLen) {
+        bestLen = len;
+        bestStart = runStart;
+      }
+      runStart = -1;
+    }
+  }
+
+  if (bestLen === 0) return "Fully booked this week";
+  const start = days[bestStart];
+  const end = days[bestStart + bestLen - 1];
+  return bestLen === 1
+    ? `Available ${dateLabel(start)}`
+    : `Available ${dateLabel(start)} – ${dateLabel(end)}`;
 }
 
 /** Room types are inventory, not booking data — static config, safe to ship. */
@@ -2009,9 +2089,15 @@ export async function getRoomsPageData(
     };
   });
 
+  const nextEvent = nextPartyHallEvent(data.partyHall, today);
   const partyHall = {
-    nextLabel: nextEventLabel(nextPartyHallEvent(data.partyHall)),
-    availability: "Available 14–21 Jul",
+    nextLabel: nextEventLabel(nextEvent),
+    // No events at all: "Next" already says "No events scheduled" — an
+    // availability window under that is noise, so this line stays empty.
+    // Once there's a next event, the line always renders, including the
+    // fully-booked case ("Fully booked this week") — an absent line there
+    // would read as a broken tile, not a true "nothing free".
+    availability: nextEvent ? partyHallAvailability(data.partyHall, today) : "",
   };
 
   const summaryLine = `${tiles.length} rooms · ${countByStatus.occupied} occupied · ${countByStatus.available} available tonight · 1 party hall`;
@@ -2405,13 +2491,15 @@ export async function getPartyHallPageData(
 
   const newEnquiries = events.filter((e) => e.status === "enquiry").length;
   const confirmedUpcoming = events.filter(
-    (e) => e.status === "confirmed" && isUpcomingEvent(e),
+    (e) => e.status === "confirmed" && isUpcomingEvent(e, today),
   ).length;
 
   // Money held against events still to come — a settled event's takings are
-  // revenue already booked, not an advance the hall is sitting on.
+  // revenue already booked, not an advance the hall is sitting on. Left on
+  // the status-only check for now (not the `today` cutoff `confirmedUpcoming`
+  // and "Next event" use below) — flagged separately, not changed here.
   const advanceCollected = events
-    .filter(isUpcomingEvent)
+    .filter((e) => isUpcomingEvent(e))
     .reduce((sum, e) => sum + e.advancePaid, 0);
 
   const stats: PartyHallStat[] = [
@@ -2425,7 +2513,7 @@ export async function getPartyHallPageData(
     {
       key: "nextEvent",
       label: "Next event",
-      value: nextEventLabel(nextPartyHallEvent(data.partyHall)),
+      value: nextEventLabel(nextPartyHallEvent(data.partyHall, today)),
     },
   ];
 
