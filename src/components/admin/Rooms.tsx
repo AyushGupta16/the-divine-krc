@@ -15,13 +15,7 @@ import type {
 import { formatINR } from "@/lib/booking-math";
 import { updateRoomStatusFn } from "@/lib/bookings-data";
 import { cn } from "@/lib/utils";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import roomDeluxe from "@/assets/room-deluxe.jpg";
 import roomBalcony from "@/assets/room-balcony.jpg";
 import partyHallImg from "@/assets/party-hall.jpg";
@@ -67,22 +61,24 @@ function availabilityLine(card: RoomTypeCard): { text: string; color: string } {
 function TypeCard({ card }: { card: RoomTypeCard }) {
   const avail = availabilityLine(card);
   return (
-    <div className="flex items-center gap-4.5 rounded-lg border border-[#eae4d6] bg-white px-5 py-4.5">
+    <div className="flex items-center gap-3 rounded-lg border border-[#eae4d6] bg-white p-3.5 sm:gap-4.5 sm:px-5 sm:py-4.5">
       <img
         src={TYPE_IMAGE[card.type]}
         alt=""
-        className="size-19.5 flex-none rounded-md object-cover"
+        className="size-14 flex-none rounded-md object-cover sm:size-19.5"
       />
-      <div className="flex-1">
-        <div className="font-display text-[19px] font-semibold">{card.name}</div>
-        <div className="mt-0.75 text-[12px] text-[#7a746a]">
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-display text-[16px] font-semibold sm:text-[19px]">
+          {card.name}
+        </div>
+        <div className="mt-0.75 text-[11px] text-[#7a746a] sm:text-[12px]">
           {card.count} rooms · {card.areaSqm} m² ·{" "}
           <b style={{ color: avail.color }}>{avail.text}</b>
         </div>
       </div>
-      <div className="text-right">
+      <div className="flex-none text-right">
         <div className="text-[9px] uppercase tracking-[0.18em] text-[#a49d8d]">Rate</div>
-        <div className="font-display text-[21px] text-[#a8863f]">
+        <div className="font-display text-[17px] text-[#a8863f] sm:text-[21px]">
           {formatINR(card.pricePerNight)}
         </div>
         <Link
@@ -117,59 +113,21 @@ function Legend({ items }: { items: RoomsLegendItem[] }) {
 
 // ── Floor board ─────────────────────────────────────────────────────────────
 
-function RoomTileCard({ room, onClick }: { room: RoomTile; onClick: () => void }) {
-  const color = STATUS_COLOR[room.status];
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="relative overflow-hidden rounded-lg border border-[#eae4d6] bg-white px-3.5 py-3.25 text-left transition-shadow hover:border-[#c9bd98] hover:shadow-[0_6px_16px_-10px_rgba(10,10,10,0.3)]"
-    >
-      <span className="absolute inset-y-0 left-0 w-1" style={{ background: color }} />
-      <div className="flex items-center justify-between">
-        <span className="font-display text-[20px] font-semibold">{room.no}</span>
-        <span className="size-2 rounded-full" style={{ background: color }} />
-      </div>
-      <div className="mt-0.75 text-[10px] uppercase tracking-[0.06em] text-[#a49d8d]">
-        {TYPE_SHORT[room.type]}
-      </div>
-      <div className="mt-1.25 text-[11px] font-semibold" style={{ color }}>
-        {STATUS_LABEL[room.status]}
-      </div>
-      <div className="mt-0.5 text-[11px] text-[#a49d8d]">{room.detail}</div>
-    </button>
-  );
-}
-
-function FloorBoard({ floor, onSelect }: { floor: RoomFloor; onSelect: (room: RoomTile) => void }) {
-  return (
-    <div>
-      <div className="mb-3 mt-1 font-display text-[15px] font-semibold text-warm-gray">
-        {floor.label}
-      </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
-        {floor.rooms.map((room) => (
-          <RoomTileCard key={room.no} room={room} onClick={() => onSelect(room)} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // "occupied" isn't selectable here (Slice 2): it's derived live from the
 // booking ledger (a checked-in guest in the room), never a manual opinion —
 // see `liveRoomTiles`. Staff can still set the three genuine housekeeping
 // states.
 const STATUS_ORDER: RoomStatus[] = ["available", "cleaning", "maintenance"];
 
-/** Room-tile popup: set the status of one physical room. */
-function RoomStatusDialog({ room, onClose }: { room: RoomTile | null; onClose: () => void }) {
+/** Room tile: click opens a popover beside the cell to set that room's status. */
+function RoomTileCard({ room }: { room: RoomTile }) {
   const router = useRouter();
+  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const color = STATUS_COLOR[room.status];
 
   async function setStatus(status: RoomStatus) {
-    if (!room) return;
     setBusy(true);
     setError(null);
     const res = await updateRoomStatusFn({
@@ -181,19 +139,46 @@ function RoomStatusDialog({ room, onClose }: { room: RoomTile | null; onClose: (
       return;
     }
     await router.invalidate();
-    onClose();
+    setOpen(false);
   }
 
   return (
-    <Dialog open={room !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Room {room?.no}</DialogTitle>
-          <DialogDescription>
-            {room ? `${TYPE_SHORT[room.type]} · Floor ${room.floor}` : ""}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid grid-cols-2 gap-2.5">
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setError(null);
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="relative overflow-hidden rounded-lg border border-[#eae4d6] bg-white px-3.5 py-3.25 text-left transition-shadow hover:border-[#c9bd98] hover:shadow-[0_6px_16px_-10px_rgba(10,10,10,0.3)]"
+        >
+          <span className="absolute inset-y-0 left-0 w-1" style={{ background: color }} />
+          <div className="flex items-center justify-between">
+            <span className="font-display text-[20px] font-semibold">{room.no}</span>
+            <span className="size-2 rounded-full" style={{ background: color }} />
+          </div>
+          <div className="mt-0.75 text-[10px] uppercase tracking-[0.06em] text-[#a49d8d]">
+            {TYPE_SHORT[room.type]}
+          </div>
+          <div className="mt-1.25 text-[11px] font-semibold" style={{ color }}>
+            {STATUS_LABEL[room.status]}
+          </div>
+          <div className="mt-0.5 text-[11px] text-[#a49d8d]">{room.detail}</div>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-56 max-w-[calc(100vw-1.5rem)] p-3"
+        align="start"
+        sideOffset={6}
+        collisionPadding={12}
+      >
+        <div className="mb-2.5 text-[11px] font-semibold text-warm-gray">
+          Room {room.no} · {TYPE_SHORT[room.type]} · Floor {room.floor}
+        </div>
+        <div className="grid grid-cols-2 gap-2">
           {STATUS_ORDER.map((status) => (
             <button
               key={status}
@@ -201,20 +186,35 @@ function RoomStatusDialog({ room, onClose }: { room: RoomTile | null; onClose: (
               disabled={busy}
               onClick={() => void setStatus(status)}
               className={cn(
-                "rounded-md border px-3 py-2.5 text-[12.5px] font-semibold transition-colors disabled:opacity-50",
-                room?.status === status
+                "rounded-md border px-2 py-2.5 text-[12px] font-semibold transition-colors disabled:opacity-50",
+                room.status === status
                   ? "border-transparent text-white"
                   : "border-[#eae4d6] bg-white text-warm-gray hover:bg-black/3",
               )}
-              style={room?.status === status ? { background: STATUS_COLOR[status] } : undefined}
+              style={room.status === status ? { background: STATUS_COLOR[status] } : undefined}
             >
               {STATUS_LABEL[status]}
             </button>
           ))}
         </div>
-        {error && <p className="text-[12px] text-[#b4553f]">{error}</p>}
-      </DialogContent>
-    </Dialog>
+        {error && <p className="mt-2 text-[11px] text-[#b4553f]">{error}</p>}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function FloorBoard({ floor }: { floor: RoomFloor }) {
+  return (
+    <div>
+      <div className="mb-3 mt-1 font-display text-[15px] font-semibold text-warm-gray">
+        {floor.label}
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+        {floor.rooms.map((room) => (
+          <RoomTileCard key={room.no} room={room} />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -226,16 +226,18 @@ function PartyHallCard({ hall }: { hall: RoomsPartyHall }) {
       <div className="mb-3 mt-1 font-display text-[15px] font-semibold text-warm-gray">
         Ground floor · Event space
       </div>
-      <div className="relative flex flex-wrap items-center gap-5 overflow-hidden rounded-lg bg-obsidian px-6 py-5 text-ivory">
+      <div className="relative flex flex-wrap items-center gap-3.5 overflow-hidden rounded-lg bg-obsidian px-4 py-4 text-ivory sm:gap-5 sm:px-6 sm:py-5">
         <span className="absolute inset-y-0 left-0 w-1 bg-gold" />
         <img
           src={partyHallImg}
           alt=""
-          className="h-18.5 w-27.5 flex-none rounded-md object-cover"
+          className="h-14 w-21 flex-none rounded-md object-cover sm:h-18.5 sm:w-27.5"
         />
-        <div className="min-w-45 flex-1">
-          <div className="font-display text-[20px] font-semibold text-gold-soft">Party Hall</div>
-          <div className="mt-1 text-[12px] text-[#c9c3b6]">
+        <div className="min-w-0 flex-1 sm:min-w-45">
+          <div className="font-display text-[17px] font-semibold text-gold-soft sm:text-[20px]">
+            Party Hall
+          </div>
+          <div className="mt-1 text-[11px] text-[#c9c3b6] sm:text-[12px]">
             Up to 150 guests · tailored pricing · slots: morning / afternoon / evening / full day
           </div>
         </div>
@@ -253,8 +255,6 @@ function PartyHallCard({ hall }: { hall: RoomsPartyHall }) {
 // ── Page ────────────────────────────────────────────────────────────────────
 
 export function Rooms({ data }: { data: RoomsPageData }) {
-  const [selected, setSelected] = useState<RoomTile | null>(null);
-
   return (
     <div className="flex flex-col gap-5.5 p-4 sm:p-6.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -278,12 +278,10 @@ export function Rooms({ data }: { data: RoomsPageData }) {
       <Legend items={data.legend} />
 
       {data.floors.map((floor) => (
-        <FloorBoard key={floor.floor} floor={floor} onSelect={setSelected} />
+        <FloorBoard key={floor.floor} floor={floor} />
       ))}
 
       <PartyHallCard hall={data.partyHall} />
-
-      <RoomStatusDialog room={selected} onClose={() => setSelected(null)} />
     </div>
   );
 }
