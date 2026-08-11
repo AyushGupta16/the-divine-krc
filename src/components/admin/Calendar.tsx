@@ -133,8 +133,8 @@ function DayDetailsCardContent({
   const extra = details.inHouseGuests.length - shown.length;
 
   return (
-    <div className="w-70 max-w-[calc(100vw-1.5rem)] rounded-lg border border-[#eae4d6] bg-white p-4.5 shadow-[0_12px_32px_rgba(10,10,10,0.16)]">
-      <div className="flex items-start justify-between gap-2">
+    <div className="flex w-70 max-w-[calc(100vw-1.5rem)] max-h-[calc(100dvh-1.5rem)] flex-col rounded-lg border border-[#eae4d6] bg-white p-4.5 shadow-[0_12px_32px_rgba(10,10,10,0.16)]">
+      <div className="flex flex-none items-start justify-between gap-2">
         <div>
           <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#a49d8d]">
             {dayEyebrow(details.date)}
@@ -153,26 +153,26 @@ function DayDetailsCardContent({
         </button>
       </div>
 
-      <div className="mt-3.5 flex flex-col gap-2">
+      <div className="mt-3.5 flex flex-none flex-col gap-2">
         <StatRow label="Rooms occupied" value={`${details.occupied}/${details.total}`} />
         <StatRow label="Arrivals" value={details.arrivals} />
         <StatRow label="Departures" value={details.departures} />
       </div>
 
       {details.event && (
-        <div className="mt-3 rounded-[5px] bg-[#f7e6e0] px-2 py-1.5 text-[12px] font-semibold text-[#b4553f]">
+        <div className="mt-3 flex-none rounded-[5px] bg-[#f7e6e0] px-2 py-1.5 text-[12px] font-semibold text-[#b4553f]">
           ◆ {details.event}
         </div>
       )}
 
-      <div className="mt-3.5 border-t border-[#f2ede2] pt-3">
-        <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#a49d8d]">
+      <div className="mt-3.5 flex min-h-0 flex-col border-t border-[#f2ede2] pt-3">
+        <div className="flex-none text-[10px] font-bold uppercase tracking-[0.12em] text-[#a49d8d]">
           In-house guests
         </div>
         {shown.length === 0 ? (
           <p className="mt-2 text-[12.5px] text-[#a49d8d]">No guests in-house.</p>
         ) : (
-          <div className="mt-2 flex flex-col gap-1.75">
+          <div className="mt-2 flex flex-col gap-1.75 overflow-y-auto">
             {shown.map((g) => (
               <div key={g.roomNo} className="flex items-center justify-between gap-2 text-[12.5px]">
                 <span className="truncate text-[#0a0a0a]">{g.guestName}</span>
@@ -183,7 +183,9 @@ function DayDetailsCardContent({
             ))}
           </div>
         )}
-        {extra > 0 && <p className="mt-1.5 text-[11.5px] text-[#a49d8d]">+{extra} more</p>}
+        {extra > 0 && (
+          <p className="mt-1.5 flex-none text-[11.5px] text-[#a49d8d]">+{extra} more</p>
+        )}
       </div>
     </div>
   );
