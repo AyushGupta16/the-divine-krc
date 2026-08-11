@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getCalendarDayDetails,
   getCalendarPageData,
+  inHouseGuestsOn,
   normalizeCalendarSearch,
   occupancyBand,
   ROOM_NUMBERS,
@@ -132,6 +134,76 @@ describe("getCalendarPageData", () => {
     expect(feb.monthLabel).toBe("February 2026");
     expect(daysOf(feb.cells).length).toBe(28);
     expect(feb.cells.length).toBe(28);
+  });
+});
+
+describe("getCalendarDayDetails", () => {
+  it("shows zero everywhere on a genuinely empty day, not a placeholder", () => {
+    // Before any fixture booking starts — same day getCalendarPageData's own
+    // test calls "genuinely empty."
+    const details = getCalendarDayDetails(fixtures, "2026-07-01");
+    expect(details.occupied).toBe(0);
+    expect(details.arrivals).toBe(0);
+    expect(details.departures).toBe(0);
+    expect(details.event).toBeNull();
+    expect(details.inHouseGuests).toEqual([]);
+  });
+
+  it("counts arrivals and departures on a past day even though every booking has since checked out", () => {
+    // 12 Jul: KRC-20260712-010 (checked_out) arrives, KRC-20260710-006
+    // (checked_out) departs. Both are historical — OCCUPYING_STATUSES would
+    // zero this out because it drops checked_out; the card must not.
+    const details = getCalendarDayDetails(fixtures, "2026-07-12");
+    expect(details.arrivals).toBe(1);
+    expect(details.departures).toBe(1);
+  });
+
+  it("excludes cancelled and no_show bookings from arrivals and departures", () => {
+    // 13 Jul: two bookings have checkIn === this date — KRC-20260714-004
+    // (confirmed) and KRC-20260713-009 (no_show). If the no_show counted,
+    // arrivals would be 2; it must be 1. KRC-20260711-005 (checked_out,
+    // checkOut 2026-07-13) is the sole departure.
+    const details = getCalendarDayDetails(fixtures, "2026-07-13");
+    expect(details.arrivals).toBe(1);
+    expect(details.departures).toBe(1);
+  });
+
+  it("agrees with the cell's own occupied/total/pct — same derivation, not a parallel one", async () => {
+    const { cells } = await getCalendarPageData(fixtures, 2026, 7);
+    const day23 = daysOf(cells).find((d) => d.day === 23)!;
+    const details = getCalendarDayDetails(fixtures, "2026-07-23");
+    expect(details.occupied).toBe(day23.occupied);
+    expect(details.total).toBe(day23.total);
+    expect(details.pct).toBe(day23.pct);
+  });
+
+  it("lists in-house guests with their room, sorted by room number", () => {
+    const details = getCalendarDayDetails(fixtures, "2026-07-23");
+    expect(details.inHouseGuests).toContainEqual({ guestName: "Anjali Bhatt", roomNo: "101" });
+  });
+
+  it("orders in-house guests by room number even when the input isn't already sorted", () => {
+    // The card's 5-row truncation ("+n more") is only stable if this order
+    // is deterministic. Feed rooms out of order to actually exercise the
+    // sort — a same-order fixture wouldn't catch a missing sort.
+    const template = fixtures.bookings.find((b) => b.status === "confirmed" && b.roomNo)!;
+    const bookings = [
+      { ...template, id: "T-1", roomNo: "207", checkIn: "2026-09-01", checkOut: "2026-09-05" },
+      { ...template, id: "T-2", roomNo: "101", checkIn: "2026-09-01", checkOut: "2026-09-05" },
+      { ...template, id: "T-3", roomNo: "112", checkIn: "2026-09-01", checkOut: "2026-09-05" },
+    ];
+    const result = inHouseGuestsOn(bookings, fixtures.guests, "2026-09-02");
+    expect(result.map((g) => g.roomNo)).toEqual(["101", "112", "207"]);
+  });
+
+  it("shows the same event text the cell's pill shows", () => {
+    const details = getCalendarDayDetails(fixtures, "2026-07-30");
+    expect(details.event).toBe("Wedding reception — Rao family · 150 pax");
+  });
+
+  it("does not flag a completed event as if it were upcoming", () => {
+    const details = getCalendarDayDetails(fixtures, "2026-07-02");
+    expect(details.event).toBeNull();
   });
 });
 

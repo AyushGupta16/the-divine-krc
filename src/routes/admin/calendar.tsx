@@ -6,6 +6,7 @@ import { Calendar } from "@/components/admin/Calendar";
 export const Route = createFileRoute("/admin/calendar")({
   validateSearch: (search: Record<string, unknown>) => normalizeCalendarSearch(search),
   loaderDeps: ({ search }) => ({ year: search.year, month: search.month }),
+  staleTime: 30_000,
   loader: async ({ deps }) => ({
     calendar: await calendarPage({ data: { year: deps.year, month: deps.month } }),
   }),
