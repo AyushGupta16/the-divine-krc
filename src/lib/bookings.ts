@@ -26,6 +26,7 @@ import type {
   BookingsPageData,
   BookingStatus,
   CalendarCell,
+  CalendarDayDetails,
   CalendarPageData,
   DashboardData,
   Guest,
@@ -1378,6 +1379,9 @@ export function markBookingPaid(
 /** Statuses that hold a physical room off the market. */
 export const OCCUPYING_STATUSES = new Set(["confirmed", "checked_in", "pending_payment"]);
 
+/** A stay the guest never took. Money held against one is owed back, not earned. */
+const VOID_STAY_STATUSES = new Set<BookingStatus>(["cancelled", "no_show"]);
+
 /** A stay that has begun — the guest has arrived, whether in-house or gone. */
 const ARRIVED_STATUSES = new Set<BookingStatus>(["checked_in", "checked_out"]);
 /** Booked but not yet arrived; excludes the void statuses (cancelled/no_show). */
@@ -1716,6 +1720,25 @@ function occupiedRoomsOn(bookings: Booking[], onDate: string): Set<string> {
 }
 
 /**
+ * Bookings whose stay starts or ends on `date`, for the day-details card's
+ * Arrivals/Departures rows. Deliberately not `OCCUPYING_STATUSES` — that set
+ * drops `checked_out`, which would zero out arrival/departure counts for any
+ * past date once its guests have since left. The only bookings that
+ * shouldn't count are ones where nobody actually moved: `cancelled` and
+ * `no_show`. `pending_payment` counts as an expected arrival (Pay-at-Hotel is
+ * the normal pre-arrival state here, consistent with
+ * `AWAITING_ARRIVAL_STATUSES` grouping it with `confirmed`).
+ */
+function arrivalsOn(bookings: Booking[], date: string): Booking[] {
+  return bookings.filter((b) => b.checkIn === date && !VOID_STAY_STATUSES.has(b.status));
+}
+
+/** See `arrivalsOn` — same non-void predicate, keyed on `checkOut` instead. */
+function departuresOn(bookings: Booking[], date: string): Booking[] {
+  return bookings.filter((b) => b.checkOut === date && !VOID_STAY_STATUSES.has(b.status));
+}
+
+/**
  * Everything the admin Bookings screen renders. Summary figures, tab counts
  * and the period-totals footer are all derived from the live booking set (not
  * seeded), so "totals auto" holds and the numbers stay honest across edits.
@@ -1905,12 +1928,18 @@ export function defaultRoomTiles(): RoomTile[] {
 }
 
 /**
- * Room Settings redesign (slice B): who's actually in `roomNo` tonight, for
- * the per-room table. Deliberately wider than `liveRoomTiles`'s `occupied`
+ * Room Settings redesign (slice B): statuses that count as "a real body in
+ * the room tonight." Deliberately wider than `liveRoomTiles`'s `occupied`
  * status — a `confirmed` booking that was never manually flipped to
- * `checked_in` is still a real body in the room, so both statuses count.
- * `checkOut` is exclusive (`check_out > today`, not `>=`): a guest checking
- * out today has already vacated by the time "tonight" is asked about.
+ * `checked_in` still holds the room. Shared by `currentOccupant` (one room)
+ * and `inHouseGuestsOn` (the whole house) so the two can't drift apart.
+ */
+const IN_HOUSE_STATUSES = new Set<BookingStatus>(["checked_in", "confirmed"]);
+
+/**
+ * Who's actually in `roomNo` tonight, for the per-room table. `checkOut` is
+ * exclusive (`check_out > today`, not `>=`): a guest checking out today has
+ * already vacated by the time "tonight" is asked about.
  *
  * Multiple matches for one room are a data artifact (see #85's drift), not
  * something to throw on — the earliest `checkIn` wins and one name is always
@@ -1926,7 +1955,7 @@ export function currentOccupant(
     .filter(
       (b) =>
         b.roomNo === roomNo &&
-        (b.status === "checked_in" || b.status === "confirmed") &&
+        IN_HOUSE_STATUSES.has(b.status) &&
         b.checkIn <= today &&
         today < b.checkOut,
     )
@@ -1934,6 +1963,28 @@ export function currentOccupant(
   const occupant = matches[0];
   if (!occupant) return null;
   return guests.find((g) => g.id === occupant.guestId)?.name ?? null;
+}
+
+/**
+ * The day-details card's in-house guest list: every guest occupying a room
+ * on `date`, same predicate as `currentOccupant` (`checked_in`/`confirmed`,
+ * `checkOut` exclusive) but for the whole house instead of one room.
+ * Unassigned bookings (no `roomNo`) can't appear on a room list and are
+ * skipped, same as `occupiedRoomsOn`. Sorted by room number so the card's
+ * "+{n} more" truncation is stable.
+ */
+export function inHouseGuestsOn(
+  bookings: Booking[],
+  guests: Guest[],
+  date: string,
+): Array<{ guestName: string; roomNo: string }> {
+  const guestName = new Map(guests.map((g) => [g.id, g.name]));
+  return bookings
+    .filter(
+      (b) => b.roomNo && IN_HOUSE_STATUSES.has(b.status) && b.checkIn <= date && date < b.checkOut,
+    )
+    .map((b) => ({ guestName: guestName.get(b.guestId) ?? "—", roomNo: b.roomNo! }))
+    .sort((a, b) => a.roomNo.localeCompare(b.roomNo, undefined, { numeric: true }));
 }
 
 /** Whether `no` is already on the floor board — the duplicate-number guard
@@ -2179,22 +2230,6 @@ export function occupancyBand(pct: number): OccupancyBand {
   return "low";
 }
 
-/** Party-hall events for a month, from the live enquiry set only. */
-function eventsForMonth(
-  partyHall: PartyHallEnquiry[],
-  year: number,
-  month: number,
-): Map<string, string> {
-  const prefix = `${year}-${String(month).padStart(2, "0")}`;
-  const events = new Map<string, string>();
-
-  for (const e of partyHall) {
-    if (!isUpcomingEvent(e) || !e.date.startsWith(prefix)) continue;
-    events.set(e.date, `${e.title} · ${e.guests} pax`);
-  }
-  return events;
-}
-
 /**
  * The month grid the admin Calendar screen renders. Blanks pad the grid to whole
  * weeks so the first falls on its real weekday and the last row squares off.
@@ -2222,8 +2257,6 @@ export async function getCalendarPageData(
   const rooms = data.rooms ?? defaultRoomTiles();
   const maintenanceRooms = rooms.filter((r) => r.status === "maintenance").length;
   const total = rooms.length - maintenanceRooms;
-  const events = eventsForMonth(data.partyHall, year, month);
-
   // UTC throughout: local-time dates shift the weekday offset west of GMT.
   const firstOfMonth = new Date(Date.UTC(year, month - 1, 1));
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
@@ -2232,20 +2265,27 @@ export async function getCalendarPageData(
   const cells: CalendarCell[] = [];
   for (let i = 0; i < leadingBlanks; i++) cells.push({ kind: "blank" });
 
+  // The day-details card's data is folded in here rather than fetched on
+  // click: `data` is already the whole in-memory BookingData load() produced
+  // for this page render, so deriving every day's card up front is pure CPU
+  // over data already in hand — not a second DB read per day, and not one
+  // per click either.
+  const dayDetails: Record<string, CalendarDayDetails> = {};
+
   for (let day = 1; day <= daysInMonth; day++) {
     const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    const occupied = occupiedRoomsOn(data.bookings, date).size;
-    const pct = Math.round((occupied / total) * 100);
+    const details = getCalendarDayDetails(data, date);
+    dayDetails[date] = details;
     cells.push({
       kind: "day",
       date,
       day,
-      occupied,
-      total,
+      occupied: details.occupied,
+      total: details.total,
       maintenanceRooms,
-      pct,
-      band: occupancyBand(pct),
-      event: events.get(date) ?? null,
+      pct: details.pct,
+      band: occupancyBand(details.pct),
+      event: details.event,
     });
   }
 
@@ -2264,6 +2304,38 @@ export async function getCalendarPageData(
     legend: BAND_ORDER.map((band) => ({ band, label: BAND_LABEL[band] })),
     totalRooms: total,
     maintenanceRooms,
+    dayDetails,
+  };
+}
+
+/**
+ * The day-details card's data for one clicked day. `occupied`/`total`/`pct`
+ * reuse `occupiedRoomsOn` — the same derivation `getCalendarPageData` feeds
+ * the cell's own bar and caption with — so the card can never show a
+ * different number than the grid it was opened from. `event` matches the
+ * cell's pill for the same reason: same non-void-non-cancelled statuses
+ * (`isUpcomingEvent`, no `today`), not `TILE_BLOCKING_STATUS` — that set is
+ * a Rooms-tile sellability concern, unrelated to what the pill already
+ * signaled.
+ */
+export function getCalendarDayDetails(data: BookingData, date: string): CalendarDayDetails {
+  const rooms = data.rooms ?? defaultRoomTiles();
+  const maintenanceRooms = rooms.filter((r) => r.status === "maintenance").length;
+  const total = rooms.length - maintenanceRooms;
+  const occupied = occupiedRoomsOn(data.bookings, date).size;
+  const pct = Math.round((occupied / total) * 100);
+
+  const event = data.partyHall.find((e) => e.date === date && isUpcomingEvent(e));
+
+  return {
+    date,
+    occupied,
+    total,
+    pct,
+    arrivals: arrivalsOn(data.bookings, date).length,
+    departures: departuresOn(data.bookings, date).length,
+    event: event ? `${event.title} · ${event.guests} pax` : null,
+    inHouseGuests: inHouseGuestsOn(data.bookings, data.guests, date),
   };
 }
 
@@ -2695,9 +2767,6 @@ const OTA_CHANNELS: Record<
 function isOtaSource(source: BookingSource): boolean {
   return source in OTA_CHANNELS;
 }
-
-/** A stay the guest never took. Money held against one is owed back, not earned. */
-const VOID_STAY_STATUSES = new Set<BookingStatus>(["cancelled", "no_show"]);
 
 /**
  * The transaction ledger, derived whole from the booking set.

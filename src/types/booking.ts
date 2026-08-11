@@ -467,6 +467,33 @@ export interface CalendarDay {
  */
 export type CalendarCell = { kind: "blank" } | ({ kind: "day" } & CalendarDay);
 
+/** One guest occupying a room on a given date, for the day-details card. */
+export interface InHouseGuest {
+  guestName: string;
+  roomNo: string;
+}
+
+/**
+ * Everything the day-details card renders for one clicked day. `occupied`/
+ * `total`/`pct`/`event` mirror the cell's own figures (same derivation, not
+ * a parallel one) so the card can never disagree with the grid it opened
+ * from.
+ */
+export interface CalendarDayDetails {
+  date: string;
+  occupied: number;
+  total: number;
+  pct: number;
+  /** Bookings whose stay starts this date. */
+  arrivals: number;
+  /** Bookings whose stay ends this date. */
+  departures: number;
+  /** Party-hall event headline, same string the cell's pill shows. */
+  event: string | null;
+  /** Sorted by room number, for the "+{n} more" truncation to be stable. */
+  inHouseGuests: InHouseGuest[];
+}
+
 export interface CalendarPageData {
   year: number;
   /** 1-12. */
@@ -483,6 +510,10 @@ export interface CalendarPageData {
   totalRooms: number;
   /** How many of the physical inventory are currently under maintenance. */
   maintenanceRooms: number;
+  /** Day-details card data for every real day in the grid, keyed by ISO
+   *  `YYYY-MM-DD`. Computed in the same pass as `cells` over the same
+   *  in-memory `BookingData` — no extra DB read, no per-click fetch. */
+  dayDetails: Record<string, CalendarDayDetails>;
 }
 
 // ── Admin party hall (PR #7) ─────────────────────────────────────────────
