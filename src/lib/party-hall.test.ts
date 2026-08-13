@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   cancelPartyHallEvent,
+  completePartyHallEvent,
   computePartyHallQuote,
   computePartyHallQuoteBreakdown,
   confirmPartyHallEvent,
   declinePartyHallEnquiry,
   getPartyHallPageData,
+  isPartyHallEventPastDue,
   PARTY_HALL_ADVANCE_PCT,
   PARTY_HALL_RATE_DEFAULTS,
   partyHallAdvance,
@@ -69,6 +71,37 @@ describe("getPartyHallPageData", () => {
     expect(pills.find((p) => p.key === "all")!.count).toBe(events.length);
   });
 
+  it("the quoted/cancelled/declined pills count exactly their matching status", async () => {
+    const { events, pills } = await getPartyHallPageData(fixtures);
+
+    expect(pills.find((p) => p.key === "quoted")!.count).toBe(
+      events.filter((e) => e.enquiry.status === "quote_sent").length,
+    );
+    expect(pills.find((p) => p.key === "cancelled")!.count).toBe(
+      events.filter((e) => e.enquiry.status === "cancelled").length,
+    );
+    expect(pills.find((p) => p.key === "declined")!.count).toBe(
+      events.filter((e) => e.enquiry.status === "declined").length,
+    );
+  });
+
+  it("past-due stat and pill agree with isPartyHallEventPastDue over the same event set — one predicate, two surfaces", async () => {
+    const today = "2026-08-08";
+    const { stats, events, pills } = await getPartyHallPageData(fixtures, 2026, 8, today);
+
+    const pastDueCount = events.filter((e) => isPartyHallEventPastDue(e.enquiry, today)).length;
+    expect(pastDueCount).toBeGreaterThan(0);
+    expect(statValue(stats, "pastDue")).toBe(String(pastDueCount));
+    expect(pills.find((p) => p.key === "pastDue")!.count).toBe(pastDueCount);
+
+    // Rao family: confirmed, dated 2026-07-30 — before the pinned today.
+    const rao = events.find((e) => e.enquiry.title.includes("Rao family"))!;
+    expect(rao.pastDue).toBe(true);
+    // Pillai family: confirmed, dated 2026-08-16 — after the pinned today.
+    const pillai = events.find((e) => e.enquiry.title.includes("Pillai family"))!;
+    expect(pillai.pastDue).toBe(false);
+  });
+
   it("counts advance collected across upcoming events only", async () => {
     const { stats, events } = await getPartyHallPageData(fixtures);
 
@@ -112,13 +145,18 @@ describe("getPartyHallPageData", () => {
       expect(e.ctas).toEqual(partyHallCtaKinds(e.enquiry, "2026-08-08"));
     }
     expect(events.find((e) => e.enquiry.status === "completed")!.ctas).toEqual(["invoice"]);
-    // Confirmed, event date before the anchor (2026-07-30 < 2026-08-08).
-    expect(events.find((e) => e.enquiry.title.includes("Rao family"))!.ctas).toEqual(["invoice"]);
+    // Confirmed, event date before the anchor (2026-07-30 < 2026-08-08) — past
+    // due, no date guard on completing.
+    expect(events.find((e) => e.enquiry.title.includes("Rao family"))!.ctas).toEqual([
+      "invoice",
+      "complete",
+    ]);
     // Confirmed, event date on/after the anchor (2026-08-16 > 2026-08-08).
     expect(events.find((e) => e.enquiry.title.includes("Pillai family"))!.ctas).toEqual([
       "invoice",
       "cancel",
       "view_details",
+      "complete",
     ]);
   });
 
@@ -304,6 +342,40 @@ function enquiry(patch: Partial<PartyHallEnquiry>): PartyHallEnquiry {
   return withAdvance(merged, merged.advancePct);
 }
 
+describe("isPartyHallEventPastDue", () => {
+  const TODAY = "2026-08-08";
+
+  it("a confirmed event dated yesterday is past-due", () => {
+    expect(
+      isPartyHallEventPastDue(enquiry({ status: "confirmed", date: "2026-08-07" }), TODAY),
+    ).toBe(true);
+  });
+
+  it("a confirmed event dated today is NOT past-due", () => {
+    expect(isPartyHallEventPastDue(enquiry({ status: "confirmed", date: TODAY }), TODAY)).toBe(
+      false,
+    );
+  });
+
+  it("a confirmed event dated tomorrow is NOT past-due", () => {
+    expect(
+      isPartyHallEventPastDue(enquiry({ status: "confirmed", date: "2026-08-09" }), TODAY),
+    ).toBe(false);
+  });
+
+  it("completed/cancelled/declined are never past-due, even with a date in the past", () => {
+    for (const status of ["completed", "cancelled", "declined"] as const) {
+      expect(isPartyHallEventPastDue(enquiry({ status, date: "2026-08-07" }), TODAY)).toBe(false);
+    }
+  });
+
+  it("enquiry/quote_sent/advance_paid are never past-due either — only confirmed can be", () => {
+    for (const status of ["enquiry", "quote_sent", "advance_paid"] as const) {
+      expect(isPartyHallEventPastDue(enquiry({ status, date: "2026-08-07" }), TODAY)).toBe(false);
+    }
+  });
+});
+
 describe("partyHallCtaKinds", () => {
   const TODAY = "2026-08-08";
 
@@ -331,25 +403,28 @@ describe("partyHallCtaKinds", () => {
     ).toEqual(["invoice", "cancel", "confirm"]);
   });
 
-  it("confirmed, event date in the future → invoice, cancel, view details", () => {
+  it("confirmed, event date in the future → invoice, cancel, view details, complete (primary rightmost)", () => {
     expect(partyHallCtaKinds(enquiry({ status: "confirmed", date: "2026-08-09" }), TODAY)).toEqual([
       "invoice",
       "cancel",
       "view_details",
+      "complete",
     ]);
   });
 
-  it("confirmed, event date today → treated as not-yet-past (still the future set)", () => {
+  it("confirmed, event date today → treated as not-yet-past (still the future set), complete still offered", () => {
     expect(partyHallCtaKinds(enquiry({ status: "confirmed", date: TODAY }), TODAY)).toEqual([
       "invoice",
       "cancel",
       "view_details",
+      "complete",
     ]);
   });
 
-  it("confirmed, event date in the past → invoice only", () => {
+  it("confirmed, event date in the past → invoice, complete — no date guard on completing", () => {
     expect(partyHallCtaKinds(enquiry({ status: "confirmed", date: "2026-08-07" }), TODAY)).toEqual([
       "invoice",
+      "complete",
     ]);
   });
 
@@ -464,7 +539,9 @@ describe("partyHallTransitionAllowed", () => {
   it("blocks a write when the row has already moved on since the caller last saw it", () => {
     // Simulates two tabs: both loaded the enquiry while it was "confirmed",
     // one already moved it on to "cancelled", and this caller is still
-    // holding the stale "confirmed" it read earlier.
+    // holding the stale "confirmed" it read earlier — the exact race a
+    // mark-completed click can hit too, since `completePartyHallEvent` goes
+    // through this same shared guard rather than a per-rule one.
     expect(partyHallTransitionAllowed("cancelled", "confirmed")).toBe(false);
   });
 });
@@ -505,6 +582,30 @@ describe("the Party Hall pipeline actions", () => {
     if (!confirmed.ok) return;
     expect(confirmed.enquiry.status).toBe("confirmed");
     expect(confirmed.enquiry.advancePaid).toBe(25000);
+  });
+
+  it("completes an event only from confirmed, and rejects every other from-state", () => {
+    const confirmed = enquiry({ status: "confirmed", amount: 100000 });
+    const done = completePartyHallEvent({ partyHall: [confirmed] }, "PH-TEST-001");
+    expect(done.ok).toBe(true);
+    if (!done.ok) return;
+    expect(done.enquiry.status).toBe("completed");
+
+    const fromStates: PartyHallStatus[] = [
+      "enquiry",
+      "quote_sent",
+      "advance_paid",
+      "completed",
+      "declined",
+      "cancelled",
+    ];
+    for (const status of fromStates) {
+      const res = completePartyHallEvent(
+        { partyHall: [enquiry({ status, amount: 100000 })] },
+        "PH-TEST-001",
+      );
+      expect(res.ok).toBe(false);
+    }
   });
 
   it("declines a quote and reopens it back to quote_sent, non-destructively", () => {

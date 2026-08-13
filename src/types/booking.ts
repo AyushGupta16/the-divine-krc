@@ -522,7 +522,8 @@ export interface CalendarPageData {
 // values, pill counts, per-card copy, booked days — is derived from the live
 // enquiry set, so the screen can never contradict the data behind it.
 
-export type PartyHallStatKey = "newEnquiries" | "confirmed" | "advanceCollected" | "nextEvent";
+export type PartyHallStatKey =
+  "newEnquiries" | "confirmed" | "pastDue" | "advanceCollected" | "nextEvent";
 
 export interface PartyHallStat {
   key: PartyHallStatKey;
@@ -531,7 +532,8 @@ export interface PartyHallStat {
   value: string;
 }
 
-export type PartyHallPillKey = "all" | "new" | "confirmed";
+export type PartyHallPillKey =
+  "all" | "new" | "quoted" | "confirmed" | "pastDue" | "cancelled" | "declined";
 
 /** A filter chip over the pipeline; counts derive from the event set. */
 export interface PartyHallPill {
@@ -550,6 +552,7 @@ export type PartyHallCtaKind =
   | "whatsapp"
   | "record_advance"
   | "confirm"
+  | "complete"
   | "cancel"
   | "invoice"
   | "view_details"
@@ -574,6 +577,11 @@ export interface PartyHallEventItem {
    *  composer so it can state a real advance figure without recomputing a
    *  rate the enquiry itself doesn't carry. */
   advancePct: number;
+  /** `isPartyHallEventPastDue(enquiry, today)` — a confirmed event whose date
+   *  has passed. Carried on the item (not re-derived client-side) so the
+   *  "Past due" pill filters against the same read `today` the rest of the
+   *  page was built from. */
+  pastDue: boolean;
   /** The card's full action set, in display order — from `partyHallCtaKinds`,
    *  the one exhaustive status → actions matrix. `EventCard` renders each
    *  kind via a fixed per-kind lookup; it never decides presence itself. */

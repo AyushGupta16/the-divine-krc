@@ -46,7 +46,9 @@ import {
   checkAvailability,
   checkInEligibilityError,
   computePartyHallQuote,
+  completePartyHallEvent,
   confirmPartyHallEvent,
+  isPartyHallEventPastDue,
   createBooking,
   createGuest,
   createPartyHallEnquiry,
@@ -651,6 +653,13 @@ export const confirmPartyHallEventFn = createServerFn({ method: "POST" })
         resolvePartyHallRates(current.partyHallRateOverrides).phAdvancePct,
       ),
     ),
+  );
+
+/** Terminal step past `confirmed` — the event happened. */
+export const completePartyHallEventFn = createServerFn({ method: "POST" })
+  .validator((data: { id: string }) => data)
+  .handler(async ({ data }) =>
+    runPartyHallTransition(data.id, (current) => completePartyHallEvent(current, data.id)),
   );
 
 /** Declines a quote — before any money has moved. Non-destructive: see
@@ -1618,7 +1627,15 @@ export const sidebarCounts = createServerFn({ method: "GET" }).handler(
         (b) =>
           (b.roomNo === null && OCCUPYING_STATUSES.has(b.status)) || b.status === "pending_payment",
       ).length,
-      partyHall: data.partyHall.filter((e) => e.status === "enquiry").length,
+      // "Needs attention" for the coarse sidebar signal: a fresh enquiry
+      // needing a quote, or a confirmed event whose date passed without
+      // being marked completed — both genuinely need an admin to act, just
+      // on different pages of the pipeline. The in-page screen keeps these
+      // as two distinct pills/stats; this single scalar can only carry one
+      // number, so it folds them (see #102's audit).
+      partyHall: data.partyHall.filter(
+        (e) => e.status === "enquiry" || isPartyHallEventPastDue(e, today),
+      ).length,
       rooms: await getAvailableRoomCount(data, today),
       guests: newGuestsToday,
     };

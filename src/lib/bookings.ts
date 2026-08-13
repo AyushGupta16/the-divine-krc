@@ -326,9 +326,11 @@ export function withAdvance(
  *
  * Everywhere else — "next event", the rooms tile, "confirmed · upcoming" —
  * answers a forward-looking question, so those callers should pass `today`.
- * Nothing here transitions a past `confirmed` event to `completed` on its
- * own (there's no such mechanism yet); this only changes what's *displayed*
- * as upcoming, not the underlying row.
+ * This function only changes what's *displayed* as upcoming, not the
+ * underlying row — `completePartyHallEvent` (#102) is the write, an explicit
+ * admin action; nothing here transitions a row on its own, and
+ * `isPartyHallEventPastDue` below is a read-only nudge toward that action,
+ * not a second write path.
  */
 function isUpcomingEvent(e: PartyHallEnquiry, today?: string): boolean {
   return (
@@ -337,6 +339,19 @@ function isUpcomingEvent(e: PartyHallEnquiry, today?: string): boolean {
     e.status !== "declined" &&
     (today === undefined || e.date >= today)
   );
+}
+
+/**
+ * A confirmed event whose date has passed without being marked completed —
+ * the gap #102 exists to close. Built on `isUpcomingEvent` rather than a
+ * fresh `e.date < today` string compare: `!isUpcomingEvent(e, today)` is
+ * already "not upcoming" for whatever reason (wrong status OR past date),
+ * so narrowing to `status === "confirmed"` is exactly "past date, still
+ * confirmed" without re-deriving the date comparison `isUpcomingEvent`
+ * already owns. Read-only — never writes `completed` itself.
+ */
+export function isPartyHallEventPastDue(e: PartyHallEnquiry, today: string): boolean {
+  return e.status === "confirmed" && !isUpcomingEvent(e, today);
 }
 
 /** Soonest upcoming event, or undefined when the hall has nothing booked. */
@@ -1098,6 +1113,27 @@ export function confirmPartyHallEvent(
     ok: true,
     enquiry: withAdvance({ ...found.enquiry, status: "confirmed" }, advancePct),
   };
+}
+
+/**
+ * Terminal step past `confirmed` — the event happened. Deliberately only
+ * reachable from `confirmed`, not `advance_paid`: an event that never got
+ * its date locked in was never actually held, so there's nothing to mark
+ * complete. No date check here (e.g. requiring the event date to have
+ * passed) — that's a UI nudge (the past-due badge), not a write guard; an
+ * admin closing out an event early (say, it ran a day ahead of schedule)
+ * shouldn't be blocked by a hardcoded date rule.
+ */
+export function completePartyHallEvent(
+  state: { partyHall: PartyHallEnquiry[] },
+  id: string,
+): Result<{ enquiry: PartyHallEnquiry }> {
+  const found = findPartyHallEnquiry(state, id);
+  if (!found.ok) return found;
+  if (found.enquiry.status !== "confirmed") {
+    return { ok: false, error: "Only a confirmed event can be marked completed." };
+  }
+  return { ok: true, enquiry: { ...found.enquiry, status: "completed" } };
 }
 
 /**
@@ -2449,7 +2485,13 @@ export function partyHallCtaKinds(
     case "advance_paid":
       return ["invoice", "cancel", "confirm"];
     case "confirmed":
-      return e.date < today ? ["invoice"] : ["invoice", "cancel", "view_details"];
+      // `complete` is offered regardless of date — `completePartyHallEvent`
+      // itself has no date guard (see its doc comment), so an admin closing
+      // an event out early isn't blocked by this matrix either. Past-due is
+      // a read-only nudge (`isPartyHallEventPastDue`), not a gate here.
+      return e.date < today
+        ? ["invoice", "complete"]
+        : ["invoice", "cancel", "view_details", "complete"];
     case "declined":
       return ["reopen"];
     case "cancelled":
@@ -2485,6 +2527,7 @@ function buildEventItem(
     // An un-quoted enquiry has no number yet — say so rather than show "₹0".
     amount: e.amount > 0 ? formatINRCompact(e.amount) : "₹—",
     advancePct,
+    pastDue: isPartyHallEventPastDue(e, today),
     ctas: partyHallCtaKinds(e, today),
   };
 }
@@ -2565,6 +2608,7 @@ export async function getPartyHallPageData(
   const confirmedUpcoming = events.filter(
     (e) => e.status === "confirmed" && isUpcomingEvent(e, today),
   ).length;
+  const pastDueCount = events.filter((e) => isPartyHallEventPastDue(e, today)).length;
 
   // Money held against events still to come — a settled event's takings are
   // revenue already booked, not an advance the hall is sitting on. Left on
@@ -2577,6 +2621,7 @@ export async function getPartyHallPageData(
   const stats: PartyHallStat[] = [
     { key: "newEnquiries", label: "New enquiries", value: String(newEnquiries) },
     { key: "confirmed", label: "Confirmed · upcoming", value: String(confirmedUpcoming) },
+    { key: "pastDue", label: "Past due", value: String(pastDueCount) },
     {
       key: "advanceCollected",
       label: "Advance collected",
@@ -2592,7 +2637,23 @@ export async function getPartyHallPageData(
   const pills: PartyHallPill[] = [
     { key: "all", label: "All", count: events.length },
     { key: "new", label: "New", count: newEnquiries },
+    {
+      key: "quoted",
+      label: "Quoted",
+      count: events.filter((e) => e.status === "quote_sent").length,
+    },
     { key: "confirmed", label: "Confirmed", count: confirmedUpcoming },
+    { key: "pastDue", label: "Past due", count: pastDueCount },
+    {
+      key: "cancelled",
+      label: "Cancelled",
+      count: events.filter((e) => e.status === "cancelled").length,
+    },
+    {
+      key: "declined",
+      label: "Declined",
+      count: events.filter((e) => e.status === "declined").length,
+    },
   ];
 
   return {
