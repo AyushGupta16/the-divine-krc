@@ -245,7 +245,7 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
           </div>
         </div>
 
-        <div className="flex-1 basis-56">
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2.5">
             <span className="text-[15px] font-bold">{item.enquiry.title}</span>
             <StatusPill item={item} />
@@ -302,7 +302,7 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
           )}
         </div>
 
-        <div className="flex w-full items-center justify-between gap-2.5 border-t border-[#f2ede2] pt-3 sm:w-auto sm:flex-col sm:items-end sm:border-t-0 sm:pt-0 sm:text-right">
+        <div className="flex w-full flex-col items-stretch justify-between gap-2.5 border-t border-[#f2ede2] pt-3 sm:w-auto sm:flex-col sm:items-end sm:border-t-0 sm:pt-0 sm:text-right">
           <div>
             <div className="text-[9px] uppercase tracking-[0.18em] text-[#a49d8d]">
               {item.amountLabel}
@@ -317,7 +317,7 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {item.ctas.map((kind) => {
               switch (kind) {
                 case "whatsapp":
@@ -560,7 +560,7 @@ function FilterPills({
   onSelect: (key: PartyHallPillKey) => void;
 }) {
   return (
-    <div className="flex flex-wrap gap-1.75">
+    <div className="flex w-full min-w-0 flex-wrap gap-1.75 sm:w-auto">
       {pills.map((pill) => (
         <button
           key={pill.key}
@@ -641,7 +641,7 @@ export function PartyHall({
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-4.5 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4.5 sm:grid-cols-2 lg:grid-cols-5">
         {data.stats.map((stat) => (
           <StatCard key={stat.key} stat={stat} />
         ))}
