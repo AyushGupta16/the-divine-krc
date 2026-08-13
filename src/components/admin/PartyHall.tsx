@@ -23,6 +23,7 @@ import type {
 } from "@/types/booking";
 import {
   cancelPartyHallEventFn,
+  completePartyHallEventFn,
   confirmPartyHallEventFn,
   declinePartyHallEnquiryFn,
   recordPartyHallAdvanceFn,
@@ -47,6 +48,7 @@ const KIND_ACTION_FN: Partial<
 > = {
   record_advance: (id) => recordPartyHallAdvanceFn({ data: { id } }),
   confirm: (id) => confirmPartyHallEventFn({ data: { id } }),
+  complete: (id) => completePartyHallEventFn({ data: { id } }),
   reopen: (id) => reopenPartyHallEnquiryFn({ data: { id } }),
 };
 
@@ -81,6 +83,9 @@ function StatCard({ stat }: { stat: PartyHallStat }) {
           "font-display font-semibold",
           isLine ? "mt-2.75 text-[19px]" : "mt-2 text-[32px]",
           stat.key === "advanceCollected" && "text-[#a8863f]",
+          // Same gold-actionable ink as the sidebar's "needs attention"
+          // badge — a nonzero past-due count is exactly that signal.
+          stat.key === "pastDue" && stat.value !== "0" && "text-[#a8863f]",
         )}
       >
         {stat.value}
@@ -398,10 +403,12 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
                   );
                 case "record_advance":
                 case "confirm":
+                case "complete":
                 case "reopen": {
                   const label: Record<typeof kind, string> = {
                     record_advance: "Record advance",
                     confirm: "Confirm",
+                    complete: "Mark completed",
                     reopen: "Reopen",
                   };
                   const primary = kind !== "reopen";
@@ -563,7 +570,12 @@ function FilterPills({
             "rounded-full px-3 py-1.25 text-[11.5px] font-semibold transition-colors",
             pill.key === active
               ? "bg-obsidian text-ivory"
-              : "border border-[#eae4d6] bg-white text-warm-gray hover:bg-black/3",
+              : pill.key === "pastDue" && pill.count > 0
+                ? // Same gold-actionable treatment as the sidebar's "needs
+                  // attention" badge, unselected state only — the active
+                  // (obsidian) state above already reads as selected.
+                  "border border-gold/40 bg-[#f5ecd7] text-[#a8863f] hover:bg-[#f0e2c4]"
+                : "border border-[#eae4d6] bg-white text-warm-gray hover:bg-black/3",
           )}
         >
           {pill.label} {pill.count}
@@ -573,11 +585,27 @@ function FilterPills({
   );
 }
 
-/** "new" reads as a fresh enquiry, "confirmed" covers both deposit-paid and fully confirmed. */
-function matchesPill(status: PartyHallStatus, key: PartyHallPillKey): boolean {
-  if (key === "all") return true;
-  if (key === "new") return status === "enquiry";
-  return status === "confirmed" || status === "advance_paid";
+/** "new" reads as a fresh enquiry, "confirmed" covers both deposit-paid and fully
+ *  confirmed, "pastDue" reads `item.pastDue` (carried on the item, not re-derived here)
+ *  rather than the raw status — a past-due event is still status `confirmed`, so a
+ *  status-only switch can't tell it apart from any other confirmed event. */
+function matchesPill(item: PartyHallEventItem, key: PartyHallPillKey): boolean {
+  switch (key) {
+    case "all":
+      return true;
+    case "new":
+      return item.enquiry.status === "enquiry";
+    case "quoted":
+      return item.enquiry.status === "quote_sent";
+    case "confirmed":
+      return item.enquiry.status === "confirmed" || item.enquiry.status === "advance_paid";
+    case "pastDue":
+      return item.pastDue;
+    case "cancelled":
+      return item.enquiry.status === "cancelled";
+    case "declined":
+      return item.enquiry.status === "declined";
+  }
 }
 
 // ── Page ────────────────────────────────────────────────────────────────────
@@ -595,7 +623,7 @@ export function PartyHall({
   const { openEvent } = useEntryForms();
 
   const visibleEvents = useMemo(
-    () => data.events.filter((item) => matchesPill(item.enquiry.status, pillFilter)),
+    () => data.events.filter((item) => matchesPill(item, pillFilter)),
     [data.events, pillFilter],
   );
 
@@ -613,7 +641,7 @@ export function PartyHall({
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-4.5 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4.5 lg:grid-cols-5">
         {data.stats.map((stat) => (
           <StatCard key={stat.key} stat={stat} />
         ))}
