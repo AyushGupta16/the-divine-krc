@@ -83,6 +83,7 @@ export const BOTTOM_NAV: NavItem[] = [
   { label: "Home", to: "/admin", icon: LayoutDashboard, exact: true },
   { label: "Bookings", to: "/admin/bookings", icon: BookMarked },
   { label: "Rooms", to: "/admin/rooms", icon: BedDouble },
+  { label: "Party Hall", to: "/admin/party-hall", icon: PartyPopper },
   { label: "Calendar", to: "/admin/calendar", icon: CalendarDays },
 ];
 
