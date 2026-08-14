@@ -238,14 +238,14 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
   return (
     <div className="rounded-lg border border-[#eae4d6] bg-white px-5 py-4.5 transition-colors hover:border-[#d9cba6]">
       <div className="flex flex-wrap items-start gap-3.5">
-        <div className="w-13 flex-none rounded-md border border-[#efe4cc] bg-[#faf7ef] py-2 text-center">
+        <div className="order-1 w-13 flex-none rounded-md border border-[#efe4cc] bg-[#faf7ef] py-2 text-center">
           <div className="font-display text-[20px] font-semibold leading-none">{item.day}</div>
           <div className="mt-0.5 text-[9.5px] uppercase tracking-[0.12em] text-[#a8863f]">
             {item.mon}
           </div>
         </div>
 
-        <div className="min-w-0 flex-1">
+        <div className="order-3 min-w-0 flex-1 basis-full sm:basis-0">
           <div className="flex flex-wrap items-center gap-2.5">
             <span className="text-[15px] font-bold">{item.enquiry.title}</span>
             <StatusPill item={item} />
@@ -302,12 +302,13 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
           )}
         </div>
 
-        <div className="flex w-full flex-col items-stretch justify-between gap-2.5 border-t border-[#f2ede2] pt-3 sm:w-auto sm:flex-col sm:items-end sm:border-t-0 sm:pt-0 sm:text-right">
-          <div>
+        <div className="contents sm:order-4 sm:flex sm:w-auto sm:flex-col sm:items-end sm:justify-between sm:gap-2.5 sm:border-t-0 sm:pt-0 sm:text-right">
+          <div className="order-2 ml-auto text-right sm:ml-0">
             <div className="text-[9px] uppercase tracking-[0.18em] text-[#a49d8d]">
               {item.amountLabel}
             </div>
             <div className="font-display text-[19px]">{item.amount}</div>
+            <div className="mt-0.5 text-[11px] text-[#7a746a] sm:hidden">{item.statusNote}</div>
             {hasWhatsApp && item.enquiry.contactPhone && normalizedPhone === null && (
               <div className="mt-1 text-[10.5px] text-[#a49d8d]">
                 Couldn't parse phone —{" "}
@@ -317,7 +318,7 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
               </div>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="order-4 w-full flex flex-wrap items-center gap-2 border-t border-[#f2ede2] pt-3 sm:w-auto sm:border-t-0 sm:pt-0">
             {item.ctas.map((kind) => {
               switch (kind) {
                 case "whatsapp":

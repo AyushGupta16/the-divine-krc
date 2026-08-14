@@ -2516,12 +2516,19 @@ function buildEventItem(
     timeZone: "UTC",
   });
 
+  // Called once — `meta` and `statusNote` both read this result rather than
+  // each invoking `metaNote` separately, so the two can never drift.
+  const note = metaNote(e);
+
   return {
     enquiry: e,
     day,
     mon: monthName,
     statusLabel: PARTY_HALL_STATUS_LABEL[e.status],
-    meta: `${slotLine(e.slot)} · ${e.guests} guests · ${metaNote(e)}`,
+    meta: `${slotLine(e.slot)} · ${e.guests} guests · ${note}`,
+    // Same status-dependent text as the tail of `meta`, exposed on its own
+    // so the money block can show it without parsing `meta`'s combined string.
+    statusNote: note,
     tags: [e.package, ...e.addOns],
     amountLabel: amountLabel(e.status, e.quotedAt),
     // An un-quoted enquiry has no number yet — say so rather than show "₹0".

@@ -567,6 +567,10 @@ export interface PartyHallEventItem {
   statusLabel: string;
   /** Sub-line, e.g. "Evening slot · 140 guests · advance ₹22k paid". */
   meta: string;
+  /** The status-dependent tail of `meta` on its own, e.g. "balance due on
+   *  day" / "settled" / "advance ₹22k paid" — same call as `meta`'s tail,
+   *  never a second derivation, so the two can't drift. */
+  statusNote: string;
   /** Package tier followed by each add-on. */
   tags: string[];
   /** What the amount means for this status, e.g. "Quoted" / "Collected". */
