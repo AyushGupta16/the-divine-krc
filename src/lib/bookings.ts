@@ -1376,7 +1376,10 @@ export function cancelGuestBooking(
  * The Razorpay verify route's write (#16): flips a `pending_payment` booking to
  * `confirmed` and settles its collection — `paidToHotel` takes the whole bill,
  * `pending` drops to zero, since a Checkout payment is always the full amount,
- * never a partial one.
+ * never a partial one. `paymentMethod`/`paidAt` settle in the same write —
+ * the caller resolves them (via `resolvePaymentMetadata`, which cannot throw)
+ * before calling in, so this stays a single atomic settlement with no
+ * separate metadata write that could fail after the payment has moved.
  *
  * Idempotent by construction: a webhook retry or a duplicate `handler` fire
  * with the same `paymentId` on an already-`confirmed` booking returns the
@@ -1389,6 +1392,8 @@ export function markBookingPaid(
   bookingId: string,
   razorpayOrderId: string,
   razorpayPaymentId: string,
+  paymentMethod: PaymentMethod | "online",
+  paidAt: string,
 ): Result<{ booking: Booking }> {
   const booking = data.bookings.find((b) => b.id === bookingId);
   if (!booking) return { ok: false, error: "Booking not found." };
@@ -1408,6 +1413,8 @@ export function markBookingPaid(
       collection: { ...booking.collection, paidToHotel: booking.totalBill, pending: 0 },
       razorpayOrderId,
       razorpayPaymentId,
+      paymentMethod,
+      paidAt,
     },
   };
 }

@@ -112,12 +112,13 @@ export interface Booking {
   razorpayOrderId?: string;
   razorpayPaymentId?: string;
   /** How the payment actually moved — a `PaymentMethod` value, or `"online"`
-   *  when Razorpay's instrument isn't known. Undefined until a write path
-   *  sets it (none does yet); every existing row is undefined. */
+   *  when Razorpay's instrument isn't known (Fetch failed/timed out, or
+   *  returned an instrument outside the mapping). Set by `markBookingPaid`
+   *  on Razorpay verify (#16); undefined for pay-at-hotel and legacy rows. */
   paymentMethod?: PaymentMethod | "online";
   /** ISO timestamp of when the payment actually settled — not `createdAt`,
-   *  which is when the row was made. Undefined until a write path sets it
-   *  (none does yet); every existing row is undefined. */
+   *  which is when the row was made. Set by `markBookingPaid` on Razorpay
+   *  verify (#16); undefined for pay-at-hotel and legacy rows. */
   paidAt?: string;
   /** Shared by every room created in one guest-flow checkout (`Book.tsx`'s
    *  submit loop); undefined for legacy rows and admin manual entries. */
