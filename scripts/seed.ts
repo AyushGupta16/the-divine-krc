@@ -13,9 +13,23 @@
 
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import { openInvite, team as roster } from "@/lib/__fixtures__/team";
-import { ROOM_TYPES, ROOM_UNITS } from "@/lib/bookings";
+import { PARTY_HALL_RATE_DEFAULTS, ROOM_TYPES, ROOM_UNITS } from "@/lib/bookings";
 import { db } from "@/lib/db";
 import * as schema from "@/lib/schema";
+import type { PartyHallRateKey } from "@/types/booking";
+
+const PARTY_HALL_RATE_LABEL: Record<PartyHallRateKey, string> = {
+  phBaseSilver: "Silver package base",
+  phBaseGold: "Gold package base",
+  phBasePlatinum: "Platinum package base",
+  phDecor: "Decor",
+  phDJ: "DJ",
+  phAV: "AV",
+  phProjector: "Projector",
+  phLunchBuffet: "Lunch Buffet (per guest)",
+  phCatering: "Catering (per guest)",
+  phAdvancePct: "Advance to confirm",
+};
 
 async function main() {
   // Opt-in, not a blocklist: guessing the wrong prod host string is worse than
@@ -40,6 +54,8 @@ async function main() {
   const bookings = fixtures.bookings.map(({ totalBill: _t, revenue, collection, ...b }) => ({
     ...b,
     createdAt: new Date(b.createdAt),
+    roomAssignedAt: b.roomAssignedAt ? new Date(b.roomAssignedAt) : null,
+    paidAt: b.paidAt ? new Date(b.paidAt) : null,
     revenueRoom: revenue.room,
     revenueEarlyCheckIn: revenue.earlyCheckIn,
     revenueLateCheckOut: revenue.lateCheckOut,
@@ -52,7 +68,12 @@ async function main() {
     collectionComplimentary: collection.complimentary,
     collectionPending: collection.pending,
   }));
-  const partyHall = fixtures.partyHall.map(({ advancePaid: _a, ...e }) => e);
+  const partyHall = fixtures.partyHall.map(({ advancePaid: _a, ...e }) => ({
+    ...e,
+    createdAt: e.createdAt ? new Date(e.createdAt) : null,
+    quotedAt: e.quotedAt ? new Date(e.quotedAt) : null,
+    refundedAt: e.refundedAt ? new Date(e.refundedAt) : null,
+  }));
 
   // No password hash. The seeded staff accepted long before the console existed,
   // so nothing here has any business inventing a credential for them — a null
@@ -93,6 +114,19 @@ async function main() {
   await conn.insert(schema.partyHallEnquiries).values(partyHall).onConflictDoNothing();
   await conn.insert(schema.rooms).values(rooms).onConflictDoNothing();
   await conn.insert(schema.roomTypeSettings).values(roomTypeSettings).onConflictDoNothing();
+  // Slice 2a's ten Party Hall rates — placeholders until the owner confirms
+  // real numbers (see PARTY_HALL_PLACEHOLDER_KEYS). Seeded so they're visible
+  // and editable in Settings from day one, not just a code-level fallback.
+  await conn
+    .insert(schema.addOnSettings)
+    .values(
+      (Object.keys(PARTY_HALL_RATE_DEFAULTS) as PartyHallRateKey[]).map((id) => ({
+        id,
+        label: PARTY_HALL_RATE_LABEL[id],
+        price: PARTY_HALL_RATE_DEFAULTS[id],
+      })),
+    )
+    .onConflictDoNothing();
   await conn.insert(schema.team).values(members).onConflictDoNothing();
   await conn
     .insert(schema.invites)

@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 
 /** Keys for dynamic count badges resolved by the shell. */
-export type CountKey = "bookings" | "rooms" | "guests";
+export type CountKey = "bookings" | "partyHall" | "rooms" | "guests";
 
 export interface NavItem {
   label: string;
@@ -23,6 +23,11 @@ export interface NavItem {
   exact?: boolean;
   /** When set, the shell renders a count badge from its `counts` map. */
   countKey?: CountKey;
+  /**
+   * "gold" (default) means the count needs the owner's attention today.
+   * "muted" is informational status only — no action implied.
+   */
+  badgeTone?: "gold" | "muted";
 }
 
 export interface NavGroup {
@@ -47,8 +52,14 @@ export const ADMIN_NAV: NavGroup[] = [
     items: [
       { label: "Bookings", to: "/admin/bookings", icon: BookMarked, countKey: "bookings" },
       { label: "Guests", to: "/admin/guests", icon: Users, countKey: "guests" },
-      { label: "Rooms", to: "/admin/rooms", icon: BedDouble, countKey: "rooms" },
-      { label: "Party Hall", to: "/admin/party-hall", icon: PartyPopper },
+      {
+        label: "Rooms",
+        to: "/admin/rooms",
+        icon: BedDouble,
+        countKey: "rooms",
+        badgeTone: "muted",
+      },
+      { label: "Party Hall", to: "/admin/party-hall", icon: PartyPopper, countKey: "partyHall" },
     ],
   },
   {
@@ -72,6 +83,7 @@ export const BOTTOM_NAV: NavItem[] = [
   { label: "Home", to: "/admin", icon: LayoutDashboard, exact: true },
   { label: "Bookings", to: "/admin/bookings", icon: BookMarked },
   { label: "Rooms", to: "/admin/rooms", icon: BedDouble },
+  { label: "Party Hall", to: "/admin/party-hall", icon: PartyPopper },
   { label: "Calendar", to: "/admin/calendar", icon: CalendarDays },
 ];
 

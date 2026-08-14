@@ -12,6 +12,54 @@ export type BookingSource =
 
 export type MealPlan = "EP" | "CP" | "MAP" | "AP";
 
+/** The exact, owner-confirmed, fulfillable preference set (#67) — no options
+ *  beyond this list are offered anywhere in the guest flow. */
+export type GuestPreference =
+  "high_floor" | "low_floor" | "adjacent_rooms" | "quiet_room" | "dietary" | "smoking_room";
+
+export const GUEST_PREFERENCES: GuestPreference[] = [
+  "high_floor",
+  "low_floor",
+  "adjacent_rooms",
+  "quiet_room",
+  "dietary",
+  "smoking_room",
+];
+
+/** Best-effort, free — never affects price or invoice. */
+export interface GuestRequest {
+  preferences: GuestPreference[];
+  note?: string;
+}
+
+/** The three priced add-ons a guest can request and an admin resolves (Slice B). */
+export type AddOnServiceKey = "earlyCheckIn" | "lateCheckOut" | "extraMattress";
+
+/** Where a requested service stands: asked for, charged, turned down, or a
+ *  charge that was applied and then undone. `pending` is the only state that
+ *  still needs the admin's attention — every other state keeps the outcome
+ *  rather than clearing it, so whether a request was ever honoured (and
+ *  whether an honoured one was later reversed) stays on the record.
+ *  `reversed` is distinct from `declined`: declined means never charged,
+ *  reversed means charged and then undone — the audit trail differs. */
+export type ServiceRequestStatus = "pending" | "applied" | "declined" | "reversed";
+
+export interface ServiceRequest {
+  requested: boolean;
+  status: ServiceRequestStatus;
+}
+
+export interface ExtraMattressRequest extends ServiceRequest {
+  qty: number;
+}
+
+/** Undefined — never `{}` — when nothing was ever requested or admin-added. */
+export interface RequestedServices {
+  earlyCheckIn?: ServiceRequest;
+  lateCheckOut?: ServiceRequest;
+  extraMattress?: ExtraMattressRequest;
+}
+
 export type BookingStatus =
   "confirmed" | "checked_in" | "checked_out" | "pending_payment" | "cancelled" | "no_show";
 
@@ -41,6 +89,9 @@ export interface Booking {
   guestId: string;
   /** null until a physical room is assigned */
   roomNo: string | null;
+  /** ISO timestamp, set the moment a room is assigned and cleared on
+   *  unassign. Undefined for bookings that predate this field. */
+  roomAssignedAt?: string;
   roomType: RoomType;
   /** ISO date (check-in) */
   checkIn: string;
@@ -60,9 +111,29 @@ export interface Booking {
   /** Razorpay order/payment ids (#16). Undefined until an order is created; pay-at-hotel never sets them. */
   razorpayOrderId?: string;
   razorpayPaymentId?: string;
+  /** How the payment actually moved — a `PaymentMethod` value, or `"online"`
+   *  when Razorpay's instrument isn't known. Undefined until a write path
+   *  sets it (none does yet); every existing row is undefined. */
+  paymentMethod?: PaymentMethod | "online";
+  /** ISO timestamp of when the payment actually settled — not `createdAt`,
+   *  which is when the row was made. Undefined until a write path sets it
+   *  (none does yet); every existing row is undefined. */
+  paidAt?: string;
   /** Shared by every room created in one guest-flow checkout (`Book.tsx`'s
    *  submit loop); undefined for legacy rows and admin manual entries. */
   batchId?: string;
+  /** Best-effort preferences + freeform note (#66/#67). Undefined — never an
+   *  empty object — when the guest selected/wrote nothing; the admin "has
+   *  requests" flag and the has-requests notification both key off presence
+   *  of this field, not its contents, so it must never be set to `{}`. */
+  specialRequest?: GuestRequest;
+  /** Early check-in / late check-out / extra mattress: requested and/or
+   *  resolved (Slice B). Undefined — never `{}` — until the first request or
+   *  admin add-on. */
+  requestedServices?: RequestedServices;
+  /** Readable trail of what's inside `revenue.other`, e.g. "Extra mattress
+   *  ×2". Appended to, never overwritten. Undefined until the first charge. */
+  revenueOtherNote?: string;
 }
 
 export type GuestTier = "gold" | "silver" | "new";
@@ -81,9 +152,11 @@ export interface Guest {
 
 export type PartyHallSlot = "morning" | "afternoon" | "evening" | "full_day";
 
-/** Pipeline an event moves through, in order; `cancelled` leaves it. */
+/** Pipeline an event moves through, in order; `declined` and `cancelled` leave
+ *  it. `declined` is reachable only from `quote_sent` (before any money moves)
+ *  and reopens back to `quote_sent` — it is not a dead end, unlike `cancelled`. */
 export type PartyHallStatus =
-  "enquiry" | "quote_sent" | "advance_paid" | "confirmed" | "completed" | "cancelled";
+  "enquiry" | "quote_sent" | "advance_paid" | "confirmed" | "completed" | "declined" | "cancelled";
 
 export interface PartyHallEnquiry {
   id: string;
@@ -100,11 +173,38 @@ export interface PartyHallEnquiry {
   amount: number;
   /** Money in hand — derived from `amount` and `status`, never seeded. */
   advancePaid: number;
+  /** ISO timestamp, set once by `sendPartyHallQuote`. Undefined for rows
+   *  quoted before this field existed — the "Quoted ₹X" label omits the date
+   *  rather than showing one for those. */
+  quotedAt?: string;
+  /** Set once, by `sendPartyHallQuote`, alongside `quotedAt` — the package
+   *  base plus each add-on, at the rate resolved that moment. Undefined for
+   *  rows quoted before this field existed; never recomputed on read. */
+  quoteBreakdown?: { label: string; amount: number }[];
+  /** Snapshotted at `recordPartyHallAdvance` time — see `withAdvance`.
+   *  Undefined for rows recorded before this field existed. */
+  advanceAmount?: number;
+  /** Percentage in force when `advanceAmount` was snapshotted — context only. */
+  advancePct?: number;
+  /** ISO timestamp, set once by `cancelPartyHallEvent` when cancelling out of
+   *  `advance_paid` or `confirmed` — i.e. whenever money had already moved. */
+  refundedAt?: string;
+  /** ISO timestamp, set once by `createPartyHallEnquiry`. Undefined for
+   *  enquiries that predate this field (seed data, hand-entered rows). */
+  createdAt?: string;
   /** Who to bill for the invoice — enquiries carry no guest row of their own. */
   contactName?: string;
   contactPhone?: string;
   contactEmail?: string;
+  /** Channel the enquiry arrived through. `"direct"` for the guest form,
+   *  `"walk_in"` / `"phone"` for admin hand-entry. Undefined means "predates
+   *  this field" — never backfilled. */
+  source?: PartyHallSource;
 }
+
+/** Subset of `BookingSource` relevant to Party Hall — no OTA channel books
+ *  an event, so those options are left out rather than reused wholesale. */
+export type PartyHallSource = "direct" | "walk_in" | "phone";
 
 // ── Admin dashboard (PR #3) ──────────────────────────────────────────────
 // Shapes for the dashboard screen. The mock data layer seeds figures that
@@ -209,6 +309,7 @@ export interface DashboardData {
 
 /** Keys that let the component attach the right accent to each summary card. */
 export type BookingsSummaryKey =
+  | "unassignedRooms"
   | "checkInsToday"
   | "checkOutsToday"
   | "occupied"
@@ -278,6 +379,15 @@ export interface RoomTile {
   status: RoomStatus;
   /** Occupant + checkout for occupied rooms, else a short state note. */
   detail: string;
+  /** m². Null when not on record — render as "—", never "0". */
+  sizeSqm: number | null;
+}
+
+/** A `RoomTile` as the Settings panel's per-type table renders it — status
+ *  and `occupantName` are both live-derived (Room Settings redesign, slice
+ *  C), never a stored opinion, so this never drifts from the Rooms screen. */
+export interface RoomSettingsRow extends RoomTile {
+  occupantName: string | null;
 }
 
 /** A room-type summary card (photo, count, availability, editable rate). */
@@ -345,7 +455,13 @@ export interface CalendarDay {
   day: number;
   /** Rooms held on this date, of `total`. */
   occupied: number;
+  /** Sellable rooms — physical inventory minus any currently under
+   *  maintenance. Not date-specific (room status carries no history), so
+   *  this is the same figure on every day in the grid. */
   total: number;
+  /** How many of the physical inventory are excluded from `total` above.
+   *  0 on a hotel with nothing under maintenance. */
+  maintenanceRooms: number;
   /** `occupied / total` as a whole percent — derived, never seeded. */
   pct: number;
   band: OccupancyBand;
@@ -359,6 +475,33 @@ export interface CalendarDay {
  */
 export type CalendarCell = { kind: "blank" } | ({ kind: "day" } & CalendarDay);
 
+/** One guest occupying a room on a given date, for the day-details card. */
+export interface InHouseGuest {
+  guestName: string;
+  roomNo: string;
+}
+
+/**
+ * Everything the day-details card renders for one clicked day. `occupied`/
+ * `total`/`pct`/`event` mirror the cell's own figures (same derivation, not
+ * a parallel one) so the card can never disagree with the grid it opened
+ * from.
+ */
+export interface CalendarDayDetails {
+  date: string;
+  occupied: number;
+  total: number;
+  pct: number;
+  /** Bookings whose stay starts this date. */
+  arrivals: number;
+  /** Bookings whose stay ends this date. */
+  departures: number;
+  /** Party-hall event headline, same string the cell's pill shows. */
+  event: string | null;
+  /** Sorted by room number, for the "+{n} more" truncation to be stable. */
+  inHouseGuests: InHouseGuest[];
+}
+
 export interface CalendarPageData {
   year: number;
   /** 1-12. */
@@ -370,8 +513,15 @@ export interface CalendarPageData {
   /** Always a whole number of weeks — blanks pad both ends. */
   cells: CalendarCell[];
   legend: CalendarLegendItem[];
-  /** Room inventory the occupancy is measured against (14). */
+  /** Sellable room inventory the occupancy is measured against — live,
+   *  minus anything currently under maintenance. */
   totalRooms: number;
+  /** How many of the physical inventory are currently under maintenance. */
+  maintenanceRooms: number;
+  /** Day-details card data for every real day in the grid, keyed by ISO
+   *  `YYYY-MM-DD`. Computed in the same pass as `cells` over the same
+   *  in-memory `BookingData` — no extra DB read, no per-click fetch. */
+  dayDetails: Record<string, CalendarDayDetails>;
 }
 
 // ── Admin party hall (PR #7) ─────────────────────────────────────────────
@@ -380,7 +530,8 @@ export interface CalendarPageData {
 // values, pill counts, per-card copy, booked days — is derived from the live
 // enquiry set, so the screen can never contradict the data behind it.
 
-export type PartyHallStatKey = "newEnquiries" | "confirmed" | "advanceCollected" | "nextEvent";
+export type PartyHallStatKey =
+  "newEnquiries" | "confirmed" | "pastDue" | "advanceCollected" | "nextEvent";
 
 export interface PartyHallStat {
   key: PartyHallStatKey;
@@ -389,7 +540,8 @@ export interface PartyHallStat {
   value: string;
 }
 
-export type PartyHallPillKey = "all" | "new" | "confirmed";
+export type PartyHallPillKey =
+  "all" | "new" | "quoted" | "confirmed" | "pastDue" | "cancelled" | "declined";
 
 /** A filter chip over the pipeline; counts derive from the event set. */
 export interface PartyHallPill {
@@ -399,6 +551,21 @@ export interface PartyHallPill {
 }
 
 /** One enquiry/event card: the raw record plus its rendered copy. */
+/** Every action a Party Hall card can offer, across every status. Which of
+ *  these actually appear for a given card — and in what order — comes from
+ *  `partyHallCtaKinds` alone; nothing else decides. */
+export type PartyHallCtaKind =
+  | "send_quote"
+  | "decline"
+  | "whatsapp"
+  | "record_advance"
+  | "confirm"
+  | "complete"
+  | "cancel"
+  | "invoice"
+  | "view_details"
+  | "reopen";
+
 export interface PartyHallEventItem {
   enquiry: PartyHallEnquiry;
   /** Date chip, e.g. "22" / "Aug". */
@@ -408,16 +575,29 @@ export interface PartyHallEventItem {
   statusLabel: string;
   /** Sub-line, e.g. "Evening slot · 140 guests · advance ₹22k paid". */
   meta: string;
+  /** The status-dependent tail of `meta` on its own, e.g. "balance due on
+   *  day" / "settled" / "advance ₹22k paid" — same call as `meta`'s tail,
+   *  never a second derivation, so the two can't drift. */
+  statusNote: string;
   /** Package tier followed by each add-on. */
   tags: string[];
   /** What the amount means for this status, e.g. "Quoted" / "Collected". */
   amountLabel: string;
   /** Pre-formatted amount, or "₹—" before a quote exists. */
   amount: string;
-  /** Context action, e.g. "Send quote" when new, else View/Invoice. */
-  cta: string;
-  /** Only the action that moves a *new* enquiry forward is emphasised. */
-  ctaPrimary: boolean;
+  /** Resolved `phAdvancePct` at render time — threaded to the WhatsApp quote
+   *  composer so it can state a real advance figure without recomputing a
+   *  rate the enquiry itself doesn't carry. */
+  advancePct: number;
+  /** `isPartyHallEventPastDue(enquiry, today)` — a confirmed event whose date
+   *  has passed. Carried on the item (not re-derived client-side) so the
+   *  "Past due" pill filters against the same read `today` the rest of the
+   *  page was built from. */
+  pastDue: boolean;
+  /** The card's full action set, in display order — from `partyHallCtaKinds`,
+   *  the one exhaustive status → actions matrix. `EventCard` renders each
+   *  kind via a fixed per-kind lookup; it never decides presence itself. */
+  ctas: PartyHallCtaKind[];
 }
 
 /** A day slot in the rail's availability mini-calendar. */
@@ -706,19 +886,56 @@ export interface RoomTariff {
   pricePerNight: number;
 }
 
-/** A flat charge or rate the property applies on top of the tariff. */
-export interface ChargeSetting {
-  key: "earlyCheckIn" | "lateCheckOut" | "gst" | "partyHallAdvance";
+/** The GST rate row — Room Settings redesign (slice C): editable, same
+ *  blur-to-save shape as an add-on rate, backed by its own `addon_settings`
+ *  row (`gstPct`) rather than the `GST_PCT` constant it used to read only. */
+export interface GstSetting {
+  pct: number;
+}
+
+/** One of the three Slice B add-on rates, editable the same way a tariff is
+ *  (blur-to-save). */
+export interface AddOnRateSetting {
+  key: AddOnServiceKey;
   label: string;
-  /** Pre-formatted with its unit, e.g. "₹400" or "12%". */
-  value: string;
+  /** Rupees, as a number the "Save" round-trip can post. */
+  price: number;
+}
+
+/** The ten Party Hall rate rows (Slice 2a) — three package bases, five flat/
+ *  per-guest add-on rates, Catering, and the advance percentage. All seeded
+ *  as placeholders except Catering and the advance — see `PARTY_HALL_PLACEHOLDER_KEYS`. */
+export type PartyHallRateKey =
+  | "phBaseSilver"
+  | "phBaseGold"
+  | "phBasePlatinum"
+  | "phDecor"
+  | "phDJ"
+  | "phAV"
+  | "phProjector"
+  | "phLunchBuffet"
+  | "phCatering"
+  | "phAdvancePct";
+
+/** Same blur-to-save shape as `AddOnRateSetting`. `unit` distinguishes the
+ *  one percentage row (phAdvancePct) from the rupee ones in the input's suffix. */
+export interface PartyHallRateSetting {
+  key: PartyHallRateKey;
+  label: string;
+  price: number;
+  unit: "₹" | "%";
 }
 
 export interface PricingSettings {
   tariffs: RoomTariff[];
-  charges: ChargeSetting[];
+  gst: GstSetting;
+  addOnRates: AddOnRateSetting[];
+  partyHallRates: PartyHallRateSetting[];
+  /** True while any of the eight placeholder-eligible party-hall rates still
+   *  holds its seeded ₹1 stand-in — drives the Settings warning banner. */
+  partyHallRatesArePlaceholder: boolean;
   /** The full floor board, so the panel can add/remove/edit individual rooms. */
-  rooms: RoomTile[];
+  rooms: RoomSettingsRow[];
 }
 
 /** An on/off property setting. The screen controls these locally; Save is stubbed. */

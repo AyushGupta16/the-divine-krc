@@ -19,16 +19,20 @@ import { createServerFn } from "@tanstack/react-start";
 
 import {
   deriveNotifications,
+  derivePartyHallNotifications,
+  deriveRoomAssignmentNotifications,
   groupByDay,
   type BookingEvent,
   type NotificationGroup,
+  type PartyHallEvent,
+  type RoomAssignmentEvent,
 } from "@/lib/notifications";
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import { getSessionMember } from "@/lib/auth";
 import { db, missingDbInProduction } from "@/lib/db";
 import * as schema from "@/lib/schema";
 import { normalizeEmail, type Result } from "@/lib/team";
-import type { RoomType } from "@/types/booking";
+import type { GuestRequest, RoomType } from "@/types/booking";
 
 let memory: Map<string, string> | undefined;
 
@@ -48,6 +52,7 @@ function noDb(): void {
 
 async function loadBookingEvents(): Promise<{
   bookings: BookingEvent[];
+  rooms: RoomAssignmentEvent[];
   guestName: Map<string, string>;
 }> {
   const conn = db();
@@ -60,6 +65,13 @@ async function loadBookingEvents(): Promise<{
         roomType: b.roomType,
         urn: b.urn,
         createdAt: b.createdAt,
+        specialRequest: b.specialRequest,
+      })),
+      rooms: fixtures.bookings.map((b) => ({
+        id: b.id,
+        guestId: b.guestId,
+        roomNo: b.roomNo,
+        roomAssignedAt: b.roomAssignedAt,
       })),
       guestName: new Map(fixtures.guests.map((g) => [g.id, g.name])),
     };
@@ -69,9 +81,12 @@ async function loadBookingEvents(): Promise<{
       .select({
         id: schema.bookings.id,
         guestId: schema.bookings.guestId,
+        roomNo: schema.bookings.roomNo,
         roomType: schema.bookings.roomType,
         urn: schema.bookings.urn,
         createdAt: schema.bookings.createdAt,
+        roomAssignedAt: schema.bookings.roomAssignedAt,
+        specialRequest: schema.bookings.specialRequest,
       })
       .from(schema.bookings)
       .orderBy(schema.bookings.id),
@@ -79,12 +94,44 @@ async function loadBookingEvents(): Promise<{
   ]);
   return {
     bookings: bookingRows.map((b) => ({
-      ...b,
+      id: b.id,
+      guestId: b.guestId,
       roomType: b.roomType as RoomType,
+      urn: b.urn,
       createdAt: b.createdAt.toISOString(),
+      specialRequest: (b.specialRequest ?? undefined) as GuestRequest | undefined,
+    })),
+    rooms: bookingRows.map((b) => ({
+      id: b.id,
+      guestId: b.guestId,
+      roomNo: b.roomNo,
+      roomAssignedAt: b.roomAssignedAt?.toISOString() ?? undefined,
     })),
     guestName: new Map(guestRows.map((g) => [g.id, g.name])),
   };
+}
+
+async function loadPartyHallEvents(): Promise<PartyHallEvent[]> {
+  const conn = db();
+  if (!conn) {
+    noDb();
+    return fixtures.partyHall.map((e) => ({
+      id: e.id,
+      title: e.title,
+      guests: e.guests,
+      createdAt: e.createdAt,
+    }));
+  }
+  const rows = await conn
+    .select({
+      id: schema.partyHallEnquiries.id,
+      title: schema.partyHallEnquiries.title,
+      guests: schema.partyHallEnquiries.guests,
+      createdAt: schema.partyHallEnquiries.createdAt,
+    })
+    .from(schema.partyHallEnquiries)
+    .orderBy(schema.partyHallEnquiries.id);
+  return rows.map((e) => ({ ...e, createdAt: e.createdAt?.toISOString() ?? undefined }));
 }
 
 async function loadLastReadAt(email: string): Promise<string | null> {
@@ -122,11 +169,16 @@ export interface NotificationsData {
 }
 
 async function loadNotificationsData(email: string): Promise<NotificationsData> {
-  const [{ bookings, guestName }, lastReadAt] = await Promise.all([
+  const [{ bookings, rooms, guestName }, partyHall, lastReadAt] = await Promise.all([
     loadBookingEvents(),
+    loadPartyHallEvents(),
     loadLastReadAt(email),
   ]);
-  const items = deriveNotifications(bookings, guestName, lastReadAt);
+  const items = [
+    ...deriveNotifications(bookings, guestName, lastReadAt),
+    ...deriveRoomAssignmentNotifications(rooms, guestName, lastReadAt),
+    ...derivePartyHallNotifications(partyHall, lastReadAt),
+  ].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   return { groups: groupByDay(items), unread: items.filter((i) => !i.read).length };
 }
 

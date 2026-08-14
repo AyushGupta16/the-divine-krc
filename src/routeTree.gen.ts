@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as PartyHallEnquiryRouteImport } from './routes/party-hall-enquiry'
 import { Route as HotelNearPariChowkRouteImport } from './routes/hotel-near-pari-chowk'
 import { Route as HotelNearIndiaExpoMartRouteImport } from './routes/hotel-near-india-expo-mart'
 import { Route as BookingLookupRouteImport } from './routes/booking-lookup'
@@ -42,6 +43,11 @@ const TermsRoute = TermsRouteImport.update({
 const PrivacyRoute = PrivacyRouteImport.update({
   id: '/privacy',
   path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PartyHallEnquiryRoute = PartyHallEnquiryRouteImport.update({
+  id: '/party-hall-enquiry',
+  path: '/party-hall-enquiry',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HotelNearPariChowkRoute = HotelNearPariChowkRouteImport.update({
@@ -162,6 +168,7 @@ export interface FileRoutesByFullPath {
   '/booking-lookup': typeof BookingLookupRoute
   '/hotel-near-india-expo-mart': typeof HotelNearIndiaExpoMartRoute
   '/hotel-near-pari-chowk': typeof HotelNearPariChowkRoute
+  '/party-hall-enquiry': typeof PartyHallEnquiryRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/admin/accept-invite': typeof AdminAcceptInviteRoute
@@ -187,6 +194,7 @@ export interface FileRoutesByTo {
   '/booking-lookup': typeof BookingLookupRoute
   '/hotel-near-india-expo-mart': typeof HotelNearIndiaExpoMartRoute
   '/hotel-near-pari-chowk': typeof HotelNearPariChowkRoute
+  '/party-hall-enquiry': typeof PartyHallEnquiryRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/admin/accept-invite': typeof AdminAcceptInviteRoute
@@ -214,6 +222,7 @@ export interface FileRoutesById {
   '/booking-lookup': typeof BookingLookupRoute
   '/hotel-near-india-expo-mart': typeof HotelNearIndiaExpoMartRoute
   '/hotel-near-pari-chowk': typeof HotelNearPariChowkRoute
+  '/party-hall-enquiry': typeof PartyHallEnquiryRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/admin/accept-invite': typeof AdminAcceptInviteRoute
@@ -242,6 +251,7 @@ export interface FileRouteTypes {
     | '/booking-lookup'
     | '/hotel-near-india-expo-mart'
     | '/hotel-near-pari-chowk'
+    | '/party-hall-enquiry'
     | '/privacy'
     | '/terms'
     | '/admin/accept-invite'
@@ -267,6 +277,7 @@ export interface FileRouteTypes {
     | '/booking-lookup'
     | '/hotel-near-india-expo-mart'
     | '/hotel-near-pari-chowk'
+    | '/party-hall-enquiry'
     | '/privacy'
     | '/terms'
     | '/admin/accept-invite'
@@ -293,6 +304,7 @@ export interface FileRouteTypes {
     | '/booking-lookup'
     | '/hotel-near-india-expo-mart'
     | '/hotel-near-pari-chowk'
+    | '/party-hall-enquiry'
     | '/privacy'
     | '/terms'
     | '/admin/accept-invite'
@@ -320,6 +332,7 @@ export interface RootRouteChildren {
   BookingLookupRoute: typeof BookingLookupRoute
   HotelNearIndiaExpoMartRoute: typeof HotelNearIndiaExpoMartRoute
   HotelNearPariChowkRoute: typeof HotelNearPariChowkRoute
+  PartyHallEnquiryRoute: typeof PartyHallEnquiryRoute
   PrivacyRoute: typeof PrivacyRoute
   TermsRoute: typeof TermsRoute
   InvoiceInvoiceNoRoute: typeof InvoiceInvoiceNoRoute
@@ -339,6 +352,13 @@ declare module '@tanstack/react-router' {
       path: '/privacy'
       fullPath: '/privacy'
       preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/party-hall-enquiry': {
+      id: '/party-hall-enquiry'
+      path: '/party-hall-enquiry'
+      fullPath: '/party-hall-enquiry'
+      preLoaderRoute: typeof PartyHallEnquiryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/hotel-near-pari-chowk': {
@@ -545,6 +565,7 @@ const rootRouteChildren: RootRouteChildren = {
   BookingLookupRoute: BookingLookupRoute,
   HotelNearIndiaExpoMartRoute: HotelNearIndiaExpoMartRoute,
   HotelNearPariChowkRoute: HotelNearPariChowkRoute,
+  PartyHallEnquiryRoute: PartyHallEnquiryRoute,
   PrivacyRoute: PrivacyRoute,
   TermsRoute: TermsRoute,
   InvoiceInvoiceNoRoute: InvoiceInvoiceNoRoute,

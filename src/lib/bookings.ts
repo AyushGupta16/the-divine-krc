@@ -16,6 +16,8 @@
 // only where the rows come from — never how they are read.
 
 import type {
+  AddOnRateSetting,
+  AddOnServiceKey,
   ArrivalItem,
   Booking,
   BookingCollection,
@@ -24,10 +26,13 @@ import type {
   BookingsPageData,
   BookingStatus,
   CalendarCell,
+  CalendarDayDetails,
   CalendarPageData,
   DashboardData,
   Guest,
   GuestListItem,
+  GuestPreference,
+  GuestRequest,
   GuestsPageData,
   GuestStat,
   GuestTier,
@@ -40,12 +45,17 @@ import type {
   PaymentsTxnItem,
   PaymentTransaction,
   PartyHallCalendarCell,
+  PartyHallCtaKind,
   PartyHallEnquiry,
   PartyHallEventItem,
   PartyHallMiniCalendar,
   PartyHallPackage,
   PartyHallPageData,
   PartyHallPill,
+  PartyHallRateKey,
+  PartyHallRateSetting,
+  PartyHallSlot,
+  PartyHallSource,
   PartyHallStat,
   PartyHallStatus,
   PaymentsMonthlyRollup,
@@ -68,16 +78,19 @@ import type {
   RoomType,
   RoomTypeCard,
   ChannelSetting,
-  ChargeSetting,
+  GstSetting,
   PaymentSettings,
   PricingSettings,
   PropertyProfile,
+  RequestedServices,
+  RoomSettingsRow,
   RoomTariff,
   SettingsPageData,
   SettingsSection,
   TeamMember,
   ToggleSetting,
 } from "@/types/booking";
+import { GUEST_PREFERENCES } from "@/types/booking";
 import {
   computeTotalBill,
   computeTotalCollected,
@@ -86,6 +99,7 @@ import {
 } from "@/lib/booking-math";
 import { isActive, type Result, type TeamAccount } from "@/lib/team";
 import { initialsOf } from "@/lib/utils";
+import { normalizePhone } from "@/lib/whatsapp";
 
 /**
  * Every row an admin screen derives from, fetched once per request and threaded
@@ -105,6 +119,23 @@ export interface BookingData {
   roomTypeOverrides?: Partial<
     Record<RoomType, { name?: string; areaSqm: number; pricePerNight: number }>
   >;
+  /** Owner-set rates for the three Slice B add-ons. Missing keys fall back to
+   *  the defaults below — same "override over default" shape as `roomTypeOverrides`. */
+  addOnRateOverrides?: Partial<Record<AddOnServiceKey, number>>;
+  /** Owner-set Party Hall rates (Slice 2a). Same "override over default" shape,
+   *  resolved by `resolvePartyHallRates`. Placeholder until real numbers land —
+   *  see `PARTY_HALL_PLACEHOLDER_KEYS`. */
+  partyHallRateOverrides?: Partial<Record<PartyHallRateKey, number>>;
+  /** Owner-set GST rate (Room Settings redesign, slice C) — its own
+   *  `addon_settings` row (`gstPct`), same "override over default" shape as
+   *  the others. Missing falls back to `GST_PCT`. */
+  gstRateOverride?: number;
+}
+
+export interface AddOnRates {
+  earlyCheckIn: number;
+  lateCheckOut: number;
+  extraMattress: number;
 }
 
 export interface RoomTypeInfo {
@@ -173,9 +204,13 @@ export const ROOM_NUMBERS: string[] = ROOM_UNITS.map((r) => r.no);
  */
 export const GST_PCT = 12;
 
-/** Standard charges for a stay that starts early or ends late (design: Settings). */
+/** Default add-on rates (Slice B) — what a fresh install bills until the
+ *  owner sets a real rate in Settings. Applying a charge always snapshots
+ *  whatever `resolveAddOnRates` resolves to at that moment, never these
+ *  constants directly, so an owner-set rate takes over the instant it's saved. */
 export const EARLY_CHECKIN_FEE = 400;
 export const LATE_CHECKOUT_FEE = 500;
+export const EXTRA_MATTRESS_FEE = 300;
 
 /**
  * Loyalty standing, by stays alone: four stays earns Gold, a second stay earns
@@ -227,54 +262,169 @@ export function byBookingNumber(a: Booking, b: Booking): number {
   return bookingNumber(a.id) - bookingNumber(b.id) || a.id.localeCompare(b.id);
 }
 
-/** Share of the total taken up-front to hold a date (design: "25% advance"). */
+/** Share of the total taken up-front to hold a date (design: "25% advance").
+ *  The default `resolvePartyHallRates` falls back to — the owner-editable
+ *  `phAdvancePct` row overrides it once set. */
 export const PARTY_HALL_ADVANCE_PCT = 25;
 
-/** The up-front payment that confirms a booking, to the nearest rupee. */
-export function partyHallAdvance(amount: number): number {
-  return Math.round((amount * PARTY_HALL_ADVANCE_PCT) / 100);
+/** The up-front payment that confirms a booking, to the nearest rupee. `pct`
+ *  defaults to the constant above for callers with no resolved rate to hand
+ *  (fixtures, tests). */
+export function partyHallAdvance(amount: number, pct: number = PARTY_HALL_ADVANCE_PCT): number {
+  return Math.round((amount * pct) / 100);
 }
 
 /**
  * Money actually in hand for an event. Derived from the total and where the
  * event sits in the pipeline, so the seed can never claim an advance that
- * disagrees with the 25% rule: nothing before the advance is paid, the advance
- * once a date is held, and the full amount once the event is settled.
+ * disagrees with the advance rule: nothing before the advance is paid, the
+ * advance once a date is held, and the full amount once the event is settled.
  */
-function collectedFor(status: PartyHallStatus, amount: number): number {
+function collectedFor(status: PartyHallStatus, amount: number, pct?: number): number {
   if (status === "completed") return amount;
-  if (status === "advance_paid" || status === "confirmed") return partyHallAdvance(amount);
+  if (status === "advance_paid" || status === "confirmed") return partyHallAdvance(amount, pct);
   return 0;
 }
 
-/** Hydrates a seeded enquiry with the advance its pipeline stage implies. */
-export function withAdvance(e: Omit<PartyHallEnquiry, "advancePaid">): PartyHallEnquiry {
-  return { ...e, advancePaid: collectedFor(e.status, e.amount) };
+/** Hydrates a seeded enquiry with the advance its pipeline stage implies.
+ *  `advancePct` should be the resolved `phAdvancePct` rate wherever one is
+ *  available; omitted only for fixtures/tests that have no Settings row to read.
+ *
+ *  `advanceAmount` on the row, when present, is the source of truth — it was
+ *  snapshotted by `recordPartyHallAdvance` at the moment money actually moved,
+ *  and must never be recomputed from a `phAdvancePct` the owner edits later.
+ *  The live `amount × advancePct` calculation is a fallback for rows recorded
+ *  before that column existed, nothing more. */
+export function withAdvance(
+  e: Omit<PartyHallEnquiry, "advancePaid">,
+  advancePct?: number,
+): PartyHallEnquiry {
+  const snapshotApplies =
+    (e.status === "advance_paid" || e.status === "confirmed") && e.advanceAmount != null;
+  const advancePaid = snapshotApplies
+    ? e.advanceAmount!
+    : collectedFor(e.status, e.amount, advancePct);
+  return { ...e, advancePaid };
 }
 
 /**
  * Events still ahead of the hall — anything not called off and not already
  * settled. This is the one rule behind "next event", the rooms card and the
  * calendar's event flags, so the three can never disagree about what counts.
+ *
+ * `today` is optional and off by default: passing it additionally requires
+ * `e.date >= today` (inclusive — an event happening today is still upcoming,
+ * the front desk needs tonight's event in "Next event", not have it vanish
+ * at midnight). TEXT dates are fixed-width ISO, so lexicographic `>=` is a
+ * safe date comparison (documented in #84).
+ *
+ * Leave `today` unset for a status-only check: `bookedDaysIn` and
+ * `eventsForMonth` render whatever month the admin is looking at, past or
+ * future, and a past event that actually happened should still show as
+ * booked there — that's history, not a forecast, so those two callers must
+ * not start dropping past dates.
+ *
+ * Everywhere else — "next event", the rooms tile, "confirmed · upcoming" —
+ * answers a forward-looking question, so those callers should pass `today`.
+ * This function only changes what's *displayed* as upcoming, not the
+ * underlying row — `completePartyHallEvent` (#102) is the write, an explicit
+ * admin action; nothing here transitions a row on its own, and
+ * `isPartyHallEventPastDue` below is a read-only nudge toward that action,
+ * not a second write path.
  */
-function isUpcomingEvent(e: PartyHallEnquiry): boolean {
-  return e.status !== "cancelled" && e.status !== "completed";
+function isUpcomingEvent(e: PartyHallEnquiry, today?: string): boolean {
+  return (
+    e.status !== "cancelled" &&
+    e.status !== "completed" &&
+    e.status !== "declined" &&
+    (today === undefined || e.date >= today)
+  );
+}
+
+/**
+ * A confirmed event whose date has passed without being marked completed —
+ * the gap #102 exists to close. Built on `isUpcomingEvent` rather than a
+ * fresh `e.date < today` string compare: `!isUpcomingEvent(e, today)` is
+ * already "not upcoming" for whatever reason (wrong status OR past date),
+ * so narrowing to `status === "confirmed"` is exactly "past date, still
+ * confirmed" without re-deriving the date comparison `isUpcomingEvent`
+ * already owns. Read-only — never writes `completed` itself.
+ */
+export function isPartyHallEventPastDue(e: PartyHallEnquiry, today: string): boolean {
+  return e.status === "confirmed" && !isUpcomingEvent(e, today);
 }
 
 /** Soonest upcoming event, or undefined when the hall has nothing booked. */
-function nextPartyHallEvent(partyHall: PartyHallEnquiry[]): PartyHallEnquiry | undefined {
-  return [...partyHall].filter(isUpcomingEvent).sort((a, b) => a.date.localeCompare(b.date))[0];
+function nextPartyHallEvent(
+  partyHall: PartyHallEnquiry[],
+  today: string,
+): PartyHallEnquiry | undefined {
+  return [...partyHall]
+    .filter((e) => isUpcomingEvent(e, today))
+    .sort((a, b) => a.date.localeCompare(b.date))[0];
 }
 
-/** "30 Jul · Evening" — the shared next-event line. */
-function nextEventLabel(e: PartyHallEnquiry | undefined): string {
-  if (!e) return "No events booked";
-  const date = new Date(`${e.date}T00:00:00Z`).toLocaleDateString("en-IN", {
+/** "30 Jul" style day/month label, shared by the next-event line and the
+ *  rooms-tile availability window. */
+function dateLabel(date: string): string {
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString("en-IN", {
     day: "numeric",
     month: "short",
     timeZone: "UTC",
   });
-  return `${date} · ${SLOT_LABEL[e.slot]}`;
+}
+
+/** "30 Jul · Evening" — the shared next-event line. */
+function nextEventLabel(e: PartyHallEnquiry | undefined): string {
+  if (!e) return "No events scheduled";
+  return `${dateLabel(e.date)} · ${SLOT_LABEL[e.slot]}`;
+}
+
+/**
+ * Statuses that hold a date on the rooms tile: money has moved or the event
+ * is committed. Deliberately narrower than `isUpcomingEvent` (which the
+ * calendar rail's `bookedDaysIn` uses) — an un-quoted `enquiry` or a
+ * `quote_sent` nobody has paid on doesn't hold the hall, and telling the
+ * front desk a date is unavailable over a speculative ask would lose real
+ * bookings. Do not widen this to match the calendar; the two screens answer
+ * different questions.
+ */
+const TILE_BLOCKING_STATUS = new Set<PartyHallStatus>(["advance_paid", "confirmed"]);
+
+/**
+ * Ground-floor party-hall tile's availability line: the longest run of
+ * consecutive free days in the next 7 (today included). A day counts as
+ * taken only when it has a committed event — see `TILE_BLOCKING_STATUS`.
+ */
+function partyHallAvailability(partyHall: PartyHallEnquiry[], today: string): string {
+  const blocked = new Set(
+    partyHall.filter((e) => TILE_BLOCKING_STATUS.has(e.status)).map((e) => e.date),
+  );
+  const days = Array.from({ length: 7 }, (_, i) => shiftDate(today, i));
+
+  let bestStart = -1;
+  let bestLen = 0;
+  let runStart = -1;
+  for (let i = 0; i <= days.length; i++) {
+    const free = i < days.length && !blocked.has(days[i]);
+    if (free) {
+      if (runStart === -1) runStart = i;
+    } else if (runStart !== -1) {
+      const len = i - runStart;
+      if (len > bestLen) {
+        bestLen = len;
+        bestStart = runStart;
+      }
+      runStart = -1;
+    }
+  }
+
+  if (bestLen === 0) return "Fully booked this week";
+  const start = days[bestStart];
+  const end = days[bestStart + bestLen - 1];
+  return bestLen === 1
+    ? `Available ${dateLabel(start)}`
+    : `Available ${dateLabel(start)} – ${dateLabel(end)}`;
 }
 
 /** Room types are inventory, not booking data — static config, safe to ship. */
@@ -305,6 +455,158 @@ export interface NewBookingInput {
   mealPlan: MealPlan;
   /** Shared by every room created in one guest-flow checkout; see `Booking.batchId`. */
   batchId?: string;
+  /** Best-effort preferences + freeform note (#66/#67) — untrusted client input,
+   *  validated in `createBooking` (whitelist + length), never trusted as-is. */
+  requestPreferences?: GuestPreference[];
+  requestNote?: string;
+  /** Slice B: a request only, never an auto-charge — see `createBooking`. */
+  requestEarlyCheckIn?: boolean;
+  requestLateCheckOut?: boolean;
+  /** 0 (or omitted) means no mattress requested. */
+  requestExtraMattressQty?: number;
+}
+
+const GUEST_PREFERENCE_SET = new Set<string>(GUEST_PREFERENCES);
+const REQUEST_NOTE_MAX = 500;
+/** A guest can request at most this many extra mattresses at booking time;
+ *  more than that is a front-desk conversation, not a checkbox. */
+const MAX_MATTRESS_QTY = 3;
+
+/**
+ * Package tiers, per the design's reference card. Capacities ladder up to the
+ * hall's 150-guest ceiling; Platinum is quoted per-event rather than listed.
+ */
+export const PARTY_HALL_PACKAGES: PartyHallPackage[] = [
+  { name: "Silver", capacity: "up to 60", price: "from ₹35k" },
+  { name: "Gold", capacity: "up to 100", price: "from ₹60k" },
+  { name: "Platinum", capacity: "up to 150", price: "tailored" },
+];
+
+/** The add-on tag vocabulary a guest can request on an enquiry — the same set
+ *  admin cards already render as tags, so a guest's pick lines up with what
+ *  admin expects to see. */
+export const PARTY_HALL_ADD_ONS = ["Decor", "DJ", "Catering", "AV", "Projector", "Lunch Buffet"];
+
+/** The hall's stated guest ceiling (marketing copy: "up to 150 guests"). */
+export const MAX_PARTY_HALL_GUESTS = 150;
+
+export type PartyHallRates = Record<PartyHallRateKey, number>;
+
+/**
+ * Slice 2a defaults — also what a fresh `addon_settings` seed writes. Eight of
+ * these (everything but Catering and the advance) are ₹1 stand-ins: nobody
+ * has confirmed a real Silver/Gold/Platinum base or a Decor/DJ/AV/Projector/
+ * Lunch Buffet rate yet. Catering (₹450/plate) and the 25% advance are real,
+ * already-quoted figures — see `PARTY_HALL_PLACEHOLDER_KEYS` for which is which.
+ */
+export const PARTY_HALL_RATE_DEFAULTS: PartyHallRates = {
+  phBaseSilver: 1,
+  phBaseGold: 1,
+  phBasePlatinum: 1,
+  phDecor: 1,
+  phDJ: 1,
+  phAV: 1,
+  phProjector: 1,
+  phLunchBuffet: 1,
+  phCatering: 450,
+  phAdvancePct: PARTY_HALL_ADVANCE_PCT,
+};
+
+/** Rows still carrying the ₹1 placeholder — drives the Settings warning banner. */
+export const PARTY_HALL_PLACEHOLDER_KEYS: PartyHallRateKey[] = [
+  "phBaseSilver",
+  "phBaseGold",
+  "phBasePlatinum",
+  "phDecor",
+  "phDJ",
+  "phAV",
+  "phProjector",
+  "phLunchBuffet",
+];
+
+/** Owner override over default, same shape as `resolveAddOnRates`. */
+export function resolvePartyHallRates(
+  overrides?: BookingData["partyHallRateOverrides"],
+): PartyHallRates {
+  return {
+    phBaseSilver: overrides?.phBaseSilver ?? PARTY_HALL_RATE_DEFAULTS.phBaseSilver,
+    phBaseGold: overrides?.phBaseGold ?? PARTY_HALL_RATE_DEFAULTS.phBaseGold,
+    phBasePlatinum: overrides?.phBasePlatinum ?? PARTY_HALL_RATE_DEFAULTS.phBasePlatinum,
+    phDecor: overrides?.phDecor ?? PARTY_HALL_RATE_DEFAULTS.phDecor,
+    phDJ: overrides?.phDJ ?? PARTY_HALL_RATE_DEFAULTS.phDJ,
+    phAV: overrides?.phAV ?? PARTY_HALL_RATE_DEFAULTS.phAV,
+    phProjector: overrides?.phProjector ?? PARTY_HALL_RATE_DEFAULTS.phProjector,
+    phLunchBuffet: overrides?.phLunchBuffet ?? PARTY_HALL_RATE_DEFAULTS.phLunchBuffet,
+    phCatering: overrides?.phCatering ?? PARTY_HALL_RATE_DEFAULTS.phCatering,
+    phAdvancePct: overrides?.phAdvancePct ?? PARTY_HALL_RATE_DEFAULTS.phAdvancePct,
+  };
+}
+
+const PARTY_HALL_BASE_KEY: Record<string, PartyHallRateKey> = {
+  Silver: "phBaseSilver",
+  Gold: "phBaseGold",
+  Platinum: "phBasePlatinum",
+};
+
+/** Flat-fee add-ons: charged once per event, regardless of guest count. */
+const PARTY_HALL_FLAT_ADDON_KEY: Partial<Record<string, PartyHallRateKey>> = {
+  Decor: "phDecor",
+  DJ: "phDJ",
+  AV: "phAV",
+  Projector: "phProjector",
+};
+
+/** Per-guest add-ons: the only two with a documented per-head rate today. */
+const PARTY_HALL_PER_GUEST_ADDON_KEY: Partial<Record<string, PartyHallRateKey>> = {
+  Catering: "phCatering",
+  "Lunch Buffet": "phLunchBuffet",
+};
+
+export interface QuotePriceLine {
+  label: string;
+  amount: number;
+}
+
+/**
+ * The per-line breakdown a "Send quote" click freezes: the package base,
+ * then every requested add-on at its resolved rate — flat once per event, or
+ * × guests for the two catering-style add-ons, pre-multiplied into `amount`
+ * so nothing reading this later needs `guests` or a rate lookup to make
+ * sense of it. An add-on outside the known vocabulary (should never happen,
+ * `createPartyHallEnquiry` whitelists it) contributes nothing, same
+ * "don't trust what you can't place" posture as the rest of this file.
+ *
+ * `computePartyHallQuote` sums this — one computation, not two that could
+ * silently disagree.
+ */
+export function computePartyHallQuoteBreakdown(
+  e: Pick<PartyHallEnquiry, "package" | "addOns" | "guests">,
+  rates: PartyHallRates,
+): QuotePriceLine[] {
+  const lines: QuotePriceLine[] = [
+    { label: `${e.package} package`, amount: rates[PARTY_HALL_BASE_KEY[e.package]] ?? 0 },
+  ];
+  for (const addOn of e.addOns) {
+    const flatKey = PARTY_HALL_FLAT_ADDON_KEY[addOn];
+    if (flatKey) {
+      lines.push({ label: addOn, amount: rates[flatKey] });
+      continue;
+    }
+    const perGuestKey = PARTY_HALL_PER_GUEST_ADDON_KEY[addOn];
+    if (perGuestKey) lines.push({ label: addOn, amount: rates[perGuestKey] * e.guests });
+  }
+  return lines;
+}
+
+/**
+ * The quote a "Send quote" click commits to — the sum of
+ * `computePartyHallQuoteBreakdown`'s lines.
+ */
+export function computePartyHallQuote(
+  e: Pick<PartyHallEnquiry, "package" | "addOns" | "guests">,
+  rates: PartyHallRates,
+): number {
+  return computePartyHallQuoteBreakdown(e, rates).reduce((sum, line) => sum + line.amount, 0);
 }
 
 function nightsBetween(checkIn: string, checkOut: string): number {
@@ -367,6 +669,48 @@ export function createBooking(
     return { ok: false, error: `Room ${input.roomNo} does not exist.` };
   }
 
+  // Untrusted client input (createGuestBookingFn is unauthenticated) — whitelist
+  // the preference keys rather than trusting whatever the client sent, and
+  // reject an over-limit note outright rather than silently truncating it,
+  // which would lose the end of a real request.
+  const requestPreferences = (input.requestPreferences ?? []).filter((p) =>
+    GUEST_PREFERENCE_SET.has(p),
+  );
+  const requestNote = (input.requestNote ?? "").trim();
+  if (requestNote.length > REQUEST_NOTE_MAX) {
+    return { ok: false, error: `Request note must be ${REQUEST_NOTE_MAX} characters or fewer.` };
+  }
+  const specialRequest: GuestRequest | undefined =
+    requestPreferences.length > 0 || requestNote
+      ? { preferences: requestPreferences, ...(requestNote ? { note: requestNote } : {}) }
+      : undefined;
+
+  // Slice B: a checkbox/qty here only records a request — it never posts a
+  // charge. The admin resolves each pending entry (applied/declined) at
+  // their discretion, e.g. once they know the guest genuinely showed up
+  // early. See `resolveRequestedService`.
+  const mattressQty = Math.trunc(input.requestExtraMattressQty ?? 0);
+  if (mattressQty < 0 || mattressQty > MAX_MATTRESS_QTY) {
+    return {
+      ok: false,
+      error: `Extra mattress quantity must be between 0 and ${MAX_MATTRESS_QTY}.`,
+    };
+  }
+  const requestedServices: RequestedServices | undefined =
+    input.requestEarlyCheckIn || input.requestLateCheckOut || mattressQty > 0
+      ? {
+          ...(input.requestEarlyCheckIn
+            ? { earlyCheckIn: { requested: true, status: "pending" as const } }
+            : {}),
+          ...(input.requestLateCheckOut
+            ? { lateCheckOut: { requested: true, status: "pending" as const } }
+            : {}),
+          ...(mattressQty > 0
+            ? { extraMattress: { requested: true, status: "pending" as const, qty: mattressQty } }
+            : {}),
+        }
+      : undefined;
+
   const guest: Guest =
     state.guests.find((g) => g.phone === phone) ??
     withTier({
@@ -416,9 +760,528 @@ export function createBooking(
     status: "pending_payment",
     createdAt: new Date().toISOString(),
     batchId: input.batchId,
+    specialRequest,
+    requestedServices,
   });
 
   return { ok: true, guest, booking };
+}
+
+export interface NewGuestInput {
+  name: string;
+  phone: string;
+  email: string;
+  city: string;
+}
+
+/**
+ * Finds an existing guest whose phone matches `phone`, for the phone-
+ * collision check on create/edit below. Compares by `normalizePhone` when
+ * both sides resolve — so "9876543210" and "+91 98765 43210" collide, unlike
+ * `createBooking`'s raw-string match (see issue #92, filed rather than
+ * changed here: switching that match to normalized comparison is a real
+ * behaviour change with existing-data implications). Falls back to exact
+ * trimmed-string comparison when either side won't normalize, rather than
+ * letting an unresolvable number through unchecked. `excludeId` lets an edit
+ * exclude the guest's own row.
+ */
+function findGuestByPhone(guests: Guest[], phone: string, excludeId?: string): Guest | null {
+  const target = phone.trim();
+  const targetNormalized = normalizePhone(target);
+  return (
+    guests.find((g) => {
+      if (g.id === excludeId) return false;
+      const gNormalized = normalizePhone(g.phone);
+      return targetNormalized !== null && gNormalized !== null
+        ? targetNormalized === gNormalized
+        : g.phone.trim() === target;
+    }) ?? null
+  );
+}
+
+function phoneConflictError(guest: Guest, targetNormalized: string | null): string {
+  const base = `That number already belongs to ${guest.id}, ${guest.name}.`;
+  return targetNormalized
+    ? base
+    : `${base} (This number could not be normalized, so it was matched by exact text.)`;
+}
+
+/**
+ * The Guests directory's standalone "New guest" write (no booking attached)
+ * — reached from the "+" chooser. Phone collisions are blocked, not merged:
+ * merging would mean reassigning existing bookings/invoices to a surviving
+ * guest id, a much bigger feature than this form takes on. See
+ * `findGuestByPhone` for the comparison rule.
+ */
+export function createGuest(
+  state: { guests: Guest[] },
+  input: NewGuestInput,
+): Result<{ guest: Guest }> {
+  const name = input.name.trim();
+  const phone = input.phone.trim();
+  const email = input.email.trim();
+  const city = input.city.trim();
+  if (!name) return { ok: false, error: "Guest name is required." };
+  if (!phone) return { ok: false, error: "Guest phone is required." };
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, error: "Guest email is invalid." };
+  }
+
+  const conflict = findGuestByPhone(state.guests, phone);
+  if (conflict) {
+    return { ok: false, error: phoneConflictError(conflict, normalizePhone(phone)) };
+  }
+
+  const guest = withTier({
+    id: nextGuestId(state.guests),
+    name,
+    phone,
+    email,
+    city,
+    stays: 0,
+    lifetimeValue: 0,
+  });
+  return { ok: true, guest };
+}
+
+/**
+ * The Guests directory's "fix a guest's details" write. Only the
+ * user-entered fields (`name`/`phone`/`email`/`city`) are parameters here —
+ * `stays`/`lifetimeValue`/`tier` are derived (`withTier`) and this function
+ * has no way to accept them, so there is no path for a caller to smuggle a
+ * stat edit through this form. Same phone-collision rule as `createGuest`,
+ * excluding the guest's own row.
+ */
+export function updateGuest(
+  state: { guests: Guest[] },
+  id: string,
+  input: NewGuestInput,
+): Result<{ guest: Guest }> {
+  const existing = state.guests.find((g) => g.id === id);
+  if (!existing) return { ok: false, error: `Guest ${id} does not exist.` };
+
+  const name = input.name.trim();
+  const phone = input.phone.trim();
+  const email = input.email.trim();
+  const city = input.city.trim();
+  if (!name) return { ok: false, error: "Guest name is required." };
+  if (!phone) return { ok: false, error: "Guest phone is required." };
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, error: "Guest email is invalid." };
+  }
+
+  const conflict = findGuestByPhone(state.guests, phone, id);
+  if (conflict) {
+    return { ok: false, error: phoneConflictError(conflict, normalizePhone(phone)) };
+  }
+
+  const guest: Guest = { ...existing, name, phone, email, city };
+  return { ok: true, guest };
+}
+
+/** `PH-YYYYMMDD-nnn` — the next free sequence number for that calendar date,
+ *  same shape as `nextBookingId`. Keyed off the submission date, not the
+ *  requested event date — an enquiry made today for an event in three months
+ *  still gets today's prefix. */
+function nextEnquiryId(existingIds: string[], today: string): string {
+  const prefix = `PH-${today.replaceAll("-", "")}-`;
+  const max = existingIds
+    .filter((id) => id.startsWith(prefix))
+    .reduce((m, id) => Math.max(m, bookingNumber(id)), 0);
+  return `${prefix}${String(max + 1).padStart(3, "0")}`;
+}
+
+const PARTY_HALL_ADD_ONS_SET = new Set(PARTY_HALL_ADD_ONS);
+const PARTY_HALL_PACKAGE_NAMES = new Set(PARTY_HALL_PACKAGES.map((p) => p.name));
+const PARTY_HALL_SLOTS: readonly PartyHallSlot[] = ["morning", "afternoon", "evening", "full_day"];
+const PARTY_HALL_SLOT_SET = new Set<string>(PARTY_HALL_SLOTS);
+
+/** The guest form's Event Type choices — the whitelist the server actually
+ *  checks against, not just what the `Select` happens to offer. */
+export const PARTY_HALL_EVENT_TYPES = ["Wedding", "Reception", "Birthday", "Corporate", "Other"];
+const PARTY_HALL_EVENT_TYPE_SET = new Set(PARTY_HALL_EVENT_TYPES);
+
+/** Same cap as `requestNote` — long enough for a real occasion name, short
+ *  enough that it can't be used to smuggle in something else. */
+const OCCASION_NAME_MAX = 80;
+
+export interface NewPartyHallEnquiryInput {
+  eventType: string;
+  /** Optional, e.g. "Priya & Arjun's Reception" — composed onto `eventType`
+   *  to build the stored `title`, same "Type — Occasion" shape the seed data
+   *  already uses (e.g. "Reception — Priya & Arjun"). */
+  occasionName?: string;
+  date: string;
+  slot: PartyHallSlot;
+  guests: number;
+  package: string;
+  addOns: string[];
+  contactName: string;
+  contactPhone: string;
+  contactEmail: string;
+}
+
+/**
+ * The guest-facing enquiry form's only write (Tier 1 of the Party Hall
+ * audit): a pure rule, same shape as `createBooking` — it decides and
+ * returns, `bookings-data.ts` persists it. Unauthenticated input, so every
+ * field is independently validated here rather than trusted from the client,
+ * same discipline as `createBooking`'s `requestPreferences`/`requestNote`
+ * whitelisting.
+ *
+ * `status` always starts `"enquiry"` and `amount` always starts `0` — an
+ * admin quoting/confirming the event is Tier 2, out of scope here.
+ *
+ * Security property: `source` and `allowPastDate` are caller-set, never part
+ * of `input`. `createPartyHallEnquiryFn` (unauthenticated) passes client data
+ * straight through its `.validator` into `input` — if `allowPastDate` or
+ * `source` lived on `NewPartyHallEnquiryInput`, an anonymous caller could set
+ * either directly: waiving its own past-date check, or claiming
+ * `source: "walk_in"`/`"phone"` to suppress `derivePartyHallNotifications`'s
+ * new-enquiry alert for a submission nobody in the admin has actually seen.
+ * Because both are a separate parameter instead, only server code decides
+ * them — the public fn always gets the `source: "direct"` default and never
+ * passes `allowPastDate`; only `createPartyHallEnquiryAdminFn` (behind
+ * `requireBookingWriter`) sets `allowPastDate: true` and a real source.
+ */
+export function createPartyHallEnquiry(
+  state: { partyHall: PartyHallEnquiry[] },
+  input: NewPartyHallEnquiryInput,
+  today: string = new Date().toISOString().slice(0, 10),
+  { source, allowPastDate = false }: { source: PartyHallSource; allowPastDate?: boolean } = {
+    source: "direct",
+  },
+): Result<{ enquiry: PartyHallEnquiry }> {
+  const eventType = input.eventType.trim();
+  const occasionName = (input.occasionName ?? "").trim();
+  const contactName = input.contactName.trim();
+  const contactPhone = input.contactPhone.trim();
+  const contactEmail = input.contactEmail.trim();
+
+  if (!PARTY_HALL_EVENT_TYPE_SET.has(eventType)) {
+    return { ok: false, error: "Invalid event type." };
+  }
+  if (occasionName.length > OCCASION_NAME_MAX) {
+    return { ok: false, error: `Event title must be ${OCCASION_NAME_MAX} characters or fewer.` };
+  }
+  if (!input.date) return { ok: false, error: "Event date is required." };
+  if (!allowPastDate && input.date < today) {
+    return { ok: false, error: "Event date cannot be in the past." };
+  }
+  if (!PARTY_HALL_SLOT_SET.has(input.slot)) return { ok: false, error: "Invalid time slot." };
+  if (!Number.isInteger(input.guests) || input.guests < 1 || input.guests > MAX_PARTY_HALL_GUESTS) {
+    return { ok: false, error: `Guest count must be between 1 and ${MAX_PARTY_HALL_GUESTS}.` };
+  }
+  if (!PARTY_HALL_PACKAGE_NAMES.has(input.package)) {
+    return { ok: false, error: "Invalid package tier." };
+  }
+  const addOns = [...new Set(input.addOns)].filter((a) => PARTY_HALL_ADD_ONS_SET.has(a));
+  if (!contactName) return { ok: false, error: "Contact name is required." };
+  if (!contactPhone || !/^[0-9+()\-\s]{7,20}$/.test(contactPhone)) {
+    return { ok: false, error: "A valid contact phone is required." };
+  }
+  if (contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+    return { ok: false, error: "Contact email is invalid." };
+  }
+
+  const enquiry = withAdvance({
+    id: nextEnquiryId(
+      state.partyHall.map((e) => e.id),
+      today,
+    ),
+    title: occasionName ? `${eventType} — ${occasionName}` : eventType,
+    date: input.date,
+    slot: input.slot,
+    guests: input.guests,
+    package: input.package,
+    addOns,
+    status: "enquiry",
+    amount: 0,
+    createdAt: new Date().toISOString(),
+    contactName,
+    contactPhone,
+    contactEmail: contactEmail || undefined,
+    source,
+  });
+
+  return { ok: true, enquiry };
+}
+
+/**
+ * The pipeline write precondition: a status-changing write may only proceed
+ * if the row's actual status still matches what the caller last saw. Two
+ * concurrent clicks can both read the same status before either writes —
+ * this is what tells the second one its write is now stale.
+ *
+ * The single source of truth for that comparison — `updatePartyHallPipeline`
+ * calls this rather than re-deriving it, on both the no-DB fixtures path and
+ * (in spirit) the real `WHERE id = ? AND status = priorStatus`, so wiring the
+ * guard wrong means deleting a call site, not silently duplicating a check.
+ */
+export function partyHallTransitionAllowed(
+  actualStatus: PartyHallStatus,
+  priorStatus: PartyHallStatus,
+): boolean {
+  return actualStatus === priorStatus;
+}
+
+function findPartyHallEnquiry(
+  state: { partyHall: PartyHallEnquiry[] },
+  id: string,
+): Result<{ enquiry: PartyHallEnquiry }> {
+  const enquiry = state.partyHall.find((e) => e.id === id);
+  if (!enquiry) return { ok: false, error: "Enquiry not found." };
+  return { ok: true, enquiry };
+}
+
+/**
+ * Slice 2a's first real pipeline action: quotes a fresh enquiry at its
+ * package + add-ons, snapshotting the rate in force right now — same
+ * snapshot-at-charge-time discipline as `resolveRequestedService`, so a later
+ * rate change (once real numbers replace the placeholders) never reprices an
+ * enquiry that was already quoted against the ₹1 stand-ins.
+ */
+export function sendPartyHallQuote(
+  state: { partyHall: PartyHallEnquiry[] },
+  id: string,
+  rates: PartyHallRates,
+  advancePct: number = PARTY_HALL_ADVANCE_PCT,
+): Result<{ enquiry: PartyHallEnquiry }> {
+  const found = findPartyHallEnquiry(state, id);
+  if (!found.ok) return found;
+  if (found.enquiry.status !== "enquiry") {
+    return { ok: false, error: "Only a new enquiry can be quoted." };
+  }
+  const quoteBreakdown = computePartyHallQuoteBreakdown(found.enquiry, rates);
+  const amount = quoteBreakdown.reduce((sum, line) => sum + line.amount, 0);
+  return {
+    ok: true,
+    enquiry: withAdvance(
+      {
+        ...found.enquiry,
+        status: "quote_sent",
+        amount,
+        quotedAt: new Date().toISOString(),
+        quoteBreakdown,
+      },
+      advancePct,
+    ),
+  };
+}
+
+/**
+ * Admin-recorded advance (Tier 2 design): a deliberate second click from
+ * "quote sent", never inferred from a payment gateway — the hall takes
+ * advances by hand (cash, UPI, bank transfer), so nothing here can watch for
+ * one arriving. Kept a separate action from `confirmPartyHallEvent` (Option
+ * A) rather than folding "advance in hand" and "date confirmed" into one
+ * click — the hall sometimes holds an advance for a day or two before the
+ * booking is locked in.
+ */
+export function recordPartyHallAdvance(
+  state: { partyHall: PartyHallEnquiry[] },
+  id: string,
+  advancePct: number = PARTY_HALL_ADVANCE_PCT,
+): Result<{ enquiry: PartyHallEnquiry }> {
+  const found = findPartyHallEnquiry(state, id);
+  if (!found.ok) return found;
+  if (found.enquiry.status !== "quote_sent") {
+    return { ok: false, error: "Only a quoted enquiry can have its advance recorded." };
+  }
+  const advanceAmount = partyHallAdvance(found.enquiry.amount, advancePct);
+  return {
+    ok: true,
+    enquiry: withAdvance(
+      { ...found.enquiry, status: "advance_paid", advanceAmount, advancePct },
+      advancePct,
+    ),
+  };
+}
+
+/** The second half of Option A: locks the date in once the advance is in hand. */
+export function confirmPartyHallEvent(
+  state: { partyHall: PartyHallEnquiry[] },
+  id: string,
+  advancePct: number = PARTY_HALL_ADVANCE_PCT,
+): Result<{ enquiry: PartyHallEnquiry }> {
+  const found = findPartyHallEnquiry(state, id);
+  if (!found.ok) return found;
+  if (found.enquiry.status !== "advance_paid") {
+    return { ok: false, error: "Record the advance before confirming." };
+  }
+  return {
+    ok: true,
+    enquiry: withAdvance({ ...found.enquiry, status: "confirmed" }, advancePct),
+  };
+}
+
+/**
+ * Terminal step past `confirmed` — the event happened. Deliberately only
+ * reachable from `confirmed`, not `advance_paid`: an event that never got
+ * its date locked in was never actually held, so there's nothing to mark
+ * complete. No date check here (e.g. requiring the event date to have
+ * passed) — that's a UI nudge (the past-due badge), not a write guard; an
+ * admin closing out an event early (say, it ran a day ahead of schedule)
+ * shouldn't be blocked by a hardcoded date rule.
+ */
+export function completePartyHallEvent(
+  state: { partyHall: PartyHallEnquiry[] },
+  id: string,
+): Result<{ enquiry: PartyHallEnquiry }> {
+  const found = findPartyHallEnquiry(state, id);
+  if (!found.ok) return found;
+  if (found.enquiry.status !== "confirmed") {
+    return { ok: false, error: "Only a confirmed event can be marked completed." };
+  }
+  return { ok: true, enquiry: { ...found.enquiry, status: "completed" } };
+}
+
+/**
+ * Declines a quote — before any money has moved, which is why this is only
+ * reachable from `enquiry`/`quote_sent` and not from `advance_paid` onward
+ * (a booking falling through after the advance is a different, out-of-scope
+ * situation, not a decline). Non-destructive: the enquiry, its amount and its
+ * add-ons all survive untouched, so `reopenPartyHallEnquiry` has something
+ * real to reopen rather than a blank quote.
+ */
+export function declinePartyHallEnquiry(
+  state: { partyHall: PartyHallEnquiry[] },
+  id: string,
+): Result<{ enquiry: PartyHallEnquiry }> {
+  const found = findPartyHallEnquiry(state, id);
+  if (!found.ok) return found;
+  if (found.enquiry.status !== "enquiry" && found.enquiry.status !== "quote_sent") {
+    return { ok: false, error: "Only an unconfirmed enquiry can be declined." };
+  }
+  return { ok: true, enquiry: { ...found.enquiry, status: "declined" } };
+}
+
+/** `declined` is not a dead end (mirrors Slice B's reversed→applied fix): it
+ *  reopens back to whatever it was before the decline. `declinePartyHallEnquiry`
+ *  allows declining straight from `enquiry` — before any quote exists — so the
+ *  target can't be hardcoded to `quote_sent`; it must be derived from whether
+ *  a quote is actually on the record. `amount > 0` is that signal (never `0`
+ *  until `sendPartyHallQuote` sets it) and, unlike `quotedAt`, it needs no
+ *  backfill: every pre-0011 row already has the right amount to derive from. */
+export function reopenPartyHallEnquiry(
+  state: { partyHall: PartyHallEnquiry[] },
+  id: string,
+): Result<{ enquiry: PartyHallEnquiry }> {
+  const found = findPartyHallEnquiry(state, id);
+  if (!found.ok) return found;
+  if (found.enquiry.status !== "declined") {
+    return { ok: false, error: "Only a declined enquiry can be reopened." };
+  }
+  const status = found.enquiry.amount > 0 ? "quote_sent" : "enquiry";
+  return { ok: true, enquiry: { ...found.enquiry, status } };
+}
+
+/**
+ * Calls off an event after money has already moved — distinct from
+ * `declinePartyHallEnquiry`, which only ever fires before a rupee changes
+ * hands. Reachable from `advance_paid` (the advance came in, then the booking
+ * fell through before Confirm) and from `confirmed` (fell through after the
+ * date was locked in) — both leave an advance on the books, so both stamp
+ * `refundedAt` alongside the status change. Terminal: unlike `declined`,
+ * there is no reopen path back — resurrecting a cancelled, money-collected
+ * booking is a new enquiry's worth of decisions, not a state flip.
+ */
+export function cancelPartyHallEvent(
+  state: { partyHall: PartyHallEnquiry[] },
+  id: string,
+): Result<{ enquiry: PartyHallEnquiry }> {
+  const found = findPartyHallEnquiry(state, id);
+  if (!found.ok) return found;
+  if (found.enquiry.status !== "advance_paid" && found.enquiry.status !== "confirmed") {
+    return { ok: false, error: "Only a booking with an advance on record can be cancelled." };
+  }
+  return {
+    ok: true,
+    enquiry: {
+      ...found.enquiry,
+      status: "cancelled",
+      refundedAt: new Date().toISOString(),
+    },
+  };
+}
+
+/**
+ * Slice B's admin resolution of a Slice-B service request: apply (post the
+ * charge, snapshotting the current Settings rate), decline (no charge, kept
+ * on record), or reverse an already-applied charge (undo the charge, kept on
+ * record as `reversed` — distinct from `declined`, which means never
+ * charged at all). Also covers the walk-in path — an admin can apply a
+ * charge the guest never requested, which creates the entry as already
+ * `applied` since there was no request to resolve.
+ *
+ * A pure rule, same shape as `assignBookingRoom`: it decides and returns the
+ * booking's new `revenue`/`requestedServices`; `bookings-data.ts` persists it.
+ */
+export function resolveRequestedService(
+  state: { addOnRateOverrides?: BookingData["addOnRateOverrides"] },
+  booking: Booking,
+  service: AddOnServiceKey,
+  action: "applied" | "declined" | "reversed",
+  /** Mattress count for a walk-in add with no prior guest request; ignored
+   *  otherwise (a pending request's own `qty` is what gets charged). */
+  mattressQty = 1,
+): Result<{ revenue: BookingRevenue; requestedServices: RequestedServices; note?: string }> {
+  const existing = booking.requestedServices?.[service];
+
+  if (action === "reversed") {
+    if (!existing || existing.status !== "applied") {
+      return {
+        ok: false,
+        error: `${service} has not been applied, so there is nothing to reverse.`,
+      };
+    }
+    // Applying/declining is blocked only while a charge is currently in
+    // force — `pending`, `declined`, and `reversed` are all "open" states an
+    // admin can still act on, same as a service with no entry at all. This
+    // is what lets a reversed charge be re-applied instead of dead-ending.
+  } else if (existing && existing.status === "applied") {
+    return { ok: false, error: `${service} is already applied — reverse it first.` };
+  }
+  if (action === "applied" && service === "extraMattress" && !existing) {
+    if (!Number.isInteger(mattressQty) || mattressQty < 1 || mattressQty > MAX_MATTRESS_QTY) {
+      return {
+        ok: false,
+        error: `Extra mattress quantity must be between 1 and ${MAX_MATTRESS_QTY}.`,
+      };
+    }
+  }
+
+  const rates = resolveAddOnRates(state.addOnRateOverrides);
+  const revenue = { ...booking.revenue };
+  let note = booking.revenueOtherNote;
+  const qty = existing && "qty" in existing ? existing.qty : mattressQty;
+
+  if (action === "applied") {
+    if (service === "earlyCheckIn") revenue.earlyCheckIn = rates.earlyCheckIn;
+    else if (service === "lateCheckOut") revenue.lateCheckOut = rates.lateCheckOut;
+    else {
+      revenue.other += rates.extraMattress * qty;
+      const label = `Extra mattress ×${qty}`;
+      note = note ? `${note}, ${label}` : label;
+    }
+  } else if (action === "reversed") {
+    if (service === "earlyCheckIn") revenue.earlyCheckIn = 0;
+    else if (service === "lateCheckOut") revenue.lateCheckOut = 0;
+    else {
+      revenue.other = 0;
+      note = undefined;
+    }
+  }
+
+  const requestedServices: RequestedServices = {
+    ...booking.requestedServices,
+    [service]:
+      service === "extraMattress"
+        ? { requested: existing?.requested ?? false, status: action, qty }
+        : { requested: existing?.requested ?? false, status: action },
+  };
+
+  return { ok: true, revenue, requestedServices, note };
 }
 
 export interface AvailabilityQuery {
@@ -550,7 +1413,10 @@ export function markBookingPaid(
 }
 
 /** Statuses that hold a physical room off the market. */
-const OCCUPYING_STATUSES = new Set(["confirmed", "checked_in", "pending_payment"]);
+export const OCCUPYING_STATUSES = new Set(["confirmed", "checked_in", "pending_payment"]);
+
+/** A stay the guest never took. Money held against one is owed back, not earned. */
+const VOID_STAY_STATUSES = new Set<BookingStatus>(["cancelled", "no_show"]);
 
 /** A stay that has begun — the guest has arrived, whether in-house or gone. */
 const ARRIVED_STATUSES = new Set<BookingStatus>(["checked_in", "checked_out"]);
@@ -711,12 +1577,15 @@ export function assignBookingRoom(
         error: "Check the guest out, or assign a different room, before unassigning this one.",
       };
     }
-    return { ok: true, booking: { ...booking, roomNo: null } };
+    return { ok: true, booking: { ...booking, roomNo: null, roomAssignedAt: undefined } };
   }
 
   const error = assignableRoomError(data, booking, roomNo);
   if (error) return { ok: false, error };
-  return { ok: true, booking: { ...booking, roomNo } };
+  return {
+    ok: true,
+    booking: { ...booking, roomNo, roomAssignedAt: new Date().toISOString() },
+  };
 }
 
 /**
@@ -887,6 +1756,25 @@ function occupiedRoomsOn(bookings: Booking[], onDate: string): Set<string> {
 }
 
 /**
+ * Bookings whose stay starts or ends on `date`, for the day-details card's
+ * Arrivals/Departures rows. Deliberately not `OCCUPYING_STATUSES` — that set
+ * drops `checked_out`, which would zero out arrival/departure counts for any
+ * past date once its guests have since left. The only bookings that
+ * shouldn't count are ones where nobody actually moved: `cancelled` and
+ * `no_show`. `pending_payment` counts as an expected arrival (Pay-at-Hotel is
+ * the normal pre-arrival state here, consistent with
+ * `AWAITING_ARRIVAL_STATUSES` grouping it with `confirmed`).
+ */
+function arrivalsOn(bookings: Booking[], date: string): Booking[] {
+  return bookings.filter((b) => b.checkIn === date && !VOID_STAY_STATUSES.has(b.status));
+}
+
+/** See `arrivalsOn` — same non-void predicate, keyed on `checkOut` instead. */
+function departuresOn(bookings: Booking[], date: string): Booking[] {
+  return bookings.filter((b) => b.checkOut === date && !VOID_STAY_STATUSES.has(b.status));
+}
+
+/**
  * Everything the admin Bookings screen renders. Summary figures, tab counts
  * and the period-totals footer are all derived from the live booking set (not
  * seeded), so "totals auto" holds and the numbers stay honest across edits.
@@ -955,7 +1843,16 @@ export async function getBookingsPageData(
     0,
   );
 
+  const unassignedRooms = data.bookings.filter(
+    (b) => b.roomNo === null && OCCUPYING_STATUSES.has(b.status),
+  ).length;
+
   const summary: BookingsPageData["summary"] = [
+    {
+      key: "unassignedRooms",
+      label: "Unassigned rooms",
+      value: String(unassignedRooms),
+    },
     {
       key: "checkInsToday",
       label: "Today's check-ins",
@@ -1056,6 +1953,7 @@ function buildRoomTile(unit: RoomUnit): RoomTile {
     floor: unit.floor,
     status: seed?.status ?? "available",
     detail: seed?.detail ?? "Ready",
+    sizeSqm: null,
   };
 }
 
@@ -1063,6 +1961,109 @@ function buildRoomTile(unit: RoomUnit): RoomTile {
  *  every function here uses when `data.rooms` is not supplied. */
 export function defaultRoomTiles(): RoomTile[] {
   return ROOM_UNITS.map(buildRoomTile);
+}
+
+/**
+ * Room Settings redesign (slice B): statuses that count as "a real body in
+ * the room tonight." Deliberately wider than `liveRoomTiles`'s `occupied`
+ * status — a `confirmed` booking that was never manually flipped to
+ * `checked_in` still holds the room. Shared by `currentOccupant` (one room)
+ * and `inHouseGuestsOn` (the whole house) so the two can't drift apart.
+ */
+const IN_HOUSE_STATUSES = new Set<BookingStatus>(["checked_in", "confirmed"]);
+
+/**
+ * Who's actually in `roomNo` tonight, for the per-room table. `checkOut` is
+ * exclusive (`check_out > today`, not `>=`): a guest checking out today has
+ * already vacated by the time "tonight" is asked about.
+ *
+ * Multiple matches for one room are a data artifact (see #85's drift), not
+ * something to throw on — the earliest `checkIn` wins and one name is always
+ * returned rather than an error surfacing on a settings screen.
+ */
+export function currentOccupant(
+  roomNo: string,
+  bookings: Booking[],
+  guests: Guest[],
+  today: string,
+): string | null {
+  const matches = bookings
+    .filter(
+      (b) =>
+        b.roomNo === roomNo &&
+        IN_HOUSE_STATUSES.has(b.status) &&
+        b.checkIn <= today &&
+        today < b.checkOut,
+    )
+    .sort((a, b) => a.checkIn.localeCompare(b.checkIn));
+  const occupant = matches[0];
+  if (!occupant) return null;
+  return guests.find((g) => g.id === occupant.guestId)?.name ?? null;
+}
+
+/**
+ * The day-details card's in-house guest list: every guest occupying a room
+ * on `date`, same predicate as `currentOccupant` (`checked_in`/`confirmed`,
+ * `checkOut` exclusive) but for the whole house instead of one room.
+ * Unassigned bookings (no `roomNo`) can't appear on a room list and are
+ * skipped, same as `occupiedRoomsOn`. Sorted by room number so the card's
+ * "+{n} more" truncation is stable.
+ */
+export function inHouseGuestsOn(
+  bookings: Booking[],
+  guests: Guest[],
+  date: string,
+): Array<{ guestName: string; roomNo: string }> {
+  const guestName = new Map(guests.map((g) => [g.id, g.name]));
+  return bookings
+    .filter(
+      (b) => b.roomNo && IN_HOUSE_STATUSES.has(b.status) && b.checkIn <= date && date < b.checkOut,
+    )
+    .map((b) => ({ guestName: guestName.get(b.guestId) ?? "—", roomNo: b.roomNo! }))
+    .sort((a, b) => a.roomNo.localeCompare(b.roomNo, undefined, { numeric: true }));
+}
+
+/** Whether `no` is already on the floor board — the duplicate-number guard
+ *  `validateAddRoom` composes with. */
+export function roomNumberTaken(rooms: RoomTile[], no: string): boolean {
+  return rooms.some((r) => r.no === no);
+}
+
+/**
+ * Whether a room can be hard-deleted. Counts *every* booking ever placed in
+ * the room, not just currently-occupying ones — a checked-out booking from
+ * months ago still needs the room row to exist for its history to make
+ * sense, so it blocks deletion exactly like an active one does. No cascade,
+ * no soft-delete: the caller either can't delete, or the row is just gone.
+ */
+export function canDeleteRoom(bookings: Booking[], roomNo: string): boolean {
+  return !bookings.some((b) => b.roomNo === roomNo);
+}
+
+/**
+ * Settings' "Add room" rule — same shape as `createGuest`'s phone-collision
+ * guard: a pure check the server fn asks before it writes, so the error
+ * message that names the conflict lives in one place, not duplicated between
+ * a client-side check and the write path.
+ */
+export function validateAddRoom(
+  rooms: RoomTile[],
+  no: string,
+  floor: 1 | 2,
+  type: RoomType,
+): Result {
+  const trimmed = no.trim();
+  if (!trimmed) return { ok: false, error: "Room number is required." };
+  if (roomNumberTaken(rooms, trimmed)) {
+    return { ok: false, error: `Room ${trimmed} already exists.` };
+  }
+  if (floor !== 1 && floor !== 2) {
+    return { ok: false, error: "Floor must be 1 or 2." };
+  }
+  if (type !== "deluxe" && type !== "deluxe_balcony") {
+    return { ok: false, error: "Unrecognized room type." };
+  }
+  return { ok: true };
 }
 
 /**
@@ -1082,6 +2083,39 @@ export function resolveRoomTypes(
     areaSqm: overrides?.[rt.type]?.areaSqm ?? rt.areaSqm,
     pricePerNight: overrides?.[rt.type]?.pricePerNight ?? rt.pricePerNight,
   }));
+}
+
+/**
+ * The three Slice B add-on rates, blending persisted overrides over the
+ * defaults above — same "override over default" shape as `resolveRoomTypes`,
+ * so a rate shown in Settings, quoted to a guest, and snapshotted onto a
+ * booking can never disagree.
+ */
+export function resolveGstPct(override?: BookingData["gstRateOverride"]): number {
+  return override ?? GST_PCT;
+}
+
+/**
+ * The GST write-path guard — pulled out as a pure rule, same reason
+ * `validateAddRoom` is, so the write handler and a test can agree on exactly
+ * what "obviously wrong" means without duplicating the bounds. Stricter than
+ * a plain add-on rate (which only rejects negative): 0% and anything over
+ * 100% are both rejected too, since this is the one field on the panel where
+ * a bad save mis-taxes every invoice issued after it, not just one booking.
+ */
+export function validateGstPct(pct: number): Result {
+  if (!Number.isFinite(pct) || pct <= 0 || pct > 100) {
+    return { ok: false, error: "GST rate must be greater than 0 and no more than 100." };
+  }
+  return { ok: true };
+}
+
+export function resolveAddOnRates(overrides?: BookingData["addOnRateOverrides"]): AddOnRates {
+  return {
+    earlyCheckIn: overrides?.earlyCheckIn ?? EARLY_CHECKIN_FEE,
+    lateCheckOut: overrides?.lateCheckOut ?? LATE_CHECKOUT_FEE,
+    extraMattress: overrides?.extraMattress ?? EXTRA_MATTRESS_FEE,
+  };
 }
 
 /**
@@ -1142,9 +2176,15 @@ export async function getRoomsPageData(
     };
   });
 
+  const nextEvent = nextPartyHallEvent(data.partyHall, today);
   const partyHall = {
-    nextLabel: nextEventLabel(nextPartyHallEvent(data.partyHall)),
-    availability: "Available 14–21 Jul",
+    nextLabel: nextEventLabel(nextEvent),
+    // No events at all: "Next" already says "No events scheduled" — an
+    // availability window under that is noise, so this line stays empty.
+    // Once there's a next event, the line always renders, including the
+    // fully-booked case ("Fully booked this week") — an absent line there
+    // would read as a broken tile, not a true "nothing free".
+    availability: nextEvent ? partyHallAvailability(data.partyHall, today) : "",
   };
 
   const summaryLine = `${tiles.length} rooms · ${countByStatus.occupied} occupied · ${countByStatus.available} available tonight · 1 party hall`;
@@ -1167,65 +2207,56 @@ const CALENDAR_WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const BAND_LABEL: Record<OccupancyBand, string> = {
   low: "Low (<40%)",
   medium: "Medium",
-  high: "High (>70%)",
+  high: "High (70%+)",
   full: "Full",
 };
 
 /** Legend order — matches the design's swatch row. */
 const BAND_ORDER: OccupancyBand[] = ["low", "medium", "high", "full"];
 
-/**
- * Occupied-room count per day of July 2026, mirroring `Admin Calendar.dc.html`.
- *
- * As with the rooms floor board, the booking seed is too small to paint a
- * plausible month, so the display month is seeded; every other month derives
- * from the live booking set via `occupiedRoomsOn`. The design fixes *percents*,
- * but they are all exactly `round(n / 14 * 100)` for a whole n, so we seed n and
- * derive the percent back — that keeps the "% + n/14" pair honest by construction.
- */
-const JULY_2026_OCCUPANCY: Record<number, number> = {
-  1: 5,
-  2: 6,
-  3: 7,
-  4: 10,
-  5: 9,
-  6: 7,
-  7: 6,
-  8: 8,
-  9: 9,
-  10: 11,
-  11: 12,
-  12: 10,
-  13: 9,
-  14: 9,
-  15: 7,
-  16: 8,
-  17: 10,
-  18: 11,
-  19: 13,
-  20: 12,
-  21: 9,
-  22: 10,
-  23: 11,
-  24: 12,
-  25: 14,
-  26: 14,
-  27: 12,
-  28: 10,
-  29: 9,
-  30: 11,
-  31: 10,
-};
+export interface CalendarMonth {
+  year: number;
+  month: number;
+}
 
 /**
- * Party-hall events by ISO date, seeded for the July display month per the
- * design. Merged with the live enquiry set below so other months stay truthful.
+ * Parses the `year`/`month` search params for the admin Calendar and Party
+ * Hall screens. Malformed in *either* piece — non-numeric, `month` outside
+ * 1–12, `year` outside a sane range — falls back to the whole pair, not just
+ * the bad one: a garbled URL lands on "today" entirely, rather than a hybrid
+ * like a valid year paired with today's month that nobody asked for.
+ *
+ * `now` is a parameter (not read internally) so this stays pure and
+ * deterministic to test.
  */
-const CALENDAR_EVENT_SEED: Record<string, string> = {
-  "2026-07-12": "Birthday · 55 pax",
-  "2026-07-22": "Reception · 140 pax",
-  "2026-07-30": "Wedding · 150 pax",
-};
+export function normalizeCalendarSearch(
+  input: { year?: unknown; month?: unknown },
+  now: Date = new Date(),
+): CalendarMonth {
+  const year = Number(input.year);
+  const month = Number(input.month);
+  const valid =
+    Number.isInteger(year) &&
+    Number.isInteger(month) &&
+    month >= 1 &&
+    month <= 12 &&
+    year >= 1970 &&
+    year <= 2100;
+  if (valid) return { year, month };
+  return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 };
+}
+
+/**
+ * `year`/`month` shifted by `delta` months, rolling the year at the Dec/Jan
+ * boundary — `delta` is ±1 for Prev/Next, but this holds for any integer step.
+ */
+export function shiftCalendarMonth(year: number, month: number, delta: number): CalendarMonth {
+  const zeroBased = month - 1 + delta;
+  return {
+    year: year + Math.floor(zeroBased / 12),
+    month: (((zeroBased % 12) + 12) % 12) + 1,
+  };
+}
 
 /** Occupancy percent → shading band. Thresholds mirror the legend. */
 export function occupancyBand(pct: number): OccupancyBand {
@@ -1233,26 +2264,6 @@ export function occupancyBand(pct: number): OccupancyBand {
   if (pct >= 70) return "high";
   if (pct >= 40) return "medium";
   return "low";
-}
-
-/** Party-hall events for a month: design seed first, then live enquiries. */
-function eventsForMonth(
-  partyHall: PartyHallEnquiry[],
-  year: number,
-  month: number,
-): Map<string, string> {
-  const prefix = `${year}-${String(month).padStart(2, "0")}`;
-  const events = new Map<string, string>();
-
-  for (const e of partyHall) {
-    if (!isUpcomingEvent(e) || !e.date.startsWith(prefix)) continue;
-    events.set(e.date, `${e.title} · ${e.guests} pax`);
-  }
-  // Seed wins — it is what the design shows for the July display month.
-  for (const [date, label] of Object.entries(CALENDAR_EVENT_SEED)) {
-    if (date.startsWith(prefix)) events.set(date, label);
-  }
-  return events;
 }
 
 /**
@@ -1264,10 +2275,24 @@ export async function getCalendarPageData(
   year = 2026,
   month = 7,
 ): Promise<CalendarPageData> {
-  const total = ROOM_NUMBERS.length;
-  const isDisplayMonth = year === 2026 && month === 7;
-  const events = eventsForMonth(data.partyHall, year, month);
-
+  // The denominator is live and maintenance-aware: a room under maintenance
+  // isn't sellable inventory, so it comes out of the total rather than
+  // counting toward it (a `cleaning` room is a same-day turnover state, still
+  // sellable, and stays in). This isn't a per-day figure — room status has no
+  // date-ranged history in this schema — so every day in the grid is measured
+  // against the same sellable count, computed once here.
+  //
+  // KNOWN LIMITATION: because there's no history, this is also today's
+  // maintenance status applied retroactively. Put a room into maintenance
+  // this morning and every past day in the currently-rendered month reflects
+  // that room as unsellable, including days last week when it was actually
+  // available and sold. Past-month occupancy percentages are therefore not
+  // historically reliable — they reflect current room status, not the status
+  // in force on the date shown. Fixing this needs a room-status history
+  // table; not worth building for this fix.
+  const rooms = data.rooms ?? defaultRoomTiles();
+  const maintenanceRooms = rooms.filter((r) => r.status === "maintenance").length;
+  const total = rooms.length - maintenanceRooms;
   // UTC throughout: local-time dates shift the weekday offset west of GMT.
   const firstOfMonth = new Date(Date.UTC(year, month - 1, 1));
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
@@ -1276,21 +2301,27 @@ export async function getCalendarPageData(
   const cells: CalendarCell[] = [];
   for (let i = 0; i < leadingBlanks; i++) cells.push({ kind: "blank" });
 
+  // The day-details card's data is folded in here rather than fetched on
+  // click: `data` is already the whole in-memory BookingData load() produced
+  // for this page render, so deriving every day's card up front is pure CPU
+  // over data already in hand — not a second DB read per day, and not one
+  // per click either.
+  const dayDetails: Record<string, CalendarDayDetails> = {};
+
   for (let day = 1; day <= daysInMonth; day++) {
     const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    const occupied = isDisplayMonth
-      ? JULY_2026_OCCUPANCY[day]
-      : occupiedRoomsOn(data.bookings, date).size;
-    const pct = Math.round((occupied / total) * 100);
+    const details = getCalendarDayDetails(data, date);
+    dayDetails[date] = details;
     cells.push({
       kind: "day",
       date,
       day,
-      occupied,
-      total,
-      pct,
-      band: occupancyBand(pct),
-      event: events.get(date) ?? null,
+      occupied: details.occupied,
+      total: details.total,
+      maintenanceRooms,
+      pct: details.pct,
+      band: occupancyBand(details.pct),
+      event: details.event,
     });
   }
 
@@ -1308,6 +2339,39 @@ export async function getCalendarPageData(
     cells,
     legend: BAND_ORDER.map((band) => ({ band, label: BAND_LABEL[band] })),
     totalRooms: total,
+    maintenanceRooms,
+    dayDetails,
+  };
+}
+
+/**
+ * The day-details card's data for one clicked day. `occupied`/`total`/`pct`
+ * reuse `occupiedRoomsOn` — the same derivation `getCalendarPageData` feeds
+ * the cell's own bar and caption with — so the card can never show a
+ * different number than the grid it was opened from. `event` matches the
+ * cell's pill for the same reason: same non-void-non-cancelled statuses
+ * (`isUpcomingEvent`, no `today`), not `TILE_BLOCKING_STATUS` — that set is
+ * a Rooms-tile sellability concern, unrelated to what the pill already
+ * signaled.
+ */
+export function getCalendarDayDetails(data: BookingData, date: string): CalendarDayDetails {
+  const rooms = data.rooms ?? defaultRoomTiles();
+  const maintenanceRooms = rooms.filter((r) => r.status === "maintenance").length;
+  const total = rooms.length - maintenanceRooms;
+  const occupied = occupiedRoomsOn(data.bookings, date).size;
+  const pct = Math.round((occupied / total) * 100);
+
+  const event = data.partyHall.find((e) => e.date === date && isUpcomingEvent(e));
+
+  return {
+    date,
+    occupied,
+    total,
+    pct,
+    arrivals: arrivalsOn(data.bookings, date).length,
+    departures: departuresOn(data.bookings, date).length,
+    event: event ? `${event.title} · ${event.guests} pax` : null,
+    inHouseGuests: inHouseGuestsOn(data.bookings, data.guests, date),
   };
 }
 
@@ -1319,6 +2383,7 @@ const PARTY_HALL_STATUS_LABEL: Record<PartyHallStatus, string> = {
   advance_paid: "Advance paid",
   confirmed: "Confirmed",
   completed: "Completed",
+  declined: "Declined",
   cancelled: "Cancelled",
 };
 
@@ -1329,17 +2394,8 @@ const PARTY_HALL_STATUS_ORDER: PartyHallStatus[] = [
   "advance_paid",
   "confirmed",
   "completed",
+  "declined",
   "cancelled",
-];
-
-/**
- * Package tiers, per the design's reference card. Capacities ladder up to the
- * hall's 150-guest ceiling; Platinum is quoted per-event rather than listed.
- */
-const PARTY_HALL_PACKAGES: PartyHallPackage[] = [
-  { name: "Silver", capacity: "up to 60", price: "from ₹35k" },
-  { name: "Gold", capacity: "up to 100", price: "from ₹60k" },
-  { name: "Platinum", capacity: "up to 150", price: "tailored" },
 ];
 
 /** Slot line for a card: "Full day" reads oddly as "Full day slot". */
@@ -1354,24 +2410,43 @@ function metaNote(e: PartyHallEnquiry): string {
       return "awaiting quote";
     case "quote_sent":
       return "quote sent";
-    case "advance_paid":
-      return `advance ${formatINRCompact(e.advancePaid)} paid`;
+    case "advance_paid": {
+      // `advancePct` is the rate snapshotted at record time — shown for
+      // context alongside the amount, never read back into a recompute.
+      const pct = e.advancePct != null ? ` (${e.advancePct}%)` : "";
+      return `advance ${formatINRCompact(e.advancePaid)}${pct} paid`;
+    }
     case "confirmed":
       return "balance due on day";
     case "completed":
       return "settled";
+    case "declined":
+      return "declined";
     case "cancelled":
       return "cancelled";
   }
 }
 
-/** What the card's amount means, given where the event sits in the pipeline. */
-function amountLabel(status: PartyHallStatus): string {
+/** What the card's amount means, given where the event sits in the pipeline.
+ *  `quote_sent`/`declined` append the quote date when one is on record —
+ *  `quotedAt` is null for every row quoted before migration 0011, so this
+ *  must degrade to the plain "Quoted" caption rather than render "on null"
+ *  or "on Invalid Date" for those. */
+function amountLabel(status: PartyHallStatus, quotedAt?: string): string {
   switch (status) {
     case "enquiry":
       return "Est. quote";
     case "quote_sent":
-      return "Quoted";
+    case "declined": {
+      if (!quotedAt) return "Quoted";
+      const date = new Date(quotedAt).toLocaleDateString("en-IN", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        timeZone: "UTC",
+      });
+      return `Quoted on ${date}`;
+    }
     case "completed":
       return "Collected";
     default:
@@ -1380,40 +2455,87 @@ function amountLabel(status: PartyHallStatus): string {
 }
 
 /**
- * The one action that matters for this event. Only a new enquiry gets a primary
- * CTA — it is the sole state where the hall owes someone a response.
+ * The exhaustive status → actions matrix — the single place that decides
+ * which CTAs a Party Hall card offers, and in what order. `EventCard` reads
+ * this list rather than each status scattering its own
+ * `canDecline`/`canCancel`/`ctaAction`-style boolean, which is how the set
+ * used to drift out of sync per status.
+ *
+ * `today` is an ISO date (`YYYY-MM-DD`); `date` is TEXT in the schema, so
+ * the past/future split for `confirmed` is a lexicographic string compare —
+ * the same kind of comparison every other date check in this file already
+ * relies on (e.g. `nextBookingId`'s prefix match, `isUpcomingEvent`'s
+ * callers). `isUpcomingEvent` itself does *not* do this: it only tests
+ * status (excludes `cancelled`/`completed`/`declined`), never the date, so
+ * it can't stand in for the future/past test below.
+ *
+ * Order matters: `EventCard` renders left to right, and the design puts the
+ * one primary (dark) action rightmost, so the primary kind is always last
+ * in the returned list.
  */
-function ctaFor(status: PartyHallStatus): { cta: string; ctaPrimary: boolean } {
-  switch (status) {
+export function partyHallCtaKinds(
+  e: Pick<PartyHallEnquiry, "status" | "date" | "refundedAt">,
+  today: string = new Date().toISOString().slice(0, 10),
+): PartyHallCtaKind[] {
+  switch (e.status) {
     case "enquiry":
-      return { cta: "Send quote", ctaPrimary: true };
+      return ["decline", "send_quote"];
     case "quote_sent":
-      return { cta: "Send reminder", ctaPrimary: false };
+      return ["whatsapp", "decline", "record_advance"];
+    case "advance_paid":
+      return ["invoice", "cancel", "confirm"];
+    case "confirmed":
+      // `complete` is offered regardless of date — `completePartyHallEvent`
+      // itself has no date guard (see its doc comment), so an admin closing
+      // an event out early isn't blocked by this matrix either. Past-due is
+      // a read-only nudge (`isPartyHallEventPastDue`), not a gate here.
+      return e.date < today
+        ? ["invoice", "complete"]
+        : ["invoice", "cancel", "view_details", "complete"];
+    case "declined":
+      return ["reopen"];
+    case "cancelled":
+      // cancelPartyHallEvent only ever fires from advance_paid/confirmed —
+      // both already have money on the books — and always stamps
+      // refundedAt. This guard only matters for legacy rows cancelled
+      // before that field existed, where nothing is known to have moved.
+      return e.refundedAt != null ? ["invoice"] : [];
     case "completed":
-      return { cta: "Invoice", ctaPrimary: false };
-    default:
-      return { cta: "View details", ctaPrimary: false };
+      return ["invoice"];
   }
 }
 
-function buildEventItem(e: PartyHallEnquiry): PartyHallEventItem {
+function buildEventItem(
+  e: PartyHallEnquiry,
+  advancePct: number,
+  today: string,
+): PartyHallEventItem {
   const day = e.date.slice(8, 10);
   const monthName = new Date(`${e.date}T00:00:00Z`).toLocaleDateString("en-IN", {
     month: "short",
     timeZone: "UTC",
   });
 
+  // Called once — `meta` and `statusNote` both read this result rather than
+  // each invoking `metaNote` separately, so the two can never drift.
+  const note = metaNote(e);
+
   return {
     enquiry: e,
     day,
     mon: monthName,
     statusLabel: PARTY_HALL_STATUS_LABEL[e.status],
-    meta: `${slotLine(e.slot)} · ${e.guests} guests · ${metaNote(e)}`,
+    meta: `${slotLine(e.slot)} · ${e.guests} guests · ${note}`,
+    // Same status-dependent text as the tail of `meta`, exposed on its own
+    // so the money block can show it without parsing `meta`'s combined string.
+    statusNote: note,
     tags: [e.package, ...e.addOns],
-    amountLabel: amountLabel(e.status),
+    amountLabel: amountLabel(e.status, e.quotedAt),
     // An un-quoted enquiry has no number yet — say so rather than show "₹0".
     amount: e.amount > 0 ? formatINRCompact(e.amount) : "₹—",
-    ...ctaFor(e.status),
+    advancePct,
+    pastDue: isPartyHallEventPastDue(e, today),
+    ctas: partyHallCtaKinds(e, today),
   };
 }
 
@@ -1476,6 +2598,7 @@ export async function getPartyHallPageData(
   data: BookingData,
   year = 2026,
   month = 8,
+  today: string = new Date().toISOString().slice(0, 10),
 ): Promise<PartyHallPageData> {
   const events = [...data.partyHall].sort(
     (a, b) =>
@@ -1486,20 +2609,26 @@ export async function getPartyHallPageData(
       a.id.localeCompare(b.id),
   );
 
+  const advancePct = resolvePartyHallRates(data.partyHallRateOverrides).phAdvancePct;
+
   const newEnquiries = events.filter((e) => e.status === "enquiry").length;
   const confirmedUpcoming = events.filter(
-    (e) => e.status === "confirmed" && isUpcomingEvent(e),
+    (e) => e.status === "confirmed" && isUpcomingEvent(e, today),
   ).length;
+  const pastDueCount = events.filter((e) => isPartyHallEventPastDue(e, today)).length;
 
   // Money held against events still to come — a settled event's takings are
-  // revenue already booked, not an advance the hall is sitting on.
+  // revenue already booked, not an advance the hall is sitting on. Left on
+  // the status-only check for now (not the `today` cutoff `confirmedUpcoming`
+  // and "Next event" use below) — flagged separately, not changed here.
   const advanceCollected = events
-    .filter(isUpcomingEvent)
+    .filter((e) => isUpcomingEvent(e))
     .reduce((sum, e) => sum + e.advancePaid, 0);
 
   const stats: PartyHallStat[] = [
     { key: "newEnquiries", label: "New enquiries", value: String(newEnquiries) },
     { key: "confirmed", label: "Confirmed · upcoming", value: String(confirmedUpcoming) },
+    { key: "pastDue", label: "Past due", value: String(pastDueCount) },
     {
       key: "advanceCollected",
       label: "Advance collected",
@@ -1508,21 +2637,37 @@ export async function getPartyHallPageData(
     {
       key: "nextEvent",
       label: "Next event",
-      value: nextEventLabel(nextPartyHallEvent(data.partyHall)),
+      value: nextEventLabel(nextPartyHallEvent(data.partyHall, today)),
     },
   ];
 
   const pills: PartyHallPill[] = [
     { key: "all", label: "All", count: events.length },
     { key: "new", label: "New", count: newEnquiries },
+    {
+      key: "quoted",
+      label: "Quoted",
+      count: events.filter((e) => e.status === "quote_sent").length,
+    },
     { key: "confirmed", label: "Confirmed", count: confirmedUpcoming },
+    { key: "pastDue", label: "Past due", count: pastDueCount },
+    {
+      key: "cancelled",
+      label: "Cancelled",
+      count: events.filter((e) => e.status === "cancelled").length,
+    },
+    {
+      key: "declined",
+      label: "Declined",
+      count: events.filter((e) => e.status === "declined").length,
+    },
   ];
 
   return {
     subtitle: `Up to 150 guests · tailored pricing · ${newEnquiries} enquiries need a quote`,
     stats,
     pills,
-    events: events.map(buildEventItem),
+    events: events.map((e) => buildEventItem(e, advancePct, today)),
     calendar: miniCalendar(data.partyHall, year, month),
     packages: PARTY_HALL_PACKAGES,
     addOnsLine: `Add-ons: catering ₹450/plate · decor · DJ. ${PARTY_HALL_ADVANCE_PCT}% advance to confirm.`,
@@ -1690,9 +2835,6 @@ const OTA_CHANNELS: Record<
 function isOtaSource(source: BookingSource): boolean {
   return source in OTA_CHANNELS;
 }
-
-/** A stay the guest never took. Money held against one is owed back, not earned. */
-const VOID_STAY_STATUSES = new Set<BookingStatus>(["cancelled", "no_show"]);
 
 /**
  * The transaction ledger, derived whole from the booking set.
@@ -2474,6 +3616,7 @@ const NOTIFICATION_TOGGLES: ToggleSetting[] = [
 const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: "property", label: "Property profile" },
   { id: "pricing", label: "Rooms & pricing" },
+  { id: "party-hall", label: "Party hall rates" },
   { id: "payments", label: "Payment integrations" },
   { id: "channels", label: "OTA channels" },
   { id: "team", label: "Team & access" },
@@ -2493,14 +3636,51 @@ function tariffSettings(roomTypes: RoomTypeInfo[]): RoomTariff[] {
   }));
 }
 
-/** The four rates on top of the tariff, each quoted from the constant that applies it. */
-function chargeSettings(): ChargeSetting[] {
-  return [
-    { key: "earlyCheckIn", label: "Early check-in fee", value: formatINR(EARLY_CHECKIN_FEE) },
-    { key: "lateCheckOut", label: "Late check-out fee", value: formatINR(LATE_CHECKOUT_FEE) },
-    { key: "gst", label: "GST rate", value: `${GST_PCT}%` },
-    { key: "partyHallAdvance", label: "Party hall advance", value: `${PARTY_HALL_ADVANCE_PCT}%` },
-  ];
+/** GST as its own editable setting (Room Settings redesign, slice C) — was
+ *  read-only display over the `GST_PCT` constant; now backed by the
+ *  `gstPct` `addon_settings` row like every other rate on this panel. */
+function gstSetting(pct: number): GstSetting {
+  return { pct };
+}
+
+const PARTY_HALL_RATE_LABEL: Record<PartyHallRateKey, string> = {
+  phBaseSilver: "Silver package base",
+  phBaseGold: "Gold package base",
+  phBasePlatinum: "Platinum package base",
+  phDecor: "Decor",
+  phDJ: "DJ",
+  phAV: "AV",
+  phProjector: "Projector",
+  phLunchBuffet: "Lunch Buffet (per guest)",
+  phCatering: "Catering (per guest)",
+  phAdvancePct: "Advance to confirm",
+};
+
+/** Slice 2a's ten editable Party Hall rates, same blur-to-save shape as
+ *  `addOnRateSettings`. `phAdvancePct` is the one percentage row — its `unit`
+ *  tells `PartyHallRateRow` which suffix to show. */
+function partyHallRateSettings(rates: PartyHallRates): PartyHallRateSetting[] {
+  return (Object.keys(PARTY_HALL_RATE_LABEL) as PartyHallRateKey[]).map((key) => ({
+    key,
+    label: PARTY_HALL_RATE_LABEL[key],
+    price: rates[key],
+    unit: key === "phAdvancePct" ? "%" : "₹",
+  }));
+}
+
+const ADD_ON_LABEL: Record<AddOnServiceKey, string> = {
+  earlyCheckIn: "Early check-in fee",
+  lateCheckOut: "Late check-out fee",
+  extraMattress: "Extra mattress fee",
+};
+
+/** Slice B's three editable add-on rates, in the same blur-to-save shape a tariff uses. */
+function addOnRateSettings(rates: AddOnRates): AddOnRateSetting[] {
+  return (Object.keys(ADD_ON_LABEL) as AddOnServiceKey[]).map((key) => ({
+    key,
+    label: ADD_ON_LABEL[key],
+    price: rates[key],
+  }));
 }
 
 function paymentSettings(): PaymentSettings {
@@ -2539,18 +3719,43 @@ function channelSettings(bookings: Booking[]): ChannelSetting[] {
     .sort((a, b) => b.bookings - a.bookings || a.name.localeCompare(b.name));
 }
 
+/** The Settings panel's per-room rows — status live-overlaid the same way
+ *  the Rooms screen does (`liveRoomTiles`), plus the occupant name
+ *  (`currentOccupant`) for the Guest column. Never trust the stored
+ *  `occupied` opinion here either, so Status and Guest can't disagree. */
+function roomSettingsRows(
+  tiles: RoomTile[],
+  bookings: Booking[],
+  guests: Guest[],
+  today: string,
+): RoomSettingsRow[] {
+  const live = liveRoomTiles(tiles, bookings, guests, today);
+  return live.map((t) => ({ ...t, occupantName: currentOccupant(t.no, bookings, guests, today) }));
+}
+
 export async function getSettingsPageData(
   data: BookingData,
   roster: TeamAccount[],
+  today: string = new Date().toISOString().slice(0, 10),
 ): Promise<SettingsPageData> {
   const bookings = data.bookings;
   const tiles = data.rooms ?? defaultRoomTiles();
   const roomTypes = resolveRoomTypes(tiles, data.roomTypeOverrides);
+  const partyHallRates = resolvePartyHallRates(data.partyHallRateOverrides);
 
   return {
     sections: SETTINGS_SECTIONS,
     property: PROPERTY,
-    pricing: { tariffs: tariffSettings(roomTypes), charges: chargeSettings(), rooms: tiles },
+    pricing: {
+      tariffs: tariffSettings(roomTypes),
+      gst: gstSetting(resolveGstPct(data.gstRateOverride)),
+      addOnRates: addOnRateSettings(resolveAddOnRates(data.addOnRateOverrides)),
+      partyHallRates: partyHallRateSettings(partyHallRates),
+      partyHallRatesArePlaceholder: PARTY_HALL_PLACEHOLDER_KEYS.some(
+        (key) => partyHallRates[key] === PARTY_HALL_RATE_DEFAULTS[key],
+      ),
+      rooms: roomSettingsRows(tiles, bookings, data.guests, today),
+    },
     payments: paymentSettings(),
     channels: channelSettings(bookings),
     team: activeTeam(roster),

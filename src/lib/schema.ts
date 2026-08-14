@@ -71,14 +71,62 @@ export const bookings = pgTable("bookings", {
   status: text("status").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
 
+  /** Set the moment `assignBookingRoom` puts a room on this booking; cleared
+   *  back to null on unassign, so a later reassignment reads as a fresh event
+   *  rather than the room-assigned notification silently going stale. Null
+   *  for every booking that predates this column — there is nothing to
+   *  backfill it from. */
+  roomAssignedAt: timestamp("room_assigned_at", { withTimezone: true }),
+
   /** Set once an order is created; null for pay-at-hotel bookings. */
   razorpayOrderId: text("razorpay_order_id"),
   /** Set only after `verifyRazorpaySignature` passes. */
   razorpayPaymentId: text("razorpay_payment_id"),
 
+  /** How the payment actually moved — a `PaymentMethod` value, or `"online"`
+   *  when Razorpay's instrument isn't known. Columns only this slice: no write
+   *  path sets this yet, and every row is null until one does. */
+  paymentMethod: text("payment_method"),
+  /** When the payment actually settled — never the booking's `createdAt`,
+   *  which is when the row was made, not when money moved. Columns only this
+   *  slice: no write path sets this yet, and every row is null until one does. */
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+
   /** Shared by every room created in one guest-flow checkout; null for legacy
    *  rows and admin manual entries — see resolveInvoiceParty. */
   batchId: text("batch_id"),
+
+  /** Best-effort guest preferences + freeform note (spec #66/#67), e.g.
+   *  `{"preferences":["high_floor","quiet_room"],"note":"arriving ~11pm"}`.
+   *  Null — never an empty object — when the guest selected/wrote nothing;
+   *  the admin flag reads `IS NOT NULL`, not the JSON's contents, so this
+   *  column must never hold `{}` for "no request". */
+  specialRequest: jsonb("special_request").$type<{
+    preferences: string[];
+    note?: string;
+  }>(),
+
+  /** Early check-in / late check-out / extra mattress — requested at booking
+   *  or added by the admin, resolved (applied/declined) at the admin's
+   *  discretion, and an applied charge can later be reversed (Slice B). A
+   *  resolved entry's status is overwritten in place, never deleted, so
+   *  whether a request was ever honoured — and whether an honoured one was
+   *  later undone — stays on the row. Null — never `{}` — when nothing was
+   *  ever requested or added. */
+  requestedServices: jsonb("requested_services").$type<{
+    earlyCheckIn?: { requested: boolean; status: "pending" | "applied" | "declined" | "reversed" };
+    lateCheckOut?: { requested: boolean; status: "pending" | "applied" | "declined" | "reversed" };
+    extraMattress?: {
+      requested: boolean;
+      status: "pending" | "applied" | "declined" | "reversed";
+      qty: number;
+    };
+  }>(),
+  /** Readable trail of what's inside `revenueOther` (Slice B), e.g. "Extra
+   *  mattress ×2" — appended to, never overwritten, so a second "other"
+   *  charge can't silently erase the first one's label. Null until the first
+   *  charge lands. */
+  revenueOtherNote: text("revenue_other_note"),
 });
 
 export const partyHallEnquiries = pgTable("party_hall_enquiries", {
@@ -97,12 +145,51 @@ export const partyHallEnquiries = pgTable("party_hall_enquiries", {
   amount: integer("amount").notNull().default(0),
   // advancePaid: derived from amount + status. See rule 1.
 
+  /** Set once, by `sendPartyHallQuote`. Null for rows quoted before this
+   *  column existed — the "Quoted ₹X" label degrades to no date rather than
+   *  rendering "on null" for those. */
+  quotedAt: timestamp("quoted_at", { withTimezone: true }),
+  /** Set once, by `sendPartyHallQuote`, alongside `amount`/`quotedAt` — the
+   *  package base plus each add-on, at the rate resolved at that exact
+   *  moment. Label and amount stored together, never a rate-key id, so
+   *  rendering it later needs no lookup against (possibly since-changed)
+   *  Settings. Null for rows quoted before this column existed; never
+   *  backfilled and never recomputed on read — a null here means "no
+   *  breakdown on record", not "zero-cost". */
+  quoteBreakdown: jsonb("quote_breakdown").$type<{ label: string; amount: number }[]>(),
+  /** Snapshotted at `recordPartyHallAdvance` time — the source of truth for
+   *  display going forward. Never recomputed from a later `phAdvancePct`
+   *  edit, which is the whole reason this column exists instead of a live
+   *  re-derive. Null for rows that predate it; `withAdvance` falls back to
+   *  live amount × pct only in that case. */
+  advanceAmount: integer("advance_amount"),
+  /** Percentage in force when the advance above was recorded — context only,
+   *  never read back into a recompute. */
+  advancePct: integer("advance_pct"),
+  /** Stamped by `cancelPartyHallEvent` when cancelling out of `advance_paid`
+   *  or `confirmed` — i.e. whenever money had already moved. Never cleared;
+   *  the advance fields above stay put alongside it as the historical
+   *  record, per rule: never wipe a financial record. */
+  refundedAt: timestamp("refunded_at", { withTimezone: true }),
+
+  /** Set once, by `createPartyHallEnquiry`, at the moment the guest-facing
+   *  form submits. Null for every row that predates this column (seed data,
+   *  and any enquiry an admin entered by hand before the form existed) — the
+   *  notifications producer skips rows without it, rather than guessing. */
+  createdAt: timestamp("created_at", { withTimezone: true }),
+
   /** Who to bill — enquiries don't carry a guest row, so this is the only
    *  identity captured. Null until the invoice feature needs one and someone
    *  fills it in from the Party Hall screen. */
   contactName: text("contact_name"),
   contactPhone: text("contact_phone"),
   contactEmail: text("contact_email"),
+
+  /** Channel the enquiry arrived through — `"direct"` for every guest-form
+   *  submission (written explicitly by `createPartyHallEnquiry`), `"walk_in"`
+   *  / `"phone"` for admin hand-entry. Null means "predates this column",
+   *  never backfilled — same convention as `quoteBreakdown`. */
+  source: text("source"),
 });
 
 /**
@@ -171,6 +258,9 @@ export const rooms = pgTable("rooms", {
   status: text("status").notNull().default("available"),
   /** Occupant + checkout for occupied rooms, else a short state note. */
   detail: text("detail").notNull().default("Ready"),
+  /** Room size in m². Nullable — many existing rows have no size on record;
+   *  render null as "—", never "0" (Room Settings redesign, slice C). */
+  sizeSqm: integer("size_sqm"),
 });
 
 /**
@@ -183,6 +273,19 @@ export const roomTypeSettings = pgTable("room_type_settings", {
   name: text("name"),
   areaSqm: integer("area_sqm").notNull(),
   pricePerNight: integer("price_per_night").notNull(),
+});
+
+/**
+ * Owner-configurable rates for the three priced add-on services (Slice B).
+ * Same role as `roomTypeSettings`: the Settings screen edits these rows, and
+ * a booking snapshots whatever rate is here at the moment a charge is
+ * applied — later rate changes never retroactively touch that booking.
+ */
+export const addOnSettings = pgTable("addon_settings", {
+  /** 'earlyCheckIn' | 'lateCheckOut' | 'extraMattress'. */
+  id: text("id").primaryKey(),
+  label: text("label").notNull(),
+  price: integer("price").notNull().default(0),
 });
 
 /**

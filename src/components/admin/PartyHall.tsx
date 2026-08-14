@@ -1,9 +1,17 @@
 import { useMemo, useState } from "react";
-import { useRouter } from "@tanstack/react-router";
-import { ChevronLeft, ChevronRight, FileText, Loader2, Plus } from "lucide-react";
+import { Link, useRouter } from "@tanstack/react-router";
+import { ChevronLeft, ChevronRight, FileText, Loader2, MessageCircle, Plus } from "lucide-react";
+import { toast } from "sonner";
 
+import { shiftCalendarMonth } from "@/lib/bookings";
+import {
+  buildWhatsAppQuoteLink,
+  composeWhatsAppQuoteMessage,
+  normalizePhone,
+} from "@/lib/whatsapp";
 import type {
   PartyHallCalendarCell,
+  PartyHallCtaKind,
   PartyHallEventItem,
   PartyHallMiniCalendar,
   PartyHallPackage,
@@ -13,15 +21,36 @@ import type {
   PartyHallStat,
   PartyHallStatus,
 } from "@/types/booking";
-import { updatePartyHallContactFn } from "@/lib/bookings-data";
+import {
+  cancelPartyHallEventFn,
+  completePartyHallEventFn,
+  confirmPartyHallEventFn,
+  declinePartyHallEnquiryFn,
+  recordPartyHallAdvanceFn,
+  reopenPartyHallEnquiryFn,
+  sendPartyHallQuoteFn,
+  updatePartyHallContactFn,
+} from "@/lib/bookings-data";
 import { adminIssueInvoiceFn } from "@/lib/invoices-data";
 import { Input } from "@/components/ui/input";
+import { useEntryForms } from "@/components/admin/entry-forms-context";
 import { cn } from "@/lib/utils";
 
-/** Invoices need someone to bill — enquiries have no earlier stage that asks. */
-function canInvoice(status: PartyHallStatus): boolean {
-  return status === "advance_paid" || status === "confirmed" || status === "completed";
-}
+/** The server fn behind each single-click CTA kind — everything that isn't
+ *  Decline/Cancel/Invoice/WhatsApp/View details/Send quote, which each need
+ *  their own handling (a confirm-style dialog, a fetch-then-open, a link,
+ *  nothing yet, or the send-quote-then-open-WhatsApp chain, respectively).
+ *  Keyed by `PartyHallCtaKind` so it stays in lockstep with
+ *  `partyHallCtaKinds` — the matrix in `bookings.ts` decides *whether* a
+ *  kind appears on a card; this only decides what clicking it does. */
+const KIND_ACTION_FN: Partial<
+  Record<PartyHallCtaKind, (id: string) => Promise<{ ok: boolean; error?: string }>>
+> = {
+  record_advance: (id) => recordPartyHallAdvanceFn({ data: { id } }),
+  confirm: (id) => confirmPartyHallEventFn({ data: { id } }),
+  complete: (id) => completePartyHallEventFn({ data: { id } }),
+  reopen: (id) => reopenPartyHallEnquiryFn({ data: { id } }),
+};
 
 // ── Tokens ──────────────────────────────────────────────────────────────────
 
@@ -32,6 +61,10 @@ const STATUS_TOKENS: Record<PartyHallStatus, { color: string; bg: string }> = {
   advance_paid: { color: "#5a8a5a", bg: "#e6efe6" },
   confirmed: { color: "#5a8a5a", bg: "#e6efe6" },
   completed: { color: "#6b7280", bg: "#eef0f2" },
+  // Distinct from `cancelled` on purpose: declined is reopenable, cancelled
+  // is not — a front-desk glance at the pill color should tell them apart
+  // without reading the label.
+  declined: { color: "#a8863f", bg: "#f5ecd7" },
   cancelled: { color: "#b4553f", bg: "#f7e6e0" },
 };
 
@@ -50,6 +83,9 @@ function StatCard({ stat }: { stat: PartyHallStat }) {
           "font-display font-semibold",
           isLine ? "mt-2.75 text-[19px]" : "mt-2 text-[32px]",
           stat.key === "advanceCollected" && "text-[#a8863f]",
+          // Same gold-actionable ink as the sidebar's "needs attention"
+          // badge — a nonzero past-due count is exactly that signal.
+          stat.key === "pastDue" && stat.value !== "0" && "text-[#a8863f]",
         )}
       >
         {stat.value}
@@ -77,6 +113,7 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
   const router = useRouter();
   const [editingContact, setEditingContact] = useState(false);
   const [issuing, setIssuing] = useState(false);
+  const [acting, setActing] = useState(false);
   const [name, setName] = useState(item.enquiry.contactName ?? "");
   const [phone, setPhone] = useState(item.enquiry.contactPhone ?? "");
   const [email, setEmail] = useState(item.enquiry.contactEmail ?? "");
@@ -99,17 +136,116 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
     if (res.ok) window.open(`/invoice/${res.invoiceNo}`, "_blank", "noopener,noreferrer");
   }
 
+  /**
+   * "Send quote" both commits the quote and opens the WhatsApp draft in one
+   * click. The blank tab must open synchronously, inside this click handler
+   * — Chrome only honours `window.open()` while it's still inside the
+   * original user-gesture call stack, and an `await`ed server round-trip
+   * falls outside that window and gets silently popup-blocked. So the tab
+   * opens blank first and is only navigated once the quote (and its
+   * `quoteBreakdown`) exist to build the message from.
+   */
+  async function sendQuoteAndOpenWhatsApp() {
+    const waWindow = window.open("", "_blank");
+    setActing(true);
+    const res = await sendPartyHallQuoteFn({ data: { id: item.enquiry.id } });
+    setActing(false);
+    if (!res.ok) {
+      waWindow?.close();
+      toast.error(res.error ?? "That didn't go through.");
+      return;
+    }
+    const phone = res.enquiry.contactPhone ? normalizePhone(res.enquiry.contactPhone) : null;
+    if (phone && res.enquiry.amount > 0) {
+      const link = buildWhatsAppQuoteLink(
+        phone,
+        composeWhatsAppQuoteMessage(res.enquiry, item.advancePct, "first"),
+      );
+      if (waWindow) {
+        // Severs the new tab's `window.opener` before navigating it away —
+        // same effect as `rel="noopener"`, just applied after the fact
+        // since a pre-opened `noopener` tab can't be navigated later.
+        waWindow.opener = null;
+        waWindow.location.href = link;
+      } else {
+        toast.error(
+          "Quote recorded, but your browser blocked the WhatsApp tab. Use the Resend icon to open it.",
+        );
+      }
+    } else {
+      waWindow?.close();
+      toast.success("Quote recorded. No valid phone on file to message.");
+    }
+    await router.invalidate();
+  }
+
+  async function runKind(kind: PartyHallCtaKind) {
+    const fn = KIND_ACTION_FN[kind];
+    if (!fn) return;
+    setActing(true);
+    const res = await fn(item.enquiry.id);
+    setActing(false);
+    if (!res.ok) {
+      toast.error(res.error ?? "That didn't go through.");
+      return;
+    }
+    await router.invalidate();
+  }
+
+  async function decline() {
+    setActing(true);
+    const res = await declinePartyHallEnquiryFn({ data: { id: item.enquiry.id } });
+    setActing(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    await router.invalidate();
+  }
+
+  async function cancel() {
+    setActing(true);
+    const res = await cancelPartyHallEventFn({ data: { id: item.enquiry.id } });
+    setActing(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    await router.invalidate();
+  }
+
+  const normalizedPhone = item.enquiry.contactPhone
+    ? normalizePhone(item.enquiry.contactPhone)
+    : null;
+  const hasWhatsApp = item.ctas.includes("whatsapp");
+  const hasInvoice = item.ctas.includes("invoice");
+  // Billing needs contact info at advance_paid+ (hasInvoice); WhatsApp needs
+  // it as early as enquiry (to have a phone in hand by the time "Send quote"
+  // fires) and at quote_sent (Resend). Gating this purely on hasInvoice left
+  // no way to enter a phone before quoting at all.
+  const canEditContact = hasInvoice || hasWhatsApp || item.ctas.includes("send_quote");
+  // The matrix says whatsapp belongs on this card's status; whether it can
+  // actually render still depends on data the matrix doesn't see — a phone
+  // that resolves.
+  const canWhatsApp = hasWhatsApp && normalizedPhone != null;
+  const whatsAppLink = canWhatsApp
+    ? buildWhatsAppQuoteLink(
+        normalizedPhone,
+        composeWhatsAppQuoteMessage(item.enquiry, item.advancePct, "resend"),
+      )
+    : null;
+
   return (
     <div className="rounded-lg border border-[#eae4d6] bg-white px-5 py-4.5 transition-colors hover:border-[#d9cba6]">
       <div className="flex flex-wrap items-start gap-3.5">
-        <div className="w-13 flex-none rounded-md border border-[#efe4cc] bg-[#faf7ef] py-2 text-center">
+        <div className="order-1 w-13 flex-none rounded-md border border-[#efe4cc] bg-[#faf7ef] py-2 text-center">
           <div className="font-display text-[20px] font-semibold leading-none">{item.day}</div>
           <div className="mt-0.5 text-[9.5px] uppercase tracking-[0.12em] text-[#a8863f]">
             {item.mon}
           </div>
         </div>
 
-        <div className="flex-1 basis-56">
+        <div className="order-3 min-w-0 flex-1 basis-full sm:basis-0">
           <div className="flex flex-wrap items-center gap-2.5">
             <span className="text-[15px] font-bold">{item.enquiry.title}</span>
             <StatusPill item={item} />
@@ -125,13 +261,13 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
               </span>
             ))}
           </div>
-          {canInvoice(item.enquiry.status) && (
+          {canEditContact && (
             <button
               type="button"
               onClick={() => setEditingContact((v) => !v)}
               className="mt-2.5 text-[11px] font-semibold text-[#3a6ea5] hover:opacity-75"
             >
-              {item.enquiry.contactName ? "Edit billing contact" : "Add billing contact"}
+              {item.enquiry.contactName ? "Edit contact info" : "Add contact info"}
             </button>
           )}
           {editingContact && (
@@ -166,40 +302,138 @@ function EventCard({ item }: { item: PartyHallEventItem }) {
           )}
         </div>
 
-        <div className="flex w-full items-center justify-between gap-2.5 border-t border-[#f2ede2] pt-3 sm:w-auto sm:flex-col sm:items-end sm:border-t-0 sm:pt-0 sm:text-right">
-          <div>
+        <div className="contents sm:order-4 sm:flex sm:w-auto sm:flex-col sm:items-end sm:justify-between sm:gap-2.5 sm:border-t-0 sm:pt-0 sm:text-right">
+          <div className="order-2 ml-auto text-right sm:ml-0">
             <div className="text-[9px] uppercase tracking-[0.18em] text-[#a49d8d]">
               {item.amountLabel}
             </div>
             <div className="font-display text-[19px]">{item.amount}</div>
-          </div>
-          <div className="flex items-center gap-2">
-            {canInvoice(item.enquiry.status) && (
-              <button
-                type="button"
-                disabled={issuing}
-                onClick={openInvoice}
-                className="flex items-center gap-1.25 rounded border border-[#d9d0bd] bg-white px-3 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] text-warm-gray hover:bg-black/[0.03] disabled:opacity-60"
-              >
-                {issuing ? (
-                  <Loader2 className="size-3 animate-spin" />
-                ) : (
-                  <FileText className="size-3" />
-                )}
-                Invoice
-              </button>
+            <div className="mt-0.5 text-[11px] text-[#7a746a] sm:hidden">{item.statusNote}</div>
+            {hasWhatsApp && item.enquiry.contactPhone && normalizedPhone === null && (
+              <div className="mt-1 text-[10.5px] text-[#a49d8d]">
+                Couldn't parse phone —{" "}
+                <span className="select-all font-semibold text-warm-gray">
+                  {item.enquiry.contactPhone}
+                </span>
+              </div>
             )}
-            <button
-              type="button"
-              className={cn(
-                "rounded px-4 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors",
-                item.ctaPrimary
-                  ? "bg-obsidian text-gold-soft hover:bg-[#262626]"
-                  : "border border-[#d9d0bd] bg-white text-warm-gray hover:bg-black/[0.03]",
-              )}
-            >
-              {item.cta}
-            </button>
+          </div>
+          <div className="order-4 w-full flex flex-wrap items-center gap-2 border-t border-[#f2ede2] pt-3 sm:w-auto sm:border-t-0 sm:pt-0">
+            {item.ctas.map((kind) => {
+              switch (kind) {
+                case "whatsapp":
+                  return canWhatsApp ? (
+                    <a
+                      key={kind}
+                      href={whatsAppLink!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label="Resend quote on WhatsApp"
+                      title="Resend quote on WhatsApp"
+                      className="flex items-center justify-center rounded border border-[#d9d0bd] bg-white p-2.25 text-warm-gray hover:bg-black/[0.03]"
+                    >
+                      <MessageCircle className="size-3" />
+                    </a>
+                  ) : null;
+                case "invoice":
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      disabled={issuing}
+                      onClick={openInvoice}
+                      className="flex items-center gap-1.25 rounded border border-[#d9d0bd] bg-white px-3 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] text-warm-gray hover:bg-black/[0.03] disabled:opacity-60"
+                    >
+                      {issuing ? (
+                        <Loader2 className="size-3 animate-spin" />
+                      ) : (
+                        <FileText className="size-3" />
+                      )}
+                      Invoice
+                    </button>
+                  );
+                case "decline":
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      disabled={acting}
+                      onClick={decline}
+                      className="rounded border border-[#e3c9c0] bg-white px-3 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#b4553f] hover:bg-[#f7e6e0] disabled:opacity-60"
+                    >
+                      Decline
+                    </button>
+                  );
+                case "cancel":
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      disabled={acting}
+                      onClick={cancel}
+                      className="rounded border border-[#e3c9c0] bg-white px-3 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#b4553f] hover:bg-[#f7e6e0] disabled:opacity-60"
+                    >
+                      Cancel
+                    </button>
+                  );
+                case "view_details":
+                  // No details view exists yet — inert until one is built,
+                  // rather than a link to a page that isn't there.
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      disabled
+                      title="Not built yet"
+                      className="rounded border border-[#d9d0bd] bg-white px-3 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] text-warm-gray opacity-60"
+                    >
+                      View details
+                    </button>
+                  );
+                case "send_quote":
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      disabled={acting}
+                      onClick={sendQuoteAndOpenWhatsApp}
+                      className="rounded bg-obsidian px-4 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] text-gold-soft transition-colors hover:bg-[#262626] disabled:opacity-60"
+                    >
+                      {acting ? <Loader2 className="size-3 animate-spin" /> : "Send quote"}
+                    </button>
+                  );
+                case "record_advance":
+                case "confirm":
+                case "complete":
+                case "reopen": {
+                  const label: Record<typeof kind, string> = {
+                    record_advance: "Record advance",
+                    confirm: "Confirm",
+                    complete: "Mark completed",
+                    reopen: "Reopen",
+                  };
+                  const primary = kind !== "reopen";
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      disabled={acting}
+                      onClick={() => runKind(kind)}
+                      className={cn(
+                        "rounded px-4 py-2.25 text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors disabled:opacity-60",
+                        primary
+                          ? "bg-obsidian text-gold-soft hover:bg-[#262626]"
+                          : "border border-[#d9d0bd] bg-white text-warm-gray hover:bg-black/[0.03]",
+                      )}
+                    >
+                      {acting ? <Loader2 className="size-3 animate-spin" /> : label[kind]}
+                    </button>
+                  );
+                }
+                default:
+                  return null;
+              }
+            })}
           </div>
         </div>
       </div>
@@ -223,26 +457,38 @@ function MiniCalendarCell({ cell }: { cell: PartyHallCalendarCell }) {
   );
 }
 
-function AvailabilityCalendar({ calendar }: { calendar: PartyHallMiniCalendar }) {
+function AvailabilityCalendar({
+  calendar,
+  year,
+  month,
+}: {
+  calendar: PartyHallMiniCalendar;
+  year: number;
+  month: number;
+}) {
+  const prev = shiftCalendarMonth(year, month, -1);
+  const next = shiftCalendarMonth(year, month, 1);
   return (
     <div className="rounded-lg border border-[#eae4d6] bg-white px-5 py-4.5">
       <div className="mb-3.5 flex items-center justify-between">
         <span className="font-display text-[16px] font-semibold">{calendar.monthLabel}</span>
         <div className="flex gap-1">
-          <button
-            type="button"
+          <Link
+            to="/admin/party-hall"
+            search={prev}
             aria-label="Previous month"
             className="flex size-6 items-center justify-center rounded border border-[#eae4d6] text-[#a49d8d] transition-colors hover:bg-black/[0.03]"
           >
             <ChevronLeft className="size-3" strokeWidth={2.4} />
-          </button>
-          <button
-            type="button"
+          </Link>
+          <Link
+            to="/admin/party-hall"
+            search={next}
             aria-label="Next month"
             className="flex size-6 items-center justify-center rounded border border-[#eae4d6] text-warm-gray transition-colors hover:bg-black/[0.03]"
           >
             <ChevronRight className="size-3" strokeWidth={2.4} />
-          </button>
+          </Link>
         </div>
       </div>
 
@@ -315,7 +561,7 @@ function FilterPills({
   onSelect: (key: PartyHallPillKey) => void;
 }) {
   return (
-    <div className="flex flex-wrap gap-1.75">
+    <div className="flex w-full min-w-0 flex-wrap gap-1.75 sm:w-auto">
       {pills.map((pill) => (
         <button
           key={pill.key}
@@ -325,7 +571,12 @@ function FilterPills({
             "rounded-full px-3 py-1.25 text-[11.5px] font-semibold transition-colors",
             pill.key === active
               ? "bg-obsidian text-ivory"
-              : "border border-[#eae4d6] bg-white text-warm-gray hover:bg-black/3",
+              : pill.key === "pastDue" && pill.count > 0
+                ? // Same gold-actionable treatment as the sidebar's "needs
+                  // attention" badge, unselected state only — the active
+                  // (obsidian) state above already reads as selected.
+                  "border border-gold/40 bg-[#f5ecd7] text-[#a8863f] hover:bg-[#f0e2c4]"
+                : "border border-[#eae4d6] bg-white text-warm-gray hover:bg-black/3",
           )}
         >
           {pill.label} {pill.count}
@@ -335,20 +586,45 @@ function FilterPills({
   );
 }
 
-/** "new" reads as a fresh enquiry, "confirmed" covers both deposit-paid and fully confirmed. */
-function matchesPill(status: PartyHallStatus, key: PartyHallPillKey): boolean {
-  if (key === "all") return true;
-  if (key === "new") return status === "enquiry";
-  return status === "confirmed" || status === "advance_paid";
+/** "new" reads as a fresh enquiry, "confirmed" covers both deposit-paid and fully
+ *  confirmed, "pastDue" reads `item.pastDue` (carried on the item, not re-derived here)
+ *  rather than the raw status — a past-due event is still status `confirmed`, so a
+ *  status-only switch can't tell it apart from any other confirmed event. */
+function matchesPill(item: PartyHallEventItem, key: PartyHallPillKey): boolean {
+  switch (key) {
+    case "all":
+      return true;
+    case "new":
+      return item.enquiry.status === "enquiry";
+    case "quoted":
+      return item.enquiry.status === "quote_sent";
+    case "confirmed":
+      return item.enquiry.status === "confirmed" || item.enquiry.status === "advance_paid";
+    case "pastDue":
+      return item.pastDue;
+    case "cancelled":
+      return item.enquiry.status === "cancelled";
+    case "declined":
+      return item.enquiry.status === "declined";
+  }
 }
 
 // ── Page ────────────────────────────────────────────────────────────────────
 
-export function PartyHall({ data }: { data: PartyHallPageData }) {
+export function PartyHall({
+  data,
+  year,
+  month,
+}: {
+  data: PartyHallPageData;
+  year: number;
+  month: number;
+}) {
   const [pillFilter, setPillFilter] = useState<PartyHallPillKey>("all");
+  const { openEvent } = useEntryForms();
 
   const visibleEvents = useMemo(
-    () => data.events.filter((item) => matchesPill(item.enquiry.status, pillFilter)),
+    () => data.events.filter((item) => matchesPill(item, pillFilter)),
     [data.events, pillFilter],
   );
 
@@ -358,6 +634,7 @@ export function PartyHall({ data }: { data: PartyHallPageData }) {
         <p className="text-[12px] tracking-[0.01em] text-[#7a746a]">{data.subtitle}</p>
         <button
           type="button"
+          onClick={openEvent}
           className="inline-flex items-center gap-2 rounded-md bg-gold px-3 py-2 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
         >
           <Plus className="size-4" />
@@ -365,7 +642,7 @@ export function PartyHall({ data }: { data: PartyHallPageData }) {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-4.5 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4.5 sm:grid-cols-2 lg:grid-cols-5">
         {data.stats.map((stat) => (
           <StatCard key={stat.key} stat={stat} />
         ))}
@@ -387,7 +664,7 @@ export function PartyHall({ data }: { data: PartyHallPageData }) {
         </div>
 
         <div className="flex flex-col gap-4.5">
-          <AvailabilityCalendar calendar={data.calendar} />
+          <AvailabilityCalendar calendar={data.calendar} year={year} month={month} />
           <PackageReference packages={data.packages} addOnsLine={data.addOnsLine} />
         </div>
       </div>

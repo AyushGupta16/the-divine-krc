@@ -83,8 +83,25 @@ export const ROLE_HINTS: Record<Role, string> = {
   Accounts: "Payments, collections, OTA settlements & reports. Read-only on bookings.",
 };
 
+/**
+ * `role` is a DB `text` column cast to `Role` with no runtime check
+ * (`roster.ts`'s `r.role as Role`) — a stale row from before a role rename,
+ * or any other drift on a shared/branched environment, can hand this a
+ * string that isn't one of the four keys below. Indexing
+ * `ROLE_PERMISSIONS` with that unrecognized value used to be `undefined`,
+ * and `.includes` on `undefined` crashed every permission check for that
+ * member — not a validation error, an unhandled exception. Denying is the
+ * correct fail-closed answer; the `console.warn` is so a drifted role
+ * shows up in the server log with its actual value instead of a silent,
+ * unexplained "access denied" that's only marginally better than a crash.
+ */
 export function can(role: Role, permission: Permission): boolean {
-  return ROLE_PERMISSIONS[role].includes(permission);
+  const granted = ROLE_PERMISSIONS[role];
+  if (!granted) {
+    console.warn(`[auth] Unrecognized role "${role}" — denying all capabilities.`);
+    return false;
+  }
+  return granted.includes(permission);
 }
 
 // --- The roster (replace with a DB) -------------------------------------

@@ -187,7 +187,7 @@ export const getSessionUser = createServerFn({ method: "GET" }).handler(
 );
 
 export const loginFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { email: string; password: string }) => data)
+  .validator((data: { email: string; password: string }) => data)
   .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
     const admin = await verify(data.email, data.password);
     if (!admin) {
@@ -230,7 +230,7 @@ export const logoutFn = createServerFn({ method: "POST" }).handler(
 // exists). When it does exist we mint a single-use token. Real delivery is
 // stubbed — in dev the link is logged; a later PR emails it.
 export const requestResetFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { email: string }) => data)
+  .validator((data: { email: string }) => data)
   .handler(async ({ data }): Promise<{ ok: true }> => {
     const { loadRoster } = await rosterStore();
     const admin = findMember(await loadRoster(), data.email);
@@ -249,7 +249,7 @@ export const requestResetFn = createServerFn({ method: "POST" })
   });
 
 export const resetPasswordFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { token: string; password: string }) => data)
+  .validator((data: { token: string; password: string }) => data)
   .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
     const entry = resetTokens.get(data.token);
     if (!entry || entry.expiresAt < Date.now()) {

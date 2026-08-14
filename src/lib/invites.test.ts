@@ -129,6 +129,11 @@ describe("roles", () => {
     );
     expect(allowed).toEqual(["Owner", "Manager"]);
   });
+
+  it("denies rather than throws for a role that isn't one of the four — roster.ts casts a DB `text` column with no runtime check, so a drifted row can hand `can` an unrecognized string", () => {
+    expect(() => can("Cleaner" as Role, "bookings:write")).not.toThrow();
+    expect(can("Cleaner" as Role, "bookings:write")).toBe(false);
+  });
 });
 
 describe("the invite lifecycle", () => {

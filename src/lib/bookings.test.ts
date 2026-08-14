@@ -5,14 +5,33 @@ import {
   checkAvailability,
   checkInEligibilityError,
   createBooking,
+  createPartyHallEnquiry,
+  EARLY_CHECKIN_FEE,
+  EXTRA_MATTRESS_FEE,
   getBookingsPageData,
   markBookingPaid,
+  MAX_PARTY_HALL_GUESTS,
+  resolveRequestedService,
   ROOM_UNITS,
   type NewBookingInput,
+  type NewPartyHallEnquiryInput,
 } from "@/lib/bookings";
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import { computeTotalBill, computeTotalCollected } from "@/lib/booking-math";
 import type { RoomTile } from "@/types/booking";
+
+const NEW_ENQUIRY: NewPartyHallEnquiryInput = {
+  eventType: "Wedding",
+  occasionName: "Riya & Kabir",
+  date: "2026-09-15",
+  slot: "evening",
+  guests: 80,
+  package: "Gold",
+  addOns: ["Decor", "Catering"],
+  contactName: "Riya Sharma",
+  contactPhone: "9811122233",
+  contactEmail: "riya@example.com",
+};
 
 const NEW_BOOKING: NewBookingInput = {
   guestName: "Kavya Iyer",
@@ -148,6 +167,512 @@ describe("createBooking", () => {
     ).toBe(false);
     expect(createBooking(fixtures, { ...NEW_BOOKING, roomNo: "999" }).ok).toBe(false);
   });
+
+  it("persists a non-default meal plan instead of always defaulting to EP", () => {
+    const res = createBooking(fixtures, { ...NEW_BOOKING, mealPlan: "AP" }, "2026-08-01");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.booking.mealPlan).toBe("AP");
+  });
+
+  it("stores preferences + note together as one specialRequest object", () => {
+    const res = createBooking(
+      fixtures,
+      {
+        ...NEW_BOOKING,
+        requestPreferences: ["high_floor", "quiet_room"],
+        requestNote: "arriving ~11pm",
+      },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.booking.specialRequest).toEqual({
+      preferences: ["high_floor", "quiet_room"],
+      note: "arriving ~11pm",
+    });
+  });
+
+  it("stores undefined, not an empty object, when nothing was selected or written", () => {
+    const res = createBooking(fixtures, NEW_BOOKING, "2026-08-01");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.booking.specialRequest).toBeUndefined();
+  });
+
+  it("drops unknown/invalid preference keys instead of trusting client input", () => {
+    const res = createBooking(
+      fixtures,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- exercising the untrusted-input path deliberately
+      { ...NEW_BOOKING, requestPreferences: ["quiet_room", "sea_view" as any] },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.booking.specialRequest).toEqual({ preferences: ["quiet_room"] });
+  });
+
+  it("rejects a request note over 500 characters instead of truncating it", () => {
+    const res = createBooking(
+      fixtures,
+      { ...NEW_BOOKING, requestNote: "x".repeat(501) },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(false);
+  });
+
+  it("accepts a request note at exactly the 500-character limit", () => {
+    const res = createBooking(
+      fixtures,
+      { ...NEW_BOOKING, requestNote: "x".repeat(500) },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(true);
+  });
+
+  it("Slice B: a requested add-on is recorded pending, never an immediate charge", () => {
+    const res = createBooking(
+      fixtures,
+      {
+        ...NEW_BOOKING,
+        requestEarlyCheckIn: true,
+        requestLateCheckOut: true,
+        requestExtraMattressQty: 2,
+      },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.booking.requestedServices).toEqual({
+      earlyCheckIn: { requested: true, status: "pending" },
+      lateCheckOut: { requested: true, status: "pending" },
+      extraMattress: { requested: true, status: "pending", qty: 2 },
+    });
+    // Requesting is not charging — the revenue columns stay untouched.
+    expect(res.booking.revenue.earlyCheckIn).toBe(0);
+    expect(res.booking.revenue.lateCheckOut).toBe(0);
+    expect(res.booking.revenue.other).toBe(0);
+  });
+
+  it("stores undefined, not an empty object, when no add-on was requested", () => {
+    const res = createBooking(fixtures, NEW_BOOKING, "2026-08-01");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.booking.requestedServices).toBeUndefined();
+  });
+
+  it("rejects a mattress quantity outside 0-3", () => {
+    expect(createBooking(fixtures, { ...NEW_BOOKING, requestExtraMattressQty: 4 }).ok).toBe(false);
+    expect(createBooking(fixtures, { ...NEW_BOOKING, requestExtraMattressQty: -1 }).ok).toBe(false);
+  });
+});
+
+describe("createPartyHallEnquiry", () => {
+  it("persists every field the guest entered, composing the title as 'type — occasion'", () => {
+    const res = createPartyHallEnquiry({ partyHall: [] }, NEW_ENQUIRY, "2026-08-01");
+    if (!res.ok) throw new Error(res.error);
+    expect(res.enquiry).toMatchObject({
+      title: "Wedding — Riya & Kabir",
+      date: "2026-09-15",
+      slot: "evening",
+      guests: 80,
+      package: "Gold",
+      addOns: ["Decor", "Catering"],
+      status: "enquiry",
+      amount: 0,
+      contactName: "Riya Sharma",
+      contactPhone: "9811122233",
+      contactEmail: "riya@example.com",
+    });
+  });
+
+  it("assigns the next id for the day, sequential per submission date", () => {
+    const first = createPartyHallEnquiry({ partyHall: [] }, NEW_ENQUIRY, "2026-08-01");
+    if (!first.ok) throw new Error(first.error);
+    expect(first.enquiry.id).toBe("PH-20260801-001");
+
+    const second = createPartyHallEnquiry(
+      { partyHall: [first.enquiry] },
+      NEW_ENQUIRY,
+      "2026-08-01",
+    );
+    if (!second.ok) throw new Error(second.error);
+    expect(second.enquiry.id).toBe("PH-20260801-002");
+  });
+
+  it("rejects an event type outside the known whitelist", () => {
+    const res = createPartyHallEnquiry(
+      { partyHall: [] },
+      { ...NEW_ENQUIRY, eventType: "Concert" },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(false);
+  });
+
+  it("uses just the event type when no occasion name is given", () => {
+    const res = createPartyHallEnquiry(
+      { partyHall: [] },
+      { ...NEW_ENQUIRY, occasionName: undefined },
+      "2026-08-01",
+    );
+    if (!res.ok) throw new Error(res.error);
+    expect(res.enquiry.title).toBe("Wedding");
+  });
+
+  it("rejects an occasion name over the length cap", () => {
+    const res = createPartyHallEnquiry(
+      { partyHall: [] },
+      { ...NEW_ENQUIRY, occasionName: "x".repeat(81) },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(false);
+  });
+
+  it("rejects a date in the past", () => {
+    const res = createPartyHallEnquiry(
+      { partyHall: [] },
+      { ...NEW_ENQUIRY, date: "2026-07-01" },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(false);
+  });
+
+  it("rejects a guest count outside 1..MAX_PARTY_HALL_GUESTS", () => {
+    expect(
+      createPartyHallEnquiry({ partyHall: [] }, { ...NEW_ENQUIRY, guests: 0 }, "2026-08-01").ok,
+    ).toBe(false);
+    expect(
+      createPartyHallEnquiry(
+        { partyHall: [] },
+        { ...NEW_ENQUIRY, guests: MAX_PARTY_HALL_GUESTS + 1 },
+        "2026-08-01",
+      ).ok,
+    ).toBe(false);
+    expect(
+      createPartyHallEnquiry(
+        { partyHall: [] },
+        { ...NEW_ENQUIRY, guests: MAX_PARTY_HALL_GUESTS },
+        "2026-08-01",
+      ).ok,
+    ).toBe(true);
+  });
+
+  it("rejects a package name that isn't a real tier", () => {
+    const res = createPartyHallEnquiry(
+      { partyHall: [] },
+      { ...NEW_ENQUIRY, package: "Diamond" },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(false);
+  });
+
+  it("drops add-ons outside the known tag vocabulary rather than trusting the client", () => {
+    const res = createPartyHallEnquiry(
+      { partyHall: [] },
+      { ...NEW_ENQUIRY, addOns: ["Decor", "Fireworks", "Decor"] },
+      "2026-08-01",
+    );
+    if (!res.ok) throw new Error(res.error);
+    expect(res.enquiry.addOns).toEqual(["Decor"]);
+  });
+
+  it("rejects a missing contact name", () => {
+    const res = createPartyHallEnquiry(
+      { partyHall: [] },
+      { ...NEW_ENQUIRY, contactName: "" },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(false);
+  });
+
+  it("rejects a malformed contact phone", () => {
+    const res = createPartyHallEnquiry(
+      { partyHall: [] },
+      { ...NEW_ENQUIRY, contactPhone: "abc" },
+      "2026-08-01",
+    );
+    expect(res.ok).toBe(false);
+  });
+
+  it("rejects a malformed contact email but allows an empty one", () => {
+    expect(
+      createPartyHallEnquiry(
+        { partyHall: [] },
+        { ...NEW_ENQUIRY, contactEmail: "not-an-email" },
+        "2026-08-01",
+      ).ok,
+    ).toBe(false);
+    expect(
+      createPartyHallEnquiry({ partyHall: [] }, { ...NEW_ENQUIRY, contactEmail: "" }, "2026-08-01")
+        .ok,
+    ).toBe(true);
+  });
+
+  it("computes advancePaid as 0 for a fresh enquiry — nothing has been quoted yet", () => {
+    const res = createPartyHallEnquiry({ partyHall: [] }, NEW_ENQUIRY, "2026-08-01");
+    if (!res.ok) throw new Error(res.error);
+    expect(res.enquiry.advancePaid).toBe(0);
+  });
+});
+
+describe("resolveRequestedService", () => {
+  function bookingWithPendingRequests() {
+    const res = createBooking(
+      fixtures,
+      {
+        ...NEW_BOOKING,
+        requestEarlyCheckIn: true,
+        requestLateCheckOut: true,
+        requestExtraMattressQty: 2,
+      },
+      "2026-08-01",
+    );
+    if (!res.ok) throw new Error("setup failed");
+    return res.booking;
+  }
+
+  it("applying a pending request snapshots the current rate and flips status to applied", () => {
+    const booking = bookingWithPendingRequests();
+    const res = resolveRequestedService({}, booking, "earlyCheckIn", "applied");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.revenue.earlyCheckIn).toBe(EARLY_CHECKIN_FEE);
+    expect(res.requestedServices.earlyCheckIn).toEqual({ requested: true, status: "applied" });
+  });
+
+  it("applying uses an owner-set override rate instead of the default", () => {
+    const booking = bookingWithPendingRequests();
+    const res = resolveRequestedService(
+      { addOnRateOverrides: { earlyCheckIn: 777 } },
+      booking,
+      "earlyCheckIn",
+      "applied",
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.revenue.earlyCheckIn).toBe(777);
+  });
+
+  it("declining a pending request leaves revenue at zero and records the outcome", () => {
+    const booking = bookingWithPendingRequests();
+    const res = resolveRequestedService({}, booking, "lateCheckOut", "declined");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.revenue.lateCheckOut).toBe(0);
+    expect(res.requestedServices.lateCheckOut).toEqual({ requested: true, status: "declined" });
+  });
+
+  it("mattress applies its requested quantity and appends a readable note", () => {
+    const booking = bookingWithPendingRequests();
+    const res = resolveRequestedService({}, booking, "extraMattress", "applied");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.revenue.other).toBe(EXTRA_MATTRESS_FEE * 2);
+    expect(res.note).toBe("Extra mattress ×2");
+    expect(res.requestedServices.extraMattress).toEqual({
+      requested: true,
+      status: "applied",
+      qty: 2,
+    });
+  });
+
+  it("appends rather than overwrites when revenueOtherNote already holds a charge", () => {
+    const booking = { ...bookingWithPendingRequests(), revenueOtherNote: "Manual adjustment" };
+    const res = resolveRequestedService({}, booking, "extraMattress", "applied");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.note).toBe("Manual adjustment, Extra mattress ×2");
+  });
+
+  it("a walk-in ad-hoc add (no prior request) applies directly at the given quantity", () => {
+    const res1 = createBooking(fixtures, NEW_BOOKING, "2026-08-01");
+    if (!res1.ok) throw new Error("setup failed");
+    const res = resolveRequestedService({}, res1.booking, "extraMattress", "applied", 3);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.revenue.other).toBe(EXTRA_MATTRESS_FEE * 3);
+    expect(res.requestedServices.extraMattress).toEqual({
+      requested: false,
+      status: "applied",
+      qty: 3,
+    });
+  });
+
+  it("refuses to resolve a request that has already been applied or declined", () => {
+    const booking = bookingWithPendingRequests();
+    const applied = resolveRequestedService({}, booking, "earlyCheckIn", "applied");
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+    const reapplied = resolveRequestedService(
+      {},
+      { ...booking, requestedServices: applied.requestedServices },
+      "earlyCheckIn",
+      "declined",
+    );
+    expect(reapplied.ok).toBe(false);
+  });
+
+  it("reversing an applied early check-in zeros the revenue and marks it reversed", () => {
+    const booking = bookingWithPendingRequests();
+    const applied = resolveRequestedService({}, booking, "earlyCheckIn", "applied");
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+    const withApplied = {
+      ...booking,
+      revenue: applied.revenue,
+      requestedServices: applied.requestedServices,
+    };
+
+    const reversed = resolveRequestedService({}, withApplied, "earlyCheckIn", "reversed");
+    expect(reversed.ok).toBe(true);
+    if (!reversed.ok) return;
+    expect(reversed.revenue.earlyCheckIn).toBe(0);
+    expect(reversed.requestedServices.earlyCheckIn).toEqual({
+      requested: true,
+      status: "reversed",
+    });
+  });
+
+  it("reversing an applied mattress charge zeros revenue.other and clears the note", () => {
+    const booking = bookingWithPendingRequests();
+    const applied = resolveRequestedService({}, booking, "extraMattress", "applied");
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+    const withApplied = {
+      ...booking,
+      revenue: applied.revenue,
+      revenueOtherNote: applied.note,
+      requestedServices: applied.requestedServices,
+    };
+
+    const reversed = resolveRequestedService({}, withApplied, "extraMattress", "reversed");
+    expect(reversed.ok).toBe(true);
+    if (!reversed.ok) return;
+    expect(reversed.revenue.other).toBe(0);
+    expect(reversed.note).toBeUndefined();
+    expect(reversed.requestedServices.extraMattress).toEqual({
+      requested: true,
+      status: "reversed",
+      qty: 2,
+    });
+  });
+
+  it("reversed is distinct from declined — refuses to reverse a request that was never applied", () => {
+    const booking = bookingWithPendingRequests();
+    const declined = resolveRequestedService({}, booking, "lateCheckOut", "declined");
+    expect(declined.ok).toBe(true);
+    if (!declined.ok) return;
+    const withDeclined = { ...booking, requestedServices: declined.requestedServices };
+
+    const reversed = resolveRequestedService({}, withDeclined, "lateCheckOut", "reversed");
+    expect(reversed.ok).toBe(false);
+  });
+
+  it("refuses to reverse a request that is still pending", () => {
+    const booking = bookingWithPendingRequests();
+    const reversed = resolveRequestedService({}, booking, "earlyCheckIn", "reversed");
+    expect(reversed.ok).toBe(false);
+  });
+
+  it("refuses to reverse an already-reversed charge", () => {
+    const booking = bookingWithPendingRequests();
+    const applied = resolveRequestedService({}, booking, "earlyCheckIn", "applied");
+    if (!applied.ok) throw new Error("setup failed");
+    const withApplied = {
+      ...booking,
+      revenue: applied.revenue,
+      requestedServices: applied.requestedServices,
+    };
+    const firstReversal = resolveRequestedService({}, withApplied, "earlyCheckIn", "reversed");
+    if (!firstReversal.ok) throw new Error("setup failed");
+    const withReversed = {
+      ...withApplied,
+      revenue: firstReversal.revenue,
+      requestedServices: firstReversal.requestedServices,
+    };
+
+    const secondReversal = resolveRequestedService({}, withReversed, "earlyCheckIn", "reversed");
+    expect(secondReversal.ok).toBe(false);
+  });
+
+  it("a reversed charge can be re-applied — it does not dead-end", () => {
+    const booking = bookingWithPendingRequests();
+    const applied = resolveRequestedService({}, booking, "earlyCheckIn", "applied");
+    if (!applied.ok) throw new Error("setup failed");
+    const withApplied = {
+      ...booking,
+      revenue: applied.revenue,
+      requestedServices: applied.requestedServices,
+    };
+    const reversed = resolveRequestedService({}, withApplied, "earlyCheckIn", "reversed");
+    if (!reversed.ok) throw new Error("setup failed");
+    const withReversed = {
+      ...withApplied,
+      revenue: reversed.revenue,
+      requestedServices: reversed.requestedServices,
+    };
+
+    const reapplied = resolveRequestedService({}, withReversed, "earlyCheckIn", "applied");
+    expect(reapplied.ok).toBe(true);
+    if (!reapplied.ok) return;
+    expect(reapplied.revenue.earlyCheckIn).toBe(EARLY_CHECKIN_FEE);
+    expect(reapplied.requestedServices.earlyCheckIn).toEqual({
+      requested: true,
+      status: "applied",
+    });
+  });
+
+  it("a mattress charge reversed then re-applied recharges its original quantity", () => {
+    const booking = bookingWithPendingRequests();
+    const applied = resolveRequestedService({}, booking, "extraMattress", "applied");
+    if (!applied.ok) throw new Error("setup failed");
+    const withApplied = {
+      ...booking,
+      revenue: applied.revenue,
+      revenueOtherNote: applied.note,
+      requestedServices: applied.requestedServices,
+    };
+    const reversed = resolveRequestedService({}, withApplied, "extraMattress", "reversed");
+    if (!reversed.ok) throw new Error("setup failed");
+    const withReversed = {
+      ...withApplied,
+      revenue: reversed.revenue,
+      revenueOtherNote: reversed.note,
+      requestedServices: reversed.requestedServices,
+    };
+
+    const reapplied = resolveRequestedService({}, withReversed, "extraMattress", "applied");
+    expect(reapplied.ok).toBe(true);
+    if (!reapplied.ok) return;
+    expect(reapplied.revenue.other).toBe(EXTRA_MATTRESS_FEE * 2);
+    expect(reapplied.note).toBe("Extra mattress ×2");
+  });
+
+  it("a declined request can still be applied afterward", () => {
+    const booking = bookingWithPendingRequests();
+    const declined = resolveRequestedService({}, booking, "lateCheckOut", "declined");
+    if (!declined.ok) throw new Error("setup failed");
+    const withDeclined = { ...booking, requestedServices: declined.requestedServices };
+
+    const applied = resolveRequestedService({}, withDeclined, "lateCheckOut", "applied");
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+    expect(applied.revenue.lateCheckOut).toBe(500);
+  });
+
+  it("still refuses to apply a charge that is currently applied — reverse it first", () => {
+    const booking = bookingWithPendingRequests();
+    const applied = resolveRequestedService({}, booking, "earlyCheckIn", "applied");
+    if (!applied.ok) throw new Error("setup failed");
+    const withApplied = {
+      ...booking,
+      revenue: applied.revenue,
+      requestedServices: applied.requestedServices,
+    };
+
+    const reapplied = resolveRequestedService({}, withApplied, "earlyCheckIn", "applied");
+    expect(reapplied.ok).toBe(false);
+  });
 });
 
 describe("markBookingPaid", () => {
@@ -256,10 +781,24 @@ describe("checkAvailability", () => {
 
 describe("assignBookingRoom", () => {
   const rooms: RoomTile[] = [
-    { no: "101", floor: 1, type: "deluxe", status: "available", detail: "Ready" },
-    { no: "102", floor: 1, type: "deluxe", status: "maintenance", detail: "AC repair" },
-    { no: "103", floor: 1, type: "deluxe", status: "available", detail: "Ready" },
-    { no: "201", floor: 2, type: "deluxe_balcony", status: "available", detail: "Ready" },
+    { no: "101", floor: 1, type: "deluxe", status: "available", detail: "Ready", sizeSqm: null },
+    {
+      no: "102",
+      floor: 1,
+      type: "deluxe",
+      status: "maintenance",
+      detail: "AC repair",
+      sizeSqm: null,
+    },
+    { no: "103", floor: 1, type: "deluxe", status: "available", detail: "Ready", sizeSqm: null },
+    {
+      no: "201",
+      floor: 2,
+      type: "deluxe_balcony",
+      status: "available",
+      detail: "Ready",
+      sizeSqm: null,
+    },
   ];
 
   /** A confirmed deluxe booking, unassigned, over the given dates, with a
@@ -391,8 +930,15 @@ describe("assignBookingRoom", () => {
 
 describe("checkInEligibilityError", () => {
   const rooms: RoomTile[] = [
-    { no: "101", floor: 1, type: "deluxe", status: "available", detail: "Ready" },
-    { no: "102", floor: 1, type: "deluxe", status: "maintenance", detail: "AC repair" },
+    { no: "101", floor: 1, type: "deluxe", status: "available", detail: "Ready", sizeSqm: null },
+    {
+      no: "102",
+      floor: 1,
+      type: "deluxe",
+      status: "maintenance",
+      detail: "AC repair",
+      sizeSqm: null,
+    },
   ];
 
   function makeBooking(roomNo: string | null) {

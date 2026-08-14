@@ -51,7 +51,9 @@ const SEEDS = [1, 7, 42, 1337];
 describe("row order is a decision, not an accident of storage", () => {
   it("lists bookings by booking number, however the rows arrive", async () => {
     const expected = await getBookingsPageData(fixtures, "2026-07-15");
-    // The design's order: KRC-…-001 through -010, across several dates.
+    // The design's order: KRC-…-001 through -010, across several dates, plus
+    // 011-023 — the late-July occupancy-ramp bookings added for the Calendar
+    // band-reachability fix (5a).
     expect(expected.rows.map((r) => r.booking.id.slice(-3))).toEqual([
       "001",
       "002",
@@ -63,6 +65,19 @@ describe("row order is a decision, not an accident of storage", () => {
       "008",
       "009",
       "010",
+      "011",
+      "012",
+      "013",
+      "014",
+      "015",
+      "016",
+      "017",
+      "018",
+      "019",
+      "020",
+      "021",
+      "022",
+      "023",
     ]);
 
     for (const seed of SEEDS) {

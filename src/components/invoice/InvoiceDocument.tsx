@@ -6,6 +6,7 @@
 
 import krcLogo from "@/assets/krc-logo.jpg";
 import type { Invoice } from "@/lib/invoices";
+import { GSTIN, UDYAM_REGISTRATION } from "@/lib/seo";
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-IN", {
@@ -29,11 +30,17 @@ export function InvoiceDocument({ invoice }: { invoice: Invoice }) {
         <div className="flex items-center gap-3.5">
           <img src={krcLogo} alt="The Divine KRC crest" className="size-13 object-contain" />
           <div className="leading-tight">
-            <div className="font-display text-[19px] font-semibold tracking-[0.04em]">
+            <div className="font-display text-[15px] italic uppercase tracking-[0.18em] text-gold-soft">
               The Divine KRC
             </div>
             <div className="mt-0.5 text-[10px] tracking-[0.28em] text-gold uppercase">
               Hotel &amp; Banquet
+            </div>
+            <div className="mt-1.5 text-[9.5px] tracking-[0.08em] text-[#c9c3b6]">
+              UDYAM: {UDYAM_REGISTRATION}
+            </div>
+            <div className="mt-0.5 text-[9.5px] tracking-[0.08em] text-[#c9c3b6]">
+              GSTIN: {GSTIN}
             </div>
           </div>
         </div>

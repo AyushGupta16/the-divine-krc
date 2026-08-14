@@ -1,8 +1,34 @@
 import { describe, expect, it } from "vitest";
 
-import { getPartyHallPageData, PARTY_HALL_ADVANCE_PCT, partyHallAdvance } from "@/lib/bookings";
+import {
+  cancelPartyHallEvent,
+  completePartyHallEvent,
+  computePartyHallQuote,
+  computePartyHallQuoteBreakdown,
+  confirmPartyHallEvent,
+  declinePartyHallEnquiry,
+  getPartyHallPageData,
+  isPartyHallEventPastDue,
+  PARTY_HALL_ADVANCE_PCT,
+  PARTY_HALL_RATE_DEFAULTS,
+  partyHallAdvance,
+  partyHallCtaKinds,
+  partyHallTransitionAllowed,
+  recordPartyHallAdvance,
+  reopenPartyHallEnquiry,
+  resolvePartyHallRates,
+  sendPartyHallQuote,
+  withAdvance,
+} from "@/lib/bookings";
+import { toPartyHall } from "@/lib/bookings-data";
+import { formatINRCompact } from "@/lib/booking-math";
 import { fixtures } from "@/lib/__fixtures__/bookings";
-import type { PartyHallCalendarCell, PartyHallStatKey, PartyHallStatus } from "@/types/booking";
+import type {
+  PartyHallCalendarCell,
+  PartyHallEnquiry,
+  PartyHallStatKey,
+  PartyHallStatus,
+} from "@/types/booking";
 
 const statValue = (stats: { key: PartyHallStatKey; value: string }[], key: PartyHallStatKey) =>
   stats.find((s) => s.key === key)!.value;
@@ -46,6 +72,37 @@ describe("getPartyHallPageData", () => {
     expect(pills.find((p) => p.key === "all")!.count).toBe(events.length);
   });
 
+  it("the quoted/cancelled/declined pills count exactly their matching status", async () => {
+    const { events, pills } = await getPartyHallPageData(fixtures);
+
+    expect(pills.find((p) => p.key === "quoted")!.count).toBe(
+      events.filter((e) => e.enquiry.status === "quote_sent").length,
+    );
+    expect(pills.find((p) => p.key === "cancelled")!.count).toBe(
+      events.filter((e) => e.enquiry.status === "cancelled").length,
+    );
+    expect(pills.find((p) => p.key === "declined")!.count).toBe(
+      events.filter((e) => e.enquiry.status === "declined").length,
+    );
+  });
+
+  it("past-due stat and pill agree with isPartyHallEventPastDue over the same event set — one predicate, two surfaces", async () => {
+    const today = "2026-08-08";
+    const { stats, events, pills } = await getPartyHallPageData(fixtures, 2026, 8, today);
+
+    const pastDueCount = events.filter((e) => isPartyHallEventPastDue(e.enquiry, today)).length;
+    expect(pastDueCount).toBeGreaterThan(0);
+    expect(statValue(stats, "pastDue")).toBe(String(pastDueCount));
+    expect(pills.find((p) => p.key === "pastDue")!.count).toBe(pastDueCount);
+
+    // Rao family: confirmed, dated 2026-07-30 — before the pinned today.
+    const rao = events.find((e) => e.enquiry.title.includes("Rao family"))!;
+    expect(rao.pastDue).toBe(true);
+    // Pillai family: confirmed, dated 2026-08-16 — after the pinned today.
+    const pillai = events.find((e) => e.enquiry.title.includes("Pillai family"))!;
+    expect(pillai.pastDue).toBe(false);
+  });
+
   it("counts advance collected across upcoming events only", async () => {
     const { stats, events } = await getPartyHallPageData(fixtures);
 
@@ -59,8 +116,12 @@ describe("getPartyHallPageData", () => {
   });
 
   it("names the soonest event still ahead as the next one", async () => {
-    const { stats } = await getPartyHallPageData(fixtures);
-    expect(statValue(stats, "nextEvent")).toBe("30 Jul · Evening");
+    // Pinned `today`: "next event" excludes past-dated confirmed events (a
+    // stale `confirmed` row never auto-transitions to `completed`), so this
+    // result depends on `today` relative to the fixture dates and must not
+    // drift with the real wall clock.
+    const { stats } = await getPartyHallPageData(fixtures, 2026, 8, "2026-08-10");
+    expect(statValue(stats, "nextEvent")).toBe("12 Aug · Afternoon");
   });
 
   it("orders cards up the pipeline, new first and completed last", async () => {
@@ -79,19 +140,25 @@ describe("getPartyHallPageData", () => {
     expect(events[0].enquiry.status).toBe("enquiry");
   });
 
-  it("gives a new enquiry the primary quote CTA and everything else a quiet one", async () => {
-    const { events } = await getPartyHallPageData(fixtures);
-
+  it("gives every card exactly the CTA set its status (and date, for confirmed) implies", async () => {
+    const { events } = await getPartyHallPageData(fixtures, 2026, 8, "2026-08-08");
     for (const e of events) {
-      if (e.enquiry.status === "enquiry") {
-        expect(e.cta).toBe("Send quote");
-        expect(e.ctaPrimary).toBe(true);
-      } else {
-        expect(e.ctaPrimary).toBe(false);
-      }
+      expect(e.ctas).toEqual(partyHallCtaKinds(e.enquiry, "2026-08-08"));
     }
-    expect(events.find((e) => e.enquiry.status === "completed")!.cta).toBe("Invoice");
-    expect(events.find((e) => e.enquiry.status === "confirmed")!.cta).toBe("View details");
+    expect(events.find((e) => e.enquiry.status === "completed")!.ctas).toEqual(["invoice"]);
+    // Confirmed, event date before the anchor (2026-07-30 < 2026-08-08) — past
+    // due, no date guard on completing.
+    expect(events.find((e) => e.enquiry.title.includes("Rao family"))!.ctas).toEqual([
+      "invoice",
+      "complete",
+    ]);
+    // Confirmed, event date on/after the anchor (2026-08-16 > 2026-08-08).
+    expect(events.find((e) => e.enquiry.title.includes("Pillai family"))!.ctas).toEqual([
+      "invoice",
+      "cancel",
+      "view_details",
+      "complete",
+    ]);
   });
 
   it("shows a dash rather than a false zero before an enquiry is quoted", async () => {
@@ -121,6 +188,64 @@ describe("getPartyHallPageData", () => {
     expect(paid.meta).toContain("advance ₹22k paid");
   });
 
+  it("statusNote is exactly the tail of meta, for every status — one metaNote call, no drift", async () => {
+    const { events } = await getPartyHallPageData(fixtures);
+    for (const e of events) {
+      expect(e.meta.endsWith(e.statusNote)).toBe(true);
+    }
+    const confirmed = events.find((e) => e.enquiry.status === "confirmed")!;
+    expect(confirmed.statusNote).toBe("balance due on day");
+    const completed = events.find((e) => e.enquiry.status === "completed")!;
+    expect(completed.statusNote).toBe("settled");
+  });
+
+  it("shows the snapshotted percentage alongside the advance once one is on record", async () => {
+    const custom = {
+      ...fixtures,
+      partyHall: [
+        enquiry({
+          id: "PH-PCT",
+          status: "advance_paid",
+          amount: 100000,
+          advanceAmount: 25000,
+          advancePct: 25,
+        }),
+      ],
+    };
+    const { events } = await getPartyHallPageData(custom);
+    const item = events.find((e) => e.enquiry.id === "PH-PCT")!;
+    expect(item.meta).toContain("advance ₹25k (25%) paid");
+  });
+
+  it("withAdvance falls back to a live amount × pct calculation for a row with no advance snapshot", () => {
+    // Exercised through `toPartyHall`, the real DB-row hydration path where
+    // `withAdvance` actually runs — not through the `enquiry()` fixture helper,
+    // which would only prove the fixture agrees with itself.
+    const row = {
+      id: "PH-NULL-SNAPSHOT",
+      title: "Test event",
+      date: "2027-01-01",
+      slot: "evening",
+      guests: 100,
+      package: "Gold",
+      addOns: ["Catering"],
+      status: "advance_paid",
+      amount: 100000,
+      quotedAt: null,
+      quoteBreakdown: null,
+      advanceAmount: null,
+      advancePct: null,
+      refundedAt: null,
+      createdAt: null,
+      contactName: null,
+      contactPhone: null,
+      contactEmail: null,
+      source: null,
+    };
+    const hydrated = toPartyHall(row, 25);
+    expect(hydrated.advancePaid).toBe(25000);
+  });
+
   it("marks the rail's booked days from the live enquiries for that month", async () => {
     const august = await getPartyHallPageData(fixtures, 2026, 8);
     expect(august.calendar.monthLabel).toBe("August 2026");
@@ -137,9 +262,485 @@ describe("getPartyHallPageData", () => {
     expect(bookedDays(calendar.cells)).toEqual([]);
   });
 
+  it("still marks a past month's booked days when today is later — history, not a forecast", async () => {
+    // July 2026 is entirely in the past relative to "today" below, but the
+    // rail must still show it was booked: a `confirmed`/`completed` event
+    // that already happened is not something a date filter should erase.
+    const july = await getPartyHallPageData(fixtures, 2026, 7, "2026-08-10");
+    expect(bookedDays(july.calendar.cells)).toEqual([30]);
+  });
+
+  it("drops cancelled events from confirmed·upcoming and the calendar's booked days", async () => {
+    const custom = {
+      ...fixtures,
+      partyHall: [
+        enquiry({ id: "PH-CANCELLED", status: "cancelled", date: "2026-08-15", amount: 100000 }),
+        enquiry({ id: "PH-CONFIRMED", status: "confirmed", date: "2026-08-16", amount: 100000 }),
+      ],
+    };
+    const { stats, calendar } = await getPartyHallPageData(custom, 2026, 8, "2026-08-10");
+    expect(statValue(stats, "confirmed")).toBe("1");
+    expect(bookedDays(calendar.cells)).toEqual([16]);
+  });
+
+  it("drops a past confirmed event from confirmed·upcoming — nothing marks it completed on its own", async () => {
+    const custom = {
+      ...fixtures,
+      partyHall: [
+        enquiry({ id: "PH-PAST", status: "confirmed", date: "2026-08-05", amount: 100000 }),
+        enquiry({ id: "PH-FUTURE", status: "confirmed", date: "2026-08-20", amount: 100000 }),
+      ],
+    };
+    const { stats } = await getPartyHallPageData(custom, 2026, 8, "2026-08-10");
+    expect(statValue(stats, "confirmed")).toBe("1");
+  });
+
+  it("drops a completed event from confirmed·upcoming and advance collected — #102 makes this status reachable, so it must not double-count as still-confirmed money", async () => {
+    const custom = {
+      ...fixtures,
+      partyHall: [
+        enquiry({ id: "PH-COMPLETED", status: "completed", date: "2026-08-05", amount: 100000 }),
+        enquiry({ id: "PH-CONFIRMED", status: "confirmed", date: "2026-08-20", amount: 100000 }),
+      ],
+    };
+    const { stats } = await getPartyHallPageData(custom, 2026, 8, "2026-08-10");
+    expect(statValue(stats, "confirmed")).toBe("1");
+    // Only the still-confirmed event's advance (25%) is held; the completed
+    // one's takings are settled revenue, not an advance sitting on the books.
+    expect(statValue(stats, "advanceCollected")).toBe(formatINRCompact(partyHallAdvance(100000)));
+  });
+
+  it("degrades the quoted-on label to no date for a pre-migration row with no quotedAt", async () => {
+    const custom = {
+      ...fixtures,
+      partyHall: [enquiry({ id: "PH-NO-DATE", status: "quote_sent", amount: 50000 })],
+    };
+    const { events } = await getPartyHallPageData(custom, 2026, 8);
+    const item = events.find((e) => e.enquiry.id === "PH-NO-DATE")!;
+    expect(item.amountLabel).toBe("Quoted");
+  });
+
+  it("shows the quote date in the label once quotedAt is on record", async () => {
+    const custom = {
+      ...fixtures,
+      partyHall: [
+        enquiry({
+          id: "PH-DATED",
+          status: "quote_sent",
+          amount: 50000,
+          quotedAt: "2026-08-04T10:00:00.000Z",
+        }),
+      ],
+    };
+    const { events } = await getPartyHallPageData(custom, 2026, 8);
+    const item = events.find((e) => e.enquiry.id === "PH-DATED")!;
+    expect(item.amountLabel).toBe("Quoted on 4 Aug 2026");
+  });
+
   it("states the 25% advance in the package reference", async () => {
     const { addOnsLine, packages } = await getPartyHallPageData(fixtures);
     expect(addOnsLine).toContain("25% advance to confirm");
     expect(packages.map((p) => p.name)).toEqual(["Silver", "Gold", "Platinum"]);
+  });
+});
+
+/** Derives `advancePaid` through the real `withAdvance` rule instead of
+ *  defaulting it to 0, so a patch like `{ status: "advance_paid", advanceAmount:
+ *  25000 }` can't silently produce the incoherent `advancePaid: 0` — the exact
+ *  shape that let a bad test assertion through undetected. Pass `advancePaid`
+ *  explicitly only to test a deliberately-incoherent row. */
+function enquiry(patch: Partial<PartyHallEnquiry>): PartyHallEnquiry {
+  const { advancePaid: explicitAdvancePaid, ...rest } = patch;
+  const merged: Omit<PartyHallEnquiry, "advancePaid"> = {
+    id: "PH-TEST-001",
+    title: "Test event",
+    date: "2027-01-01",
+    slot: "evening",
+    guests: 100,
+    package: "Gold",
+    addOns: ["Catering", "Decor"],
+    status: "enquiry",
+    amount: 0,
+    ...rest,
+  };
+  if (explicitAdvancePaid !== undefined) {
+    return { ...merged, advancePaid: explicitAdvancePaid };
+  }
+  return withAdvance(merged, merged.advancePct);
+}
+
+describe("isPartyHallEventPastDue", () => {
+  const TODAY = "2026-08-08";
+
+  it("a confirmed event dated yesterday is past-due", () => {
+    expect(
+      isPartyHallEventPastDue(enquiry({ status: "confirmed", date: "2026-08-07" }), TODAY),
+    ).toBe(true);
+  });
+
+  it("a confirmed event dated today is NOT past-due", () => {
+    expect(isPartyHallEventPastDue(enquiry({ status: "confirmed", date: TODAY }), TODAY)).toBe(
+      false,
+    );
+  });
+
+  it("a confirmed event dated tomorrow is NOT past-due", () => {
+    expect(
+      isPartyHallEventPastDue(enquiry({ status: "confirmed", date: "2026-08-09" }), TODAY),
+    ).toBe(false);
+  });
+
+  it("completed/cancelled/declined are never past-due, even with a date in the past", () => {
+    for (const status of ["completed", "cancelled", "declined"] as const) {
+      expect(isPartyHallEventPastDue(enquiry({ status, date: "2026-08-07" }), TODAY)).toBe(false);
+    }
+  });
+
+  it("enquiry/quote_sent/advance_paid are never past-due either — only confirmed can be", () => {
+    for (const status of ["enquiry", "quote_sent", "advance_paid"] as const) {
+      expect(isPartyHallEventPastDue(enquiry({ status, date: "2026-08-07" }), TODAY)).toBe(false);
+    }
+  });
+});
+
+describe("partyHallCtaKinds", () => {
+  const TODAY = "2026-08-08";
+
+  it("enquiry → decline, send quote (primary rightmost)", () => {
+    expect(partyHallCtaKinds(enquiry({ status: "enquiry" }), TODAY)).toEqual([
+      "decline",
+      "send_quote",
+    ]);
+  });
+
+  it("quote_sent → whatsapp, decline, record advance", () => {
+    expect(partyHallCtaKinds(enquiry({ status: "quote_sent", amount: 50000 }), TODAY)).toEqual([
+      "whatsapp",
+      "decline",
+      "record_advance",
+    ]);
+  });
+
+  it("advance_paid → invoice, cancel, confirm (primary rightmost) — no whatsapp, the quote conversation is over", () => {
+    expect(
+      partyHallCtaKinds(
+        enquiry({ status: "advance_paid", amount: 50000, advanceAmount: 12500 }),
+        TODAY,
+      ),
+    ).toEqual(["invoice", "cancel", "confirm"]);
+  });
+
+  it("confirmed, event date in the future → invoice, cancel, view details, complete (primary rightmost)", () => {
+    expect(partyHallCtaKinds(enquiry({ status: "confirmed", date: "2026-08-09" }), TODAY)).toEqual([
+      "invoice",
+      "cancel",
+      "view_details",
+      "complete",
+    ]);
+  });
+
+  it("confirmed, event date today → treated as not-yet-past (still the future set), complete still offered", () => {
+    expect(partyHallCtaKinds(enquiry({ status: "confirmed", date: TODAY }), TODAY)).toEqual([
+      "invoice",
+      "cancel",
+      "view_details",
+      "complete",
+    ]);
+  });
+
+  it("confirmed, event date in the past → invoice, complete — no date guard on completing", () => {
+    expect(partyHallCtaKinds(enquiry({ status: "confirmed", date: "2026-08-07" }), TODAY)).toEqual([
+      "invoice",
+      "complete",
+    ]);
+  });
+
+  it("declined → reopen only", () => {
+    expect(partyHallCtaKinds(enquiry({ status: "declined" }), TODAY)).toEqual(["reopen"]);
+  });
+
+  it("cancelled with refundedAt set (money had moved) → invoice", () => {
+    expect(
+      partyHallCtaKinds(
+        enquiry({ status: "cancelled", refundedAt: "2026-08-01T00:00:00.000Z" }),
+        TODAY,
+      ),
+    ).toEqual(["invoice"]);
+  });
+
+  it("cancelled with no refundedAt (legacy pre-field row) → no actions", () => {
+    expect(partyHallCtaKinds(enquiry({ status: "cancelled" }), TODAY)).toEqual([]);
+  });
+
+  it("completed → invoice only", () => {
+    expect(partyHallCtaKinds(enquiry({ status: "completed" }), TODAY)).toEqual(["invoice"]);
+  });
+});
+
+describe("computePartyHallQuote", () => {
+  it("adds the package base to flat and per-guest add-ons at the resolved rates", () => {
+    const rates = resolvePartyHallRates({
+      phBaseGold: 60000,
+      phDecor: 5000,
+      phCatering: 450,
+    });
+    // 60000 base + 5000 flat decor + 100 guests × ₹450 catering.
+    expect(computePartyHallQuote(enquiry({}), rates)).toBe(60000 + 5000 + 100 * 450);
+  });
+
+  it("falls back to the placeholder defaults when nothing is overridden", () => {
+    const rates = resolvePartyHallRates();
+    expect(rates).toEqual(PARTY_HALL_RATE_DEFAULTS);
+  });
+
+  it("breaks the quote into lines that sum to the same total computePartyHallQuote returns", () => {
+    const rates = resolvePartyHallRates({ phBaseGold: 60000, phDecor: 5000, phCatering: 450 });
+    const e = enquiry({});
+    const breakdown = computePartyHallQuoteBreakdown(e, rates);
+    expect(breakdown.reduce((sum, line) => sum + line.amount, 0)).toBe(
+      computePartyHallQuote(e, rates),
+    );
+    expect(breakdown).toEqual([
+      { label: "Gold package", amount: 60000 },
+      { label: "Catering", amount: 100 * 450 },
+      { label: "Decor", amount: 5000 },
+    ]);
+  });
+});
+
+describe("quoteBreakdown persistence", () => {
+  it("sendPartyHallQuote freezes a breakdown whose lines sum to the frozen amount", () => {
+    const state = { partyHall: [enquiry({})] };
+    const rates = resolvePartyHallRates({ phBaseGold: 60000, phDecor: 5000, phCatering: 450 });
+    const res = sendPartyHallQuote(state, "PH-TEST-001", rates);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const sum = (res.enquiry.quoteBreakdown ?? []).reduce((s, line) => s + line.amount, 0);
+    expect(sum).toBe(res.enquiry.amount);
+  });
+
+  it("hydrates a null quoteBreakdown without throwing, for rows that predate the column", () => {
+    const row = {
+      id: "PH-NO-BREAKDOWN",
+      title: "Test event",
+      date: "2027-01-01",
+      slot: "evening",
+      guests: 100,
+      package: "Gold",
+      addOns: ["Catering"],
+      status: "quote_sent",
+      amount: 50000,
+      quotedAt: new Date("2026-01-01T00:00:00.000Z"),
+      quoteBreakdown: null,
+      advanceAmount: null,
+      advancePct: null,
+      refundedAt: null,
+      createdAt: null,
+      contactName: null,
+      contactPhone: null,
+      contactEmail: null,
+      source: null,
+    };
+    expect(() => toPartyHall(row, 25)).not.toThrow();
+    const hydrated = toPartyHall(row, 25);
+    expect(hydrated.quoteBreakdown).toBeUndefined();
+  });
+
+  it("renders a page of events with a null quoteBreakdown without throwing", async () => {
+    const custom = {
+      ...fixtures,
+      partyHall: [enquiry({ id: "PH-NO-BREAKDOWN-PAGE", status: "quote_sent", amount: 50000 })],
+    };
+    await expect(getPartyHallPageData(custom)).resolves.toBeDefined();
+  });
+});
+
+describe("partyHallTransitionAllowed", () => {
+  // `updatePartyHallPipeline` calls this rather than re-deriving the check —
+  // this is the same guard the real `WHERE id = ? AND status = priorStatus`
+  // and the no-DB fixtures path both rely on to make a stale write a no-op.
+  it("allows a write when the row's actual status still matches what the caller last saw", () => {
+    expect(partyHallTransitionAllowed("confirmed", "confirmed")).toBe(true);
+  });
+
+  it("blocks a write when the row has already moved on since the caller last saw it", () => {
+    // Simulates two tabs: both loaded the enquiry while it was "confirmed",
+    // one already moved it on to "cancelled", and this caller is still
+    // holding the stale "confirmed" it read earlier — the exact race a
+    // mark-completed click can hit too, since `completePartyHallEvent` goes
+    // through this same shared guard rather than a per-rule one.
+    expect(partyHallTransitionAllowed("cancelled", "confirmed")).toBe(false);
+  });
+});
+
+describe("the Party Hall pipeline actions", () => {
+  it("quotes a new enquiry and moves it to quote_sent", () => {
+    const state = { partyHall: [enquiry({})] };
+    const rates = resolvePartyHallRates({ phBaseGold: 60000, phDecor: 5000, phCatering: 450 });
+    const res = sendPartyHallQuote(state, "PH-TEST-001", rates);
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.enquiry.status).toBe("quote_sent");
+    expect(res.enquiry.amount).toBe(60000 + 5000 + 100 * 450);
+    expect(res.enquiry.advancePaid).toBe(0);
+  });
+
+  it("refuses to quote anything but a new enquiry", () => {
+    const state = { partyHall: [enquiry({ status: "quote_sent" })] };
+    const res = sendPartyHallQuote(state, "PH-TEST-001", resolvePartyHallRates());
+    expect(res.ok).toBe(false);
+  });
+
+  it("records the advance only from quote_sent, and confirms only from advance_paid", () => {
+    const quoted = enquiry({ status: "quote_sent", amount: 100000 });
+
+    const tooEarly = confirmPartyHallEvent({ partyHall: [quoted] }, "PH-TEST-001");
+    expect(tooEarly.ok).toBe(false);
+
+    const advanced = recordPartyHallAdvance({ partyHall: [quoted] }, "PH-TEST-001", 25);
+    expect(advanced.ok).toBe(true);
+    if (!advanced.ok) return;
+    expect(advanced.enquiry.status).toBe("advance_paid");
+    expect(advanced.enquiry.advancePaid).toBe(25000);
+
+    const confirmed = confirmPartyHallEvent({ partyHall: [advanced.enquiry] }, "PH-TEST-001", 25);
+    expect(confirmed.ok).toBe(true);
+    if (!confirmed.ok) return;
+    expect(confirmed.enquiry.status).toBe("confirmed");
+    expect(confirmed.enquiry.advancePaid).toBe(25000);
+  });
+
+  it("completes an event only from confirmed, and rejects every other from-state", () => {
+    const confirmed = enquiry({ status: "confirmed", amount: 100000 });
+    const done = completePartyHallEvent({ partyHall: [confirmed] }, "PH-TEST-001");
+    expect(done.ok).toBe(true);
+    if (!done.ok) return;
+    expect(done.enquiry.status).toBe("completed");
+
+    const fromStates: PartyHallStatus[] = [
+      "enquiry",
+      "quote_sent",
+      "advance_paid",
+      "completed",
+      "declined",
+      "cancelled",
+    ];
+    for (const status of fromStates) {
+      const res = completePartyHallEvent(
+        { partyHall: [enquiry({ status, amount: 100000 })] },
+        "PH-TEST-001",
+      );
+      expect(res.ok).toBe(false);
+    }
+  });
+
+  it("declines a quote and reopens it back to quote_sent, non-destructively", () => {
+    const quoted = enquiry({ status: "quote_sent", amount: 100000 });
+
+    const declined = declinePartyHallEnquiry({ partyHall: [quoted] }, "PH-TEST-001");
+    expect(declined.ok).toBe(true);
+    if (!declined.ok) return;
+    expect(declined.enquiry.status).toBe("declined");
+    expect(declined.enquiry.amount).toBe(100000);
+    expect(declined.enquiry.addOns).toEqual(quoted.addOns);
+
+    const reopened = reopenPartyHallEnquiry({ partyHall: [declined.enquiry] }, "PH-TEST-001");
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) return;
+    expect(reopened.enquiry.status).toBe("quote_sent");
+    expect(reopened.enquiry.amount).toBe(100000);
+  });
+
+  it("refuses to decline an enquiry once its advance is in hand", () => {
+    const res = declinePartyHallEnquiry(
+      { partyHall: [enquiry({ status: "advance_paid", amount: 100000 })] },
+      "PH-TEST-001",
+    );
+    expect(res.ok).toBe(false);
+  });
+
+  it("refuses to reopen anything but a declined enquiry", () => {
+    const res = reopenPartyHallEnquiry({ partyHall: [enquiry({})] }, "PH-TEST-001");
+    expect(res.ok).toBe(false);
+  });
+
+  it("reopens a declined-before-any-quote enquiry back to enquiry, not quote_sent", () => {
+    const bare = enquiry({ status: "enquiry", amount: 0 });
+    const declined = declinePartyHallEnquiry({ partyHall: [bare] }, "PH-TEST-001");
+    expect(declined.ok).toBe(true);
+    if (!declined.ok) return;
+    expect(declined.enquiry.status).toBe("declined");
+
+    const reopened = reopenPartyHallEnquiry({ partyHall: [declined.enquiry] }, "PH-TEST-001");
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) return;
+    expect(reopened.enquiry.status).toBe("enquiry");
+    expect(reopened.enquiry.amount).toBe(0);
+  });
+
+  it("cancels a booking out of advance_paid or confirmed, stamping refundedAt", () => {
+    const advancePaid = enquiry({
+      status: "advance_paid",
+      amount: 100000,
+      advanceAmount: 25000,
+      advancePct: 25,
+    });
+    const cancelledFromAdvance = cancelPartyHallEvent({ partyHall: [advancePaid] }, "PH-TEST-001");
+    expect(cancelledFromAdvance.ok).toBe(true);
+    if (!cancelledFromAdvance.ok) return;
+    expect(cancelledFromAdvance.enquiry.status).toBe("cancelled");
+    expect(cancelledFromAdvance.enquiry.refundedAt).toBeTruthy();
+    // Never wipe the financial record.
+    expect(cancelledFromAdvance.enquiry.advanceAmount).toBe(25000);
+
+    const confirmed = enquiry({
+      status: "confirmed",
+      amount: 100000,
+      advanceAmount: 25000,
+      advancePct: 25,
+    });
+    const cancelledFromConfirmed = cancelPartyHallEvent({ partyHall: [confirmed] }, "PH-TEST-001");
+    expect(cancelledFromConfirmed.ok).toBe(true);
+    if (!cancelledFromConfirmed.ok) return;
+    expect(cancelledFromConfirmed.enquiry.status).toBe("cancelled");
+    expect(cancelledFromConfirmed.enquiry.refundedAt).toBeTruthy();
+  });
+
+  it("refuses to cancel a booking with no advance on record", () => {
+    for (const status of ["enquiry", "quote_sent", "declined", "completed"] as const) {
+      const res = cancelPartyHallEvent({ partyHall: [enquiry({ status })] }, "PH-TEST-001");
+      expect(res.ok).toBe(false);
+    }
+  });
+
+  it("has no reopen path out of cancelled", () => {
+    const cancelled = enquiry({ status: "cancelled", amount: 100000 });
+    const res = reopenPartyHallEnquiry({ partyHall: [cancelled] }, "PH-TEST-001");
+    expect(res.ok).toBe(false);
+  });
+});
+
+describe("withAdvance", () => {
+  it("reads the snapshotted advance when one is on record", () => {
+    const e = withAdvance(
+      {
+        ...enquiry({
+          status: "advance_paid",
+          amount: 100000,
+          advanceAmount: 25000,
+          advancePct: 25,
+        }),
+        advanceAmount: 25000,
+      },
+      // A live pct far from the snapshot proves the snapshot wins, not this.
+      50,
+    );
+    expect(e.advancePaid).toBe(25000);
+  });
+
+  it("falls back to amount × live pct for a pre-snapshot row with no advanceAmount", () => {
+    const e = withAdvance(enquiry({ status: "advance_paid", amount: 100000 }), 25);
+    expect(e.advancePaid).toBe(25000);
   });
 });

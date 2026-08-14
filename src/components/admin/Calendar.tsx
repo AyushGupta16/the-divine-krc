@@ -1,9 +1,14 @@
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
 
+import { shiftCalendarMonth } from "@/lib/bookings";
+import { cn } from "@/lib/utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type {
   CalendarCell,
   CalendarDay,
+  CalendarDayDetails,
   CalendarLegendItem,
   CalendarPageData,
   OccupancyBand,
@@ -94,86 +99,219 @@ function Legend({ items }: { items: CalendarLegendItem[] }) {
   );
 }
 
-// ── Day cell ────────────────────────────────────────────────────────────────
+// ── Day details card ───────────────────────────────────────────────────────
 
-function DayCell({ day }: { day: CalendarDay }) {
-  const t = BAND[day.band];
+const MAX_IN_HOUSE_ROWS = 5;
+
+/** "July 30, 2026" — matches the eyebrow's UTC convention used elsewhere in this file. */
+function dayEyebrow(date: string): string {
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString("en-IN", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function StatRow({ label, value }: { label: string; value: string | number }) {
   return (
-    <button
-      type="button"
-      aria-label={`${day.date} — ${day.pct}% occupied`}
-      className="relative min-h-14.5 border-b border-r border-[#f2ede2] px-1.25 py-1.5 text-left transition-colors hover:brightness-[0.98] sm:min-h-26 sm:px-2.25 sm:py-2"
-      style={{ background: t.cell }}
-    >
-      <div className="flex items-center justify-between">
-        <span className="font-display text-[15px] font-semibold" style={{ color: t.num }}>
-          {day.day}
-        </span>
-        <span className="hidden text-[10px] font-bold sm:inline" style={{ color: t.pct }}>
-          {day.pct}%
-        </span>
-      </div>
-
-      <div className="mt-2">
-        <div className="h-1.25 overflow-hidden rounded-[4px]" style={{ background: t.track }}>
-          <div className="h-full" style={{ width: `${day.pct}%`, background: t.bar }} />
-        </div>
-        <div className="mt-1.25 hidden text-[10px] sm:block" style={{ color: t.occText }}>
-          {day.occupied}/{day.total} rooms
-        </div>
-      </div>
-
-      {day.event && (
-        <span className="absolute inset-x-1 bottom-1.25 overflow-hidden text-ellipsis whitespace-nowrap rounded-[3px] bg-[#f7e6e0] px-0.75 py-0.5 text-[8px] font-semibold text-[#b4553f] sm:inset-x-2.25 sm:bottom-2 sm:px-1.5 sm:text-[9.5px]">
-          ◆ {day.event}
-        </span>
-      )}
-    </button>
+    <div className="flex items-center justify-between gap-2 text-[13px]">
+      <span className="text-[#4a4a4a]">{label}</span>
+      <span className="font-semibold text-[#0a0a0a]">{value}</span>
+    </div>
   );
 }
 
-function GridCell({ cell }: { cell: CalendarCell }) {
+function DayDetailsCardContent({
+  details,
+  onClose,
+}: {
+  details: CalendarDayDetails;
+  onClose: () => void;
+}) {
+  const shown = details.inHouseGuests.slice(0, MAX_IN_HOUSE_ROWS);
+  const extra = details.inHouseGuests.length - shown.length;
+
+  return (
+    <div className="flex w-70 max-w-[calc(100vw-1.5rem)] max-h-[calc(100dvh-1.5rem)] flex-col rounded-lg border border-[#eae4d6] bg-white p-4.5 shadow-[0_12px_32px_rgba(10,10,10,0.16)]">
+      <div className="flex flex-none items-start justify-between gap-2">
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#a49d8d]">
+            {dayEyebrow(details.date)}
+          </div>
+          <div className="mt-0.5 font-display text-[19px] font-semibold text-[#0a0a0a]">
+            {details.pct}% occupied
+          </div>
+        </div>
+        <button
+          type="button"
+          aria-label="Close"
+          onClick={onClose}
+          className="flex size-6.5 flex-none items-center justify-center rounded-[5px] border border-[#eae4d6] text-[#7a746a] transition-colors hover:bg-black/3"
+        >
+          <X className="size-3.5" strokeWidth={2.2} />
+        </button>
+      </div>
+
+      <div className="mt-3.5 flex flex-none flex-col gap-2">
+        <StatRow label="Rooms occupied" value={`${details.occupied}/${details.total}`} />
+        <StatRow label="Arrivals" value={details.arrivals} />
+        <StatRow label="Departures" value={details.departures} />
+      </div>
+
+      {details.event && (
+        <div className="mt-3 flex-none rounded-[5px] bg-[#f7e6e0] px-2 py-1.5 text-[12px] font-semibold text-[#b4553f]">
+          ◆ {details.event}
+        </div>
+      )}
+
+      <div className="mt-3.5 flex min-h-0 flex-col border-t border-[#f2ede2] pt-3">
+        <div className="flex-none text-[10px] font-bold uppercase tracking-[0.12em] text-[#a49d8d]">
+          In-house guests
+        </div>
+        {shown.length === 0 ? (
+          <p className="mt-2 text-[12.5px] text-[#a49d8d]">No guests in-house.</p>
+        ) : (
+          <div className="mt-2 flex flex-col gap-1.75 overflow-y-auto">
+            {shown.map((g) => (
+              <div key={g.roomNo} className="flex items-center justify-between gap-2 text-[12.5px]">
+                <span className="truncate text-[#0a0a0a]">{g.guestName}</span>
+                <span className="flex-none font-display font-semibold text-[#a8863f]">
+                  {g.roomNo}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        {extra > 0 && (
+          <p className="mt-1.5 flex-none text-[11.5px] text-[#a49d8d]">+{extra} more</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Day cell ────────────────────────────────────────────────────────────────
+
+function DayCell({ day, details }: { day: CalendarDay; details: CalendarDayDetails }) {
+  const t = BAND[day.band];
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={`${day.date} — ${day.pct}% occupied`}
+          className={cn(
+            "relative min-h-14.5 border-b border-r border-[#f2ede2] px-1.25 py-1.5 text-left transition-colors hover:brightness-[0.98] sm:min-h-26 sm:px-2.25 sm:py-2",
+            // Extra bottom clearance so the absolutely-positioned event pill
+            // never overlaps the occupancy caption above it — the caption can
+            // now run onto a second line (the maintenance note), and the pill's
+            // `bottom` offset is anchored to the padding edge regardless of how
+            // much padding there is, so only increasing it actually makes room.
+            day.event && "pb-6 sm:pb-7",
+          )}
+          style={{ background: t.cell }}
+        >
+          <div className="flex items-center justify-between">
+            <span className="font-display text-[15px] font-semibold" style={{ color: t.num }}>
+              {day.day}
+            </span>
+            <span className="hidden text-[10px] font-bold sm:inline" style={{ color: t.pct }}>
+              {day.pct}%
+            </span>
+          </div>
+
+          <div className="mt-2">
+            <div className="h-1.25 overflow-hidden rounded-[4px]" style={{ background: t.track }}>
+              <div className="h-full" style={{ width: `${day.pct}%`, background: t.bar }} />
+            </div>
+            <div className="mt-1.25 hidden text-[10px] sm:block" style={{ color: t.occText }}>
+              {day.occupied}/{day.total} rooms
+              {day.maintenanceRooms > 0 && ` (${day.maintenanceRooms} under maintenance)`}
+            </div>
+          </div>
+
+          {day.event && (
+            <span className="absolute inset-x-1 bottom-1.25 overflow-hidden text-ellipsis whitespace-nowrap rounded-[3px] bg-[#f7e6e0] px-0.75 py-0.5 text-[8px] font-semibold text-[#b4553f] sm:inset-x-2.25 sm:bottom-2 sm:px-1.5 sm:text-[9.5px]">
+              ◆ {day.event}
+            </span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-auto border-none bg-transparent p-0 shadow-none"
+        align="start"
+        sideOffset={6}
+        collisionPadding={12}
+      >
+        <DayDetailsCardContent details={details} onClose={() => setOpen(false)} />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function GridCell({
+  cell,
+  dayDetails,
+}: {
+  cell: CalendarCell;
+  dayDetails: Record<string, CalendarDayDetails>;
+}) {
   if (cell.kind === "blank") {
     return (
       <div className="min-h-14.5 border-b border-r border-[#f2ede2] bg-[#faf9f5] sm:min-h-26" />
     );
   }
-  return <DayCell day={cell} />;
+  return <DayCell day={cell} details={dayDetails[cell.date]} />;
 }
 
 // ── Month nav ───────────────────────────────────────────────────────────────
 
-function MonthNav({ label }: { label: string }) {
+function MonthNav({ label, year, month }: { label: string; year: number; month: number }) {
+  const prev = shiftCalendarMonth(year, month, -1);
+  const next = shiftCalendarMonth(year, month, 1);
   return (
     <div className="flex items-center gap-0.5">
-      <button
-        type="button"
+      <Link
+        to="/admin/calendar"
+        search={prev}
         aria-label="Previous month"
         className="flex h-9 w-8.5 items-center justify-center rounded-l-[5px] border border-[#eae4d6] bg-white text-warm-gray transition-colors hover:bg-black/[0.03]"
       >
         <ChevronLeft className="size-3.75" strokeWidth={2.2} />
-      </button>
+      </Link>
       <span className="flex h-9 items-center border-y border-[#eae4d6] bg-white px-3.5 font-display text-[15px] font-semibold">
         {label}
       </span>
-      <button
-        type="button"
+      <Link
+        to="/admin/calendar"
+        search={next}
         aria-label="Next month"
         className="flex h-9 w-8.5 items-center justify-center rounded-r-[5px] border border-[#eae4d6] bg-white text-warm-gray transition-colors hover:bg-black/[0.03]"
       >
         <ChevronRight className="size-3.75" strokeWidth={2.2} />
-      </button>
+      </Link>
     </div>
   );
 }
 
 // ── Page ────────────────────────────────────────────────────────────────────
 
-export function Calendar({ data }: { data: CalendarPageData }) {
+export function Calendar({
+  data,
+  year,
+  month,
+}: {
+  data: CalendarPageData;
+  year: number;
+  month: number;
+}) {
   return (
     <div className="flex flex-col gap-4 p-4 sm:p-6.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <MonthNav label={data.monthLabel} />
+        <MonthNav label={data.monthLabel} year={year} month={month} />
         <Link
           to="/admin/bookings"
           search={{ new: "1" }}
@@ -199,7 +337,11 @@ export function Calendar({ data }: { data: CalendarPageData }) {
         </div>
         <div className="grid grid-cols-7">
           {data.cells.map((cell, i) => (
-            <GridCell key={cell.kind === "day" ? cell.date : `blank-${i}`} cell={cell} />
+            <GridCell
+              key={cell.kind === "day" ? cell.date : `blank-${i}`}
+              cell={cell}
+              dayDetails={data.dayDetails}
+            />
           ))}
         </div>
       </div>

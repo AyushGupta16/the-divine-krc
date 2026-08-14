@@ -17,16 +17,42 @@
 //
 // #12b: `load()` is now a query. Nothing above it changed, because nothing above
 // it knows where the rows come from — which was the point of the split.
+//
+// LANDMINE: never export a plain (non-`createServerFn`) function from this
+// file if its body reads the `fixtures` value (or `db`/`schema` at module
+// scope). `createServerFn` handler bodies are what actually get stripped from
+// the client build — a plain export gets none of that treatment, so Rollup
+// can no longer prove `fixtures` is unreachable from the client graph, and the
+// entire seed dataset ships to the browser alongside it: real-looking guest
+// emails/phones, and — because `fixtures`/`schema` pull in the same
+// module graph — `PGPASSWORD` and `password_hash` too. This is not
+// hypothetical: PR #81 nearly shipped exactly this, exporting
+// `updatePartyHallPipeline` for testability. `npm run check:bundle` caught it
+// (6 secrets in one client chunk); `tsc` and eslint did not. If a function in
+// here needs to be unit-tested, either keep it from touching `fixtures`/`db`/
+// `schema` (see `toPartyHall`, which only touches its typed row argument), or
+// extract the pure logic that needs the export into a client-safe module
+// (see `partyHallTransitionAllowed` in `bookings.ts`). Always re-run
+// `npm run check:bundle` on a clean build before exporting anything new here.
 
 import { createServerFn } from "@tanstack/react-start";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import {
   assignBookingRoom,
   cancelGuestBooking,
+  cancelPartyHallEvent,
+  canDeleteRoom,
   checkAvailability,
   checkInEligibilityError,
+  computePartyHallQuote,
+  completePartyHallEvent,
+  confirmPartyHallEvent,
+  isPartyHallEventPastDue,
   createBooking,
+  createGuest,
+  createPartyHallEnquiry,
+  declinePartyHallEnquiry,
   defaultRoomTiles,
   findGuestBooking,
   getAvailableRoomCount,
@@ -38,16 +64,31 @@ import {
   getPaymentsPageData,
   getReportsPageData,
   getRoomsPageData,
+  OCCUPYING_STATUSES,
   getSettingsPageData,
   markBookingPaid,
+  PARTY_HALL_RATE_DEFAULTS,
+  recordPartyHallAdvance,
+  reopenPartyHallEnquiry,
+  resolveAddOnRates,
+  partyHallTransitionAllowed,
+  resolvePartyHallRates,
+  resolveRequestedService,
   resolveRoomTypes,
+  sendPartyHallQuote,
+  updateGuest,
+  validateAddRoom,
+  validateGstPct,
   withAdvance,
   withTier,
   withTotal,
+  type AddOnRates,
   type AvailabilityQuery,
   type BookingData,
   type GuestBookingLookup,
   type NewBookingInput,
+  type NewGuestInput,
+  type NewPartyHallEnquiryInput,
   type RoomTypeInfo,
 } from "@/lib/bookings";
 import { fixtures } from "@/lib/__fixtures__/bookings";
@@ -58,6 +99,7 @@ import { loadRoster } from "@/lib/roster";
 import * as schema from "@/lib/schema";
 import { can, type Result } from "@/lib/team";
 import type {
+  AddOnServiceKey,
   Booking,
   BookingCollection,
   BookingRevenue,
@@ -67,14 +109,18 @@ import type {
   CalendarPageData,
   DashboardData,
   Guest,
+  GuestRequest,
   GuestsPageData,
   MealPlan,
   PartyHallEnquiry,
   PartyHallPageData,
+  PartyHallRateKey,
   PartyHallSlot,
+  PartyHallSource,
   PartyHallStatus,
   PaymentsPageData,
   ReportsPageData,
+  RequestedServices,
   RoomsPageData,
   RoomStatus,
   RoomTile,
@@ -133,9 +179,13 @@ function toBooking(r: BookingRow): Booking {
     collection,
     status: r.status as BookingStatus,
     createdAt: r.createdAt.toISOString(),
+    roomAssignedAt: r.roomAssignedAt?.toISOString() ?? undefined,
     razorpayOrderId: r.razorpayOrderId ?? undefined,
     razorpayPaymentId: r.razorpayPaymentId ?? undefined,
     batchId: r.batchId ?? undefined,
+    specialRequest: (r.specialRequest ?? undefined) as GuestRequest | undefined,
+    requestedServices: (r.requestedServices ?? undefined) as RequestedServices | undefined,
+    revenueOtherNote: r.revenueOtherNote ?? undefined,
   });
 }
 
@@ -146,24 +196,35 @@ function toRoomTile(r: RoomRow): RoomTile {
     type: r.type as RoomType,
     status: r.status as RoomStatus,
     detail: r.detail,
+    sizeSqm: r.sizeSqm,
   };
 }
 
-function toPartyHall(r: PartyHallRow): PartyHallEnquiry {
-  return withAdvance({
-    id: r.id,
-    title: r.title,
-    date: r.date,
-    slot: r.slot as PartyHallSlot,
-    guests: r.guests,
-    package: r.package,
-    addOns: r.addOns,
-    status: r.status as PartyHallStatus,
-    amount: r.amount,
-    contactName: r.contactName ?? undefined,
-    contactPhone: r.contactPhone ?? undefined,
-    contactEmail: r.contactEmail ?? undefined,
-  });
+export function toPartyHall(r: PartyHallRow, advancePct: number): PartyHallEnquiry {
+  return withAdvance(
+    {
+      id: r.id,
+      title: r.title,
+      date: r.date,
+      slot: r.slot as PartyHallSlot,
+      guests: r.guests,
+      package: r.package,
+      addOns: r.addOns,
+      status: r.status as PartyHallStatus,
+      amount: r.amount,
+      quotedAt: r.quotedAt?.toISOString() ?? undefined,
+      quoteBreakdown: r.quoteBreakdown ?? undefined,
+      advanceAmount: r.advanceAmount ?? undefined,
+      advancePct: r.advancePct ?? undefined,
+      refundedAt: r.refundedAt?.toISOString() ?? undefined,
+      createdAt: r.createdAt?.toISOString() ?? undefined,
+      contactName: r.contactName ?? undefined,
+      contactPhone: r.contactPhone ?? undefined,
+      contactEmail: r.contactEmail ?? undefined,
+      source: (r.source as PartyHallSource) ?? undefined,
+    },
+    advancePct,
+  );
 }
 
 /**
@@ -197,18 +258,31 @@ async function load(): Promise<BookingData> {
   // order (see `bookingNumber` and the sorts in `bookings.ts`), so this is not
   // what makes the screens deterministic; it is what stops the *query* from
   // being a coin flip, which matters the moment anyone debugs one or pages it.
-  const [guestRows, bookingRows, partyHallRows, roomRows, roomTypeRows] = await Promise.all([
-    conn.select().from(schema.guests).orderBy(schema.guests.id),
-    conn.select().from(schema.bookings).orderBy(schema.bookings.id),
-    conn.select().from(schema.partyHallEnquiries).orderBy(schema.partyHallEnquiries.id),
-    conn.select().from(schema.rooms).orderBy(schema.rooms.no),
-    conn.select().from(schema.roomTypeSettings).orderBy(schema.roomTypeSettings.type),
-  ]);
+  const [guestRows, bookingRows, partyHallRows, roomRows, roomTypeRows, addOnRows] =
+    await Promise.all([
+      conn.select().from(schema.guests).orderBy(schema.guests.id),
+      conn.select().from(schema.bookings).orderBy(schema.bookings.id),
+      conn.select().from(schema.partyHallEnquiries).orderBy(schema.partyHallEnquiries.id),
+      conn.select().from(schema.rooms).orderBy(schema.rooms.no),
+      conn.select().from(schema.roomTypeSettings).orderBy(schema.roomTypeSettings.type),
+      conn.select().from(schema.addOnSettings).orderBy(schema.addOnSettings.id),
+    ]);
+
+  // Every addon_settings row lands in both maps — room add-on ids and Party
+  // Hall rate ids never collide, and each resolver only ever reads its own keys.
+  const addOnRateOverrides = Object.fromEntries(
+    addOnRows.map((r) => [r.id, r.price]),
+  ) as BookingData["addOnRateOverrides"];
+  const partyHallRateOverrides = Object.fromEntries(
+    addOnRows.map((r) => [r.id, r.price]),
+  ) as BookingData["partyHallRateOverrides"];
+  const advancePct = resolvePartyHallRates(partyHallRateOverrides).phAdvancePct;
+  const gstRateOverride = addOnRows.find((r) => r.id === "gstPct")?.price;
 
   return {
     guests: guestRows.map(toGuest),
     bookings: bookingRows.map(toBooking),
-    partyHall: partyHallRows.map(toPartyHall),
+    partyHall: partyHallRows.map((r) => toPartyHall(r, advancePct)),
     rooms: roomRows.map(toRoomTile),
     roomTypeOverrides: Object.fromEntries(
       roomTypeRows.map((r) => [
@@ -216,6 +290,9 @@ async function load(): Promise<BookingData> {
         { name: r.name ?? undefined, areaSqm: r.areaSqm, pricePerNight: r.pricePerNight },
       ]),
     ) as BookingData["roomTypeOverrides"],
+    addOnRateOverrides,
+    partyHallRateOverrides,
+    gstRateOverride,
   };
 }
 
@@ -276,6 +353,8 @@ async function insertBooking(guest: Guest, booking: Booking): Promise<void> {
     status: booking.status,
     createdAt: new Date(booking.createdAt),
     batchId: booking.batchId,
+    specialRequest: booking.specialRequest ?? null,
+    requestedServices: booking.requestedServices ?? null,
   });
 }
 
@@ -298,15 +377,25 @@ async function updateBookingStatus(bookingId: string, status: BookingStatus): Pr
  * Slice 2's room-assignment write. Same fixtures-mutation convenience as the
  * other row-store helpers when there is no database.
  */
-async function updateBookingRoom(bookingId: string, roomNo: string | null): Promise<void> {
+async function updateBookingRoom(
+  bookingId: string,
+  roomNo: string | null,
+  roomAssignedAt: string | undefined,
+): Promise<void> {
   const conn = db();
   if (!conn) {
     noDbInsert();
     const booking = fixtures.bookings.find((b) => b.id === bookingId);
-    if (booking) booking.roomNo = roomNo;
+    if (booking) {
+      booking.roomNo = roomNo;
+      booking.roomAssignedAt = roomAssignedAt;
+    }
     return;
   }
-  await conn.update(schema.bookings).set({ roomNo }).where(eq(schema.bookings.id, bookingId));
+  await conn
+    .update(schema.bookings)
+    .set({ roomNo, roomAssignedAt: roomAssignedAt ? new Date(roomAssignedAt) : null })
+    .where(eq(schema.bookings.id, bookingId));
 }
 
 /**
@@ -359,7 +448,7 @@ async function updatePartyHallContact(
 }
 
 export const updatePartyHallContactFn = createServerFn({ method: "POST" })
-  .inputValidator(
+  .validator(
     (data: { id: string; contactName: string; contactPhone: string; contactEmail: string }) => data,
   )
   .handler(async ({ data }): Promise<Result> => {
@@ -374,6 +463,276 @@ export const updatePartyHallContactFn = createServerFn({ method: "POST" })
     });
     return { ok: true };
   });
+
+/**
+ * The guest-facing enquiry form's write (Party Hall audit Tier 1) — the
+ * pipeline's first real `INSERT`. Same fixtures-mutation convenience as
+ * `insertBooking` when there is no database.
+ */
+async function insertPartyHallEnquiry(enquiry: PartyHallEnquiry): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    fixtures.partyHall.push(enquiry);
+    return;
+  }
+  await conn.insert(schema.partyHallEnquiries).values({
+    id: enquiry.id,
+    title: enquiry.title,
+    date: enquiry.date,
+    slot: enquiry.slot,
+    guests: enquiry.guests,
+    package: enquiry.package,
+    addOns: enquiry.addOns,
+    status: enquiry.status,
+    amount: enquiry.amount,
+    createdAt: enquiry.createdAt ? new Date(enquiry.createdAt) : null,
+    contactName: enquiry.contactName ?? null,
+    contactPhone: enquiry.contactPhone ?? null,
+    contactEmail: enquiry.contactEmail ?? null,
+    source: enquiry.source ?? null,
+  });
+}
+
+/**
+ * The Events section's public enquiry form — unauthenticated, same trust
+ * level as `createGuestBookingFn`. `createPartyHallEnquiry` validates every
+ * field independently rather than trusting the client.
+ */
+export const createPartyHallEnquiryFn = createServerFn({ method: "POST" })
+  .validator((data: NewPartyHallEnquiryInput) => data)
+  .handler(async ({ data }): Promise<Result<{ enquiry: PartyHallEnquiry }>> => {
+    const current = await load();
+    const res = createPartyHallEnquiry(current, data);
+    if (!res.ok) return res;
+
+    await insertPartyHallEnquiry(res.enquiry);
+    return { ok: true, enquiry: res.enquiry };
+  });
+
+/**
+ * The Party Hall screen's "New event" drawer — a front-desk staffer recording
+ * a walk-in or phoned-in enquiry. Same `createPartyHallEnquiry` rule as the
+ * public form, but authenticated (`requireBookingWriter`, same gate as
+ * `createBookingFn`) and passes `allowPastDate: true` so a same-day or
+ * already-happened walk-in can still be recorded. `source` is required here
+ * — never defaulted — so every hand-entered row states walk-in or phone
+ * explicitly rather than inheriting the guest form's "direct".
+ */
+export const createPartyHallEnquiryAdminFn = createServerFn({ method: "POST" })
+  .validator((data: NewPartyHallEnquiryInput & { source: "walk_in" | "phone" }) => data)
+  .handler(async ({ data }): Promise<Result<{ enquiry: PartyHallEnquiry }>> => {
+    const auth = await requireBookingWriter();
+    if (!auth.ok) return auth;
+
+    const current = await load();
+    const res = createPartyHallEnquiry(current, data, undefined, {
+      source: data.source,
+      allowPastDate: true,
+    });
+    if (!res.ok) return res;
+
+    await insertPartyHallEnquiry(res.enquiry);
+    return { ok: true, enquiry: res.enquiry };
+  });
+
+/**
+ * Slice 2a's pipeline writes: status, amount, and (since 0011) the
+ * quote/advance/refund snapshot columns each transition may set.
+ *
+ * `priorStatus` is required and checked in the `WHERE` (and, for the no-DB
+ * fixtures path, before the mutation): the pure rule in `bookings.ts` already
+ * validated the enquiry was in that status when `load()` read it, but two
+ * concurrent clicks can both pass that in-memory check against the same
+ * stale read before either write lands. Matching on `id AND status =
+ * priorStatus` makes the second write a no-op — it affects zero rows — rather
+ * than silently re-applying a transition whose precondition no longer holds.
+ */
+async function updatePartyHallPipeline(
+  id: string,
+  priorStatus: PartyHallStatus,
+  patch: {
+    status: PartyHallStatus;
+    amount?: number;
+    quotedAt?: Date;
+    quoteBreakdown?: { label: string; amount: number }[];
+    advanceAmount?: number;
+    advancePct?: number;
+    refundedAt?: Date;
+  },
+): Promise<boolean> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    const enquiry = fixtures.partyHall.find((e) => e.id === id);
+    if (!enquiry || !partyHallTransitionAllowed(enquiry.status, priorStatus)) return false;
+    Object.assign(enquiry, {
+      ...patch,
+      quotedAt: patch.quotedAt?.toISOString() ?? enquiry.quotedAt,
+      refundedAt: patch.refundedAt?.toISOString() ?? enquiry.refundedAt,
+    });
+    return true;
+  }
+  const result = await conn
+    .update(schema.partyHallEnquiries)
+    .set(patch)
+    .where(
+      and(eq(schema.partyHallEnquiries.id, id), eq(schema.partyHallEnquiries.status, priorStatus)),
+    )
+    .returning({ id: schema.partyHallEnquiries.id });
+  return result.length > 0;
+}
+
+/** Every Party Hall pipeline action shares this shape: load, run the pure
+ *  rule, persist what it decided, return its `Result`. */
+async function runPartyHallTransition(
+  id: string,
+  rule: (current: BookingData) => Result<{ enquiry: PartyHallEnquiry }>,
+): Promise<Result<{ enquiry: PartyHallEnquiry }>> {
+  const auth = await requireBookingWriter();
+  if (!auth.ok) return auth;
+  const current = await load();
+  const priorStatus = current.partyHall.find((e) => e.id === id)?.status;
+  if (!priorStatus) return { ok: false, error: "Enquiry not found." };
+  const res = rule(current);
+  if (!res.ok) return res;
+  const wrote = await updatePartyHallPipeline(id, priorStatus, {
+    status: res.enquiry.status,
+    amount: res.enquiry.amount,
+    quotedAt: res.enquiry.quotedAt ? new Date(res.enquiry.quotedAt) : undefined,
+    quoteBreakdown: res.enquiry.quoteBreakdown,
+    advanceAmount: res.enquiry.advanceAmount,
+    advancePct: res.enquiry.advancePct,
+    refundedAt: res.enquiry.refundedAt ? new Date(res.enquiry.refundedAt) : undefined,
+  });
+  if (!wrote) {
+    return {
+      ok: false,
+      error: "This enquiry changed since you loaded it — refresh and try again.",
+    };
+  }
+  return res;
+}
+
+/** New enquiry → quoted, at the package/add-ons rate resolved right now. */
+export const sendPartyHallQuoteFn = createServerFn({ method: "POST" })
+  .validator((data: { id: string }) => data)
+  .handler(async ({ data }) =>
+    runPartyHallTransition(data.id, (current) =>
+      sendPartyHallQuote(
+        current,
+        data.id,
+        resolvePartyHallRates(current.partyHallRateOverrides),
+        resolvePartyHallRates(current.partyHallRateOverrides).phAdvancePct,
+      ),
+    ),
+  );
+
+/** Admin-recorded advance (Option A) — a deliberate second click, never
+ *  inferred from a gateway. */
+export const recordPartyHallAdvanceFn = createServerFn({ method: "POST" })
+  .validator((data: { id: string }) => data)
+  .handler(async ({ data }) =>
+    runPartyHallTransition(data.id, (current) =>
+      recordPartyHallAdvance(
+        current,
+        data.id,
+        resolvePartyHallRates(current.partyHallRateOverrides).phAdvancePct,
+      ),
+    ),
+  );
+
+/** The second half of Option A: locks the date in once the advance is in hand. */
+export const confirmPartyHallEventFn = createServerFn({ method: "POST" })
+  .validator((data: { id: string }) => data)
+  .handler(async ({ data }) =>
+    runPartyHallTransition(data.id, (current) =>
+      confirmPartyHallEvent(
+        current,
+        data.id,
+        resolvePartyHallRates(current.partyHallRateOverrides).phAdvancePct,
+      ),
+    ),
+  );
+
+/** Terminal step past `confirmed` — the event happened. */
+export const completePartyHallEventFn = createServerFn({ method: "POST" })
+  .validator((data: { id: string }) => data)
+  .handler(async ({ data }) =>
+    runPartyHallTransition(data.id, (current) => completePartyHallEvent(current, data.id)),
+  );
+
+/** Declines a quote — before any money has moved. Non-destructive: see
+ *  `reopenPartyHallEnquiryFn`. */
+export const declinePartyHallEnquiryFn = createServerFn({ method: "POST" })
+  .validator((data: { id: string }) => data)
+  .handler(async ({ data }) =>
+    runPartyHallTransition(data.id, (current) => declinePartyHallEnquiry(current, data.id)),
+  );
+
+/** Calls off a booking after money has moved — terminal, no reopen. */
+export const cancelPartyHallEventFn = createServerFn({ method: "POST" })
+  .validator((data: { id: string }) => data)
+  .handler(async ({ data }) =>
+    runPartyHallTransition(data.id, (current) => cancelPartyHallEvent(current, data.id)),
+  );
+
+/** `declined` reopens back to `quote_sent` — not a dead end. */
+export const reopenPartyHallEnquiryFn = createServerFn({ method: "POST" })
+  .validator((data: { id: string }) => data)
+  .handler(async ({ data }) =>
+    runPartyHallTransition(data.id, (current) => reopenPartyHallEnquiry(current, data.id)),
+  );
+
+/**
+ * Party Hall's ten Slice 2a rates — same upsert-on-id shape as
+ * `upsertAddOnSettings`, kept a separate function so `AddOnServiceKey` stays
+ * exactly the three room add-ons it always meant.
+ */
+async function upsertPartyHallRate(
+  id: PartyHallRateKey,
+  label: string,
+  price: number,
+): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    fixtures.partyHallRateOverrides = { ...fixtures.partyHallRateOverrides, [id]: price };
+    return;
+  }
+  await conn
+    .insert(schema.addOnSettings)
+    .values({ id, label, price })
+    .onConflictDoUpdate({ target: schema.addOnSettings.id, set: { price } });
+}
+
+const PARTY_HALL_RATE_LABEL_FOR_SAVE: Record<PartyHallRateKey, string> = {
+  phBaseSilver: "Silver package base",
+  phBaseGold: "Gold package base",
+  phBasePlatinum: "Platinum package base",
+  phDecor: "Decor",
+  phDJ: "DJ",
+  phAV: "AV",
+  phProjector: "Projector",
+  phLunchBuffet: "Lunch Buffet (per guest)",
+  phCatering: "Catering (per guest)",
+  phAdvancePct: "Advance to confirm",
+};
+
+/** Settings' ten Party Hall rate fields. */
+export const updatePartyHallRateSettingsFn = createServerFn({ method: "POST" })
+  .validator((data: { key: PartyHallRateKey; price: number }) => data)
+  .handler(({ data }): Promise<Result> =>
+    safely(async () => {
+      const auth = await requireSettingsWriter();
+      if (!auth.ok) return auth;
+      if (!Number.isFinite(data.price) || data.price < 0) {
+        return { ok: false, error: "Rate must be zero or more." };
+      }
+      await upsertPartyHallRate(data.key, PARTY_HALL_RATE_LABEL_FOR_SAVE[data.key], data.price);
+      return { ok: true };
+    }),
+  );
 
 function noDbInsert(): void {
   if (missingDbInProduction()) {
@@ -412,6 +771,73 @@ async function requireSettingsWriter(): Promise<Result> {
 }
 
 /**
+ * Every Room Settings write handler runs its body through this rather than
+ * a bare `async ({ data }) => {...}`. A normal `{ ok: false, error }` return
+ * — `validateAddRoom` blocking a duplicate, `canDeleteRoom` blocking a
+ * delete — passes through untouched; only an actual *thrown* exception
+ * (a schema mismatch on an unmigrated branch, a Neon timeout, anything)
+ * gets caught here. That distinction matters: TanStack Start serializes an
+ * uncaught throw into a shape its own client-side deserializer can crash on
+ * ("Cannot read properties of undefined (reading 'includes')," reported
+ * against #96) — a clean `Result`, which every branch in this file already
+ * returns for expected failures, never has that problem. Catching means a
+ * genuine server error is exactly as visible to the user as a validation
+ * error, instead of an unhandled promise rejection with a blank toast.
+ */
+async function safely<T extends Result>(fn: () => Promise<T>): Promise<Result> {
+  try {
+    return await fn();
+  } catch (err) {
+    console.error(err);
+    return { ok: false, error: "Something went wrong — please try again." };
+  }
+}
+
+/**
+ * The Guests directory's standalone "New guest" write. Same
+ * fixtures-mutation convenience as `insertRoom` when there is no database —
+ * unlike `insertBooking`'s guest half, this always inserts a genuinely new
+ * row (`createGuest` already ruled out a phone collision), so no
+ * `onConflictDoNothing` guard is needed.
+ */
+async function insertGuest(guest: Guest): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    fixtures.guests.push(guest);
+    return;
+  }
+  await conn.insert(schema.guests).values({
+    id: guest.id,
+    name: guest.name,
+    phone: guest.phone,
+    email: guest.email,
+    city: guest.city,
+    stays: guest.stays,
+    lifetimeValue: guest.lifetimeValue,
+  });
+}
+
+/**
+ * The Guests directory's edit write. Only `name`/`phone`/`email`/`city` are
+ * ever set — `stays`/`lifetimeValue` are untouched, same derived-fields
+ * discipline `updateGuest` enforces at the rule layer.
+ */
+async function updateGuestRow(
+  id: string,
+  patch: { name: string; phone: string; email: string; city: string },
+): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    const guest = fixtures.guests.find((g) => g.id === id);
+    if (guest) Object.assign(guest, patch);
+    return;
+  }
+  await conn.update(schema.guests).set(patch).where(eq(schema.guests.id, id));
+}
+
+/**
  * The Rooms screen's "Add room" and per-tile status popup, and Settings'
  * rate/area fields. Same fixtures-mutation convenience as the other row-store
  * helpers when there is no database — `fixtures.rooms` is mutated in place.
@@ -432,6 +858,7 @@ async function insertRoom(room: RoomTile): Promise<void> {
       type: room.type,
       status: room.status,
       detail: room.detail,
+      sizeSqm: room.sizeSqm,
     })
     .onConflictDoNothing({ target: schema.rooms.no });
 }
@@ -444,6 +871,18 @@ async function deleteRoom(no: string): Promise<void> {
     return;
   }
   await conn.delete(schema.rooms).where(eq(schema.rooms.no, no));
+}
+
+/** Room Settings redesign (slice B): the tariff panel's per-room size field. */
+async function updateRoomSize(no: string, sizeSqm: number | null): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    const room = fixtures.rooms.find((r) => r.no === no);
+    if (room) room.sizeSqm = sizeSqm;
+    return;
+  }
+  await conn.update(schema.rooms).set({ sizeSqm }).where(eq(schema.rooms.no, no));
 }
 
 async function updateRoom(no: string, status: RoomStatus, detail: string): Promise<void> {
@@ -493,39 +932,74 @@ async function upsertRoomTypeSettings(
     .onConflictDoUpdate({ target: schema.roomTypeSettings.type, set: patch });
 }
 
-/**
- * Settings' room-count field: adds or removes rooms of a type until the
- * floor board has exactly `count` of them, since `count` itself is never
- * stored (see `resolveRoomTypes`). New numbers alternate floor 1/2 and
- * continue that floor's highest existing number; shrinking removes the
- * highest-numbered rooms of the type first.
- */
-async function resizeRoomType(type: RoomType, count: number): Promise<Result> {
-  const current = await load();
-  const allRooms = current.rooms ?? [];
-  const ofType = allRooms.filter((r) => r.type === type);
-  const diff = count - ofType.length;
-  if (diff === 0) return { ok: true };
-
-  if (diff > 0) {
-    for (let i = 0; i < diff; i++) {
-      const floor: 1 | 2 = (ofType.length + i) % 2 === 0 ? 1 : 2;
-      const onFloor = allRooms.filter((r) => r.floor === floor);
-      const maxSuffix = Math.max(0, ...onFloor.map((r) => Number(r.no.slice(1)) || 0));
-      const no = `${floor}${String(maxSuffix + 1).padStart(2, "0")}`;
-      if (allRooms.some((r) => r.no === no)) {
-        return { ok: false, error: `Could not generate a free room number on floor ${floor}.` };
-      }
-      await insertRoom({ no, floor, type, status: "available", detail: "Ready" });
-      allRooms.push({ no, floor, type, status: "available", detail: "Ready" });
-    }
-  } else {
-    const toRemove = [...ofType].sort((a, b) => b.no.localeCompare(a.no)).slice(0, -diff);
-    for (const room of toRemove) {
-      await deleteRoom(room.no);
-    }
+/** Settings' Slice B add-on rate fields — same upsert-on-`id` shape as
+ *  `upsertRoomTypeSettings`. */
+async function upsertAddOnSettings(
+  id: AddOnServiceKey,
+  label: string,
+  price: number,
+): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    fixtures.addOnRateOverrides = { ...fixtures.addOnRateOverrides, [id]: price };
+    return;
   }
-  return { ok: true };
+  await conn
+    .insert(schema.addOnSettings)
+    .values({ id, label, price })
+    .onConflictDoUpdate({ target: schema.addOnSettings.id, set: { price } });
+}
+
+/** GST's own `addon_settings` row (Room Settings redesign, slice C) — kept
+ *  separate from `upsertAddOnSettings` for the same reason party-hall rates
+ *  got their own `upsertPartyHallRate`: `AddOnServiceKey` stays exactly the
+ *  three room add-ons it always meant. */
+async function upsertGstSetting(pct: number): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    fixtures.gstRateOverride = pct;
+    return;
+  }
+  await conn
+    .insert(schema.addOnSettings)
+    .values({ id: "gstPct", label: "GST rate", price: pct })
+    .onConflictDoUpdate({ target: schema.addOnSettings.id, set: { price: pct } });
+}
+
+/**
+ * Slice B's admin resolution write: whatever `resolveRequestedService`
+ * decided — the booking's new revenue, `requestedServices`, and (for
+ * mattress) the appended `revenueOtherNote`. Same fixtures-mutation
+ * convenience as the other row-store helpers when there is no database.
+ */
+async function updateBookingServiceCharge(
+  bookingId: string,
+  patch: { revenue: BookingRevenue; requestedServices: RequestedServices; note?: string },
+): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    const booking = fixtures.bookings.find((b) => b.id === bookingId);
+    if (booking) {
+      booking.revenue = patch.revenue;
+      booking.requestedServices = patch.requestedServices;
+      booking.revenueOtherNote = patch.note;
+      booking.totalBill = withTotal({ ...booking, revenue: patch.revenue }).totalBill;
+    }
+    return;
+  }
+  await conn
+    .update(schema.bookings)
+    .set({
+      revenueEarlyCheckIn: patch.revenue.earlyCheckIn,
+      revenueLateCheckOut: patch.revenue.lateCheckOut,
+      revenueOther: patch.revenue.other,
+      revenueOtherNote: patch.note ?? null,
+      requestedServices: patch.requestedServices,
+    })
+    .where(eq(schema.bookings.id, bookingId));
 }
 
 /**
@@ -534,7 +1008,7 @@ async function resizeRoomType(type: RoomType, count: number): Promise<Result> {
  * load state, ask the rule, persist what it decided.
  */
 export const createBookingFn = createServerFn({ method: "POST" })
-  .inputValidator((data: NewBookingInput) => data)
+  .validator((data: NewBookingInput) => data)
   .handler(async ({ data }): Promise<Result<{ booking: Booking }>> => {
     const auth = await requireBookingWriter();
     if (!auth.ok) return auth;
@@ -548,6 +1022,49 @@ export const createBookingFn = createServerFn({ method: "POST" })
   });
 
 /**
+ * The "+" chooser's "New guest" write — a standalone guest record, no
+ * booking attached. Same three beats as `createBookingFn`; `createGuest`
+ * holds the phone-collision rule.
+ */
+export const createGuestFn = createServerFn({ method: "POST" })
+  .validator((data: NewGuestInput) => data)
+  .handler(async ({ data }): Promise<Result<{ guest: Guest }>> => {
+    const auth = await requireBookingWriter();
+    if (!auth.ok) return auth;
+
+    const current = await load();
+    const res = createGuest(current, data);
+    if (!res.ok) return res;
+
+    await insertGuest(res.guest);
+    return { ok: true, guest: res.guest };
+  });
+
+/**
+ * The Guests directory's edit write — corrects an existing guest's details.
+ * `updateGuest` re-runs the same phone-collision rule as `createGuestFn`,
+ * excluding the guest's own row.
+ */
+export const updateGuestFn = createServerFn({ method: "POST" })
+  .validator((data: { id: string } & NewGuestInput) => data)
+  .handler(async ({ data }): Promise<Result<{ guest: Guest }>> => {
+    const auth = await requireBookingWriter();
+    if (!auth.ok) return auth;
+
+    const current = await load();
+    const res = updateGuest(current, data.id, data);
+    if (!res.ok) return res;
+
+    await updateGuestRow(data.id, {
+      name: res.guest.name,
+      phone: res.guest.phone,
+      email: res.guest.email,
+      city: res.guest.city,
+    });
+    return { ok: true, guest: res.guest };
+  });
+
+/**
  * The public `/book` flow's write path (spec 14). Same rule and row-store as
  * `createBookingFn` above — the two entry points share `createBooking` and
  * `insertBooking` by construction so a guest's booking and an admin's manual
@@ -555,7 +1072,7 @@ export const createBookingFn = createServerFn({ method: "POST" })
  * check: this *is* the unauthenticated path, not a bypass of the admin one.
  */
 export const createGuestBookingFn = createServerFn({ method: "POST" })
-  .inputValidator((data: NewBookingInput) => data)
+  .validator((data: NewBookingInput) => data)
   .handler(async ({ data }): Promise<Result<{ booking: Booking }>> => {
     const current = await load();
     const res = createBooking(current, data);
@@ -571,24 +1088,33 @@ export const createGuestBookingFn = createServerFn({ method: "POST" })
  * the guest's time in the `/book` flow before falling back to WhatsApp.
  */
 export const checkAvailabilityFn = createServerFn({ method: "POST" })
-  .inputValidator((data: AvailabilityQuery) => data)
+  .validator((data: AvailabilityQuery) => data)
   .handler(async ({ data }): Promise<{ available: boolean }> => {
     const current = await load();
     return { available: checkAvailability(current, data) };
   });
 
-/** The subset of `RoomTypeInfo` safe to expose publicly — no live inventory `count`. */
-export type PublicRoomType = Pick<RoomTypeInfo, "type" | "name" | "pricePerNight" | "areaSqm">;
+/**
+ * The subset of `RoomTypeInfo` safe to expose publicly. `count` here is the
+ * floor board's total tiles of that type (`resolveRoomTypes`'s
+ * `tiles.filter(...).length`) — total inventory, not who's occupied — so it
+ * carries no live-occupancy signal; withholding it bought no privacy, only a
+ * guest-facing "X left" hardcoded at build time and never updated when a
+ * room type's tile count changes in the admin Rooms screen.
+ */
+export type PublicRoomType = Pick<
+  RoomTypeInfo,
+  "type" | "name" | "pricePerNight" | "areaSqm" | "count"
+>;
 
 /**
- * The current room rates/areas for the marketing site's own room cards
- * (homepage, landmark pages) — public and read-only, same as
- * `checkAvailabilityFn`. Reuses `resolveRoomTypes` so a rate edited in the
- * admin Settings screen is reflected everywhere a room price is shown,
- * instead of pages hand-copying a price that can go stale. Strips `count`
- * (live per-type room inventory) before returning — not needed by any public
- * page today, and real-time occupancy is not something to hand an
- * unauthenticated endpoint.
+ * The current room rates/areas/counts for the marketing site's room cards
+ * (homepage, landmark pages) and the guest booking flow's per-type quantity
+ * cap — public and read-only, same as `checkAvailabilityFn`. Reuses
+ * `resolveRoomTypes` so a rate edited in the admin Settings screen, or a room
+ * added/removed in the admin Rooms screen, is reflected everywhere a room
+ * price or count is shown, instead of a page hand-copying a number that can
+ * go stale.
  */
 export const getRoomTypesFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<PublicRoomType[]> => {
@@ -606,12 +1132,31 @@ export const getRoomTypesFn = createServerFn({ method: "GET" }).handler(
       rooms = defaultRoomTiles();
     }
     const roomTypes = resolveRoomTypes(rooms, overrides);
-    return roomTypes.map(({ type, name, pricePerNight, areaSqm }) => ({
+    return roomTypes.map(({ type, name, pricePerNight, areaSqm, count }) => ({
       type,
       name,
       pricePerNight,
       areaSqm,
+      count,
     }));
+  },
+);
+
+/**
+ * The current Slice B add-on rates for the guest booking flow — public and
+ * read-only, same reasoning as `getRoomTypesFn`: a guest must see the exact
+ * rate the front desk would charge, not a stale build-time number, and the
+ * marketing/booking pages must still render if the DB is briefly unreachable.
+ */
+export const getAddOnRatesFn = createServerFn({ method: "GET" }).handler(
+  async (): Promise<AddOnRates> => {
+    try {
+      const current = await load();
+      return resolveAddOnRates(current.addOnRateOverrides);
+    } catch (err) {
+      console.error("getAddOnRatesFn: DB load failed, serving default rates", err);
+      return resolveAddOnRates();
+    }
   },
 );
 
@@ -621,7 +1166,7 @@ export const getRoomTypesFn = createServerFn({ method: "GET" }).handler(
  * ownership check with the cancel path below.
  */
 export const lookupGuestBookingFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { bookingId: string; contact: string }) => data)
+  .validator((data: { bookingId: string; contact: string }) => data)
   .handler(async ({ data }): Promise<Result<GuestBookingLookup>> => {
     const current = await load();
     return findGuestBooking(current, data.bookingId, data.contact);
@@ -629,7 +1174,7 @@ export const lookupGuestBookingFn = createServerFn({ method: "POST" })
 
 /** The lookup result's "Cancel booking" action. Same ownership check, then one write. */
 export const cancelGuestBookingFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { bookingId: string; contact: string }) => data)
+  .validator((data: { bookingId: string; contact: string }) => data)
   .handler(async ({ data }): Promise<Result<{ booking: Booking }>> => {
     const current = await load();
     const res = cancelGuestBooking(current, data.bookingId, data.contact);
@@ -648,7 +1193,7 @@ export const cancelGuestBookingFn = createServerFn({ method: "POST" })
  * are dropped from the sum rather than failing the whole order.
  */
 export const createRazorpayOrderFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { bookingIds: string[] }) => data)
+  .validator((data: { bookingIds: string[] }) => data)
   .handler(
     async ({
       data,
@@ -681,7 +1226,7 @@ export const createRazorpayOrderFn = createServerFn({ method: "POST" })
  * signature is a no-op on those rows via `markBookingPaid`'s idempotence.
  */
 export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
-  .inputValidator(
+  .validator(
     (data: {
       bookingIds: string[];
       razorpayOrderId: string;
@@ -719,13 +1264,21 @@ export const roomsPage = createServerFn({ method: "GET" }).handler(
   async (): Promise<RoomsPageData> => getRoomsPageData(await load()),
 );
 
-export const calendarPage = createServerFn({ method: "GET" }).handler(
-  async (): Promise<CalendarPageData> => getCalendarPageData(await load()),
-);
+export const calendarPage = createServerFn({ method: "GET" })
+  .validator((data?: { year: number; month: number }) => data)
+  .handler(async ({ data }): Promise<CalendarPageData> =>
+    data
+      ? getCalendarPageData(await load(), data.year, data.month)
+      : getCalendarPageData(await load()),
+  );
 
-export const partyHallPage = createServerFn({ method: "GET" }).handler(
-  async (): Promise<PartyHallPageData> => getPartyHallPageData(await load()),
-);
+export const partyHallPage = createServerFn({ method: "GET" })
+  .validator((data?: { year: number; month: number }) => data)
+  .handler(async ({ data }): Promise<PartyHallPageData> =>
+    data
+      ? getPartyHallPageData(await load(), data.year, data.month)
+      : getPartyHallPageData(await load()),
+  );
 
 export const guestsPage = createServerFn({ method: "GET" }).handler(
   async (): Promise<GuestsPageData> => getGuestsPageData(await load()),
@@ -751,7 +1304,7 @@ export const settingsPage = createServerFn({ method: "GET" }).handler(
 
 /** The Rooms screen's per-tile status popup. */
 export const updateRoomStatusFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { no: string; status: RoomStatus; detail: string }) => data)
+  .validator((data: { no: string; status: RoomStatus; detail: string }) => data)
   .handler(async ({ data }): Promise<Result> => {
     const auth = await requireRoomWriter();
     if (!auth.ok) return auth;
@@ -772,85 +1325,183 @@ export const updateRoomStatusFn = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-/** Settings' "Add room" form. */
+/** Settings' "Add room" form. `validateAddRoom` holds the duplicate-number
+ *  rule — same pure-rule-then-persist shape as `createGuest`'s phone guard. */
 export const addRoomFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { no: string; floor: 1 | 2; type: RoomType }) => data)
-  .handler(async ({ data }): Promise<Result> => {
-    const auth = await requireRoomWriter();
-    if (!auth.ok) return auth;
-    const no = data.no.trim();
-    if (!no) return { ok: false, error: "Room number is required." };
-    const current = await load();
-    if ((current.rooms ?? []).some((r) => r.no === no)) {
-      return { ok: false, error: `Room ${no} already exists.` };
-    }
-    await insertRoom({
-      no,
-      floor: data.floor,
-      type: data.type,
-      status: "available",
-      detail: "Ready",
-    });
-    return { ok: true };
-  });
+  .validator((data: { no: string; floor: 1 | 2; type: RoomType }) => data)
+  .handler(({ data }): Promise<Result> =>
+    safely(async () => {
+      const auth = await requireRoomWriter();
+      if (!auth.ok) return auth;
+      const current = await load();
+      const no = data.no.trim();
+      const check = validateAddRoom(current.rooms ?? [], no, data.floor, data.type);
+      if (!check.ok) return check;
+      await insertRoom({
+        no,
+        floor: data.floor,
+        type: data.type,
+        status: "available",
+        detail: "Ready",
+        sizeSqm: null,
+      });
+      return { ok: true };
+    }),
+  );
 
 /** Settings' per-room inline floor/type edit. */
 export const updateRoomDetailsFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { no: string; floor: 1 | 2; type: RoomType }) => data)
-  .handler(async ({ data }): Promise<Result> => {
-    const auth = await requireRoomWriter();
-    if (!auth.ok) return auth;
-    const current = await load();
-    if (!(current.rooms ?? []).some((r) => r.no === data.no)) {
-      return { ok: false, error: `Room ${data.no} does not exist.` };
-    }
-    await updateRoomDetails(data.no, data.floor, data.type);
-    return { ok: true };
-  });
+  .validator((data: { no: string; floor: 1 | 2; type: RoomType }) => data)
+  .handler(({ data }): Promise<Result> =>
+    safely(async () => {
+      const auth = await requireRoomWriter();
+      if (!auth.ok) return auth;
+      const current = await load();
+      if (!(current.rooms ?? []).some((r) => r.no === data.no)) {
+        return { ok: false, error: `Room ${data.no} does not exist.` };
+      }
+      await updateRoomDetails(data.no, data.floor, data.type);
+      return { ok: true };
+    }),
+  );
 
-/** Settings' per-room "Remove" action. */
+/** Settings' per-room "Remove" action. `canDeleteRoom` blocks on ANY booking
+ *  history for the room, not just active stays — no cascade, no soft-delete. */
 export const removeRoomFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { no: string }) => data)
-  .handler(async ({ data }): Promise<Result> => {
-    const auth = await requireRoomWriter();
-    if (!auth.ok) return auth;
-    await deleteRoom(data.no);
-    return { ok: true };
-  });
+  .validator((data: { no: string }) => data)
+  .handler(({ data }): Promise<Result> =>
+    safely(async () => {
+      const auth = await requireRoomWriter();
+      if (!auth.ok) return auth;
+      const current = await load();
+      if (!canDeleteRoom(current.bookings, data.no)) {
+        return {
+          ok: false,
+          error: `Room ${data.no} has booking history and can't be deleted.`,
+        };
+      }
+      await deleteRoom(data.no);
+      return { ok: true };
+    }),
+  );
+
+/** Room Settings redesign (slice C): per-room size field, blur-to-save. */
+export const updateRoomSizeFn = createServerFn({ method: "POST" })
+  .validator((data: { no: string; sizeSqm: number | null }) => data)
+  .handler(({ data }): Promise<Result> =>
+    safely(async () => {
+      const auth = await requireRoomWriter();
+      if (!auth.ok) return auth;
+      const current = await load();
+      if (!(current.rooms ?? []).some((r) => r.no === data.no)) {
+        return { ok: false, error: `Room ${data.no} does not exist.` };
+      }
+      if (data.sizeSqm !== null && (!Number.isFinite(data.sizeSqm) || data.sizeSqm <= 0)) {
+        return { ok: false, error: "Size must be greater than zero." };
+      }
+      await updateRoomSize(data.no, data.sizeSqm);
+      return { ok: true };
+    }),
+  );
 
 /** Settings' per-type area/rate fields. */
 export const updateRoomTypeSettingsFn = createServerFn({ method: "POST" })
-  .inputValidator(
+  .validator(
     (data: { type: RoomType; name?: string; areaSqm: number; pricePerNight: number }) => data,
   )
-  .handler(async ({ data }): Promise<Result> => {
-    const auth = await requireSettingsWriter();
-    if (!auth.ok) return auth;
-    if (data.areaSqm <= 0 || data.pricePerNight <= 0) {
-      return { ok: false, error: "Area and rate must be greater than zero." };
-    }
-    const name = data.name?.trim();
-    if (data.name !== undefined && !name) {
-      return { ok: false, error: "Name cannot be empty." };
-    }
-    await upsertRoomTypeSettings(data.type, {
-      name,
-      areaSqm: data.areaSqm,
-      pricePerNight: data.pricePerNight,
-    });
-    return { ok: true };
-  });
+  .handler(({ data }): Promise<Result> =>
+    safely(async () => {
+      const auth = await requireSettingsWriter();
+      if (!auth.ok) return auth;
+      if (data.areaSqm <= 0 || data.pricePerNight <= 0) {
+        return { ok: false, error: "Area and rate must be greater than zero." };
+      }
+      const name = data.name?.trim();
+      if (data.name !== undefined && !name) {
+        return { ok: false, error: "Name cannot be empty." };
+      }
+      await upsertRoomTypeSettings(data.type, {
+        name,
+        areaSqm: data.areaSqm,
+        pricePerNight: data.pricePerNight,
+      });
+      return { ok: true };
+    }),
+  );
 
-/** Settings' room-count field — resizes the floor board to match. */
-export const setRoomCountFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { type: RoomType; count: number }) => data)
+const ADD_ON_LABEL: Record<AddOnServiceKey, string> = {
+  earlyCheckIn: "Early check-in fee",
+  lateCheckOut: "Late check-out fee",
+  extraMattress: "Extra mattress fee",
+};
+
+/** Settings' Slice B add-on rate fields. */
+export const updateAddOnSettingsFn = createServerFn({ method: "POST" })
+  .validator((data: { key: AddOnServiceKey; price: number }) => data)
+  .handler(({ data }): Promise<Result> =>
+    safely(async () => {
+      const auth = await requireSettingsWriter();
+      if (!auth.ok) return auth;
+      if (!Number.isFinite(data.price) || data.price < 0) {
+        return { ok: false, error: "Rate must be zero or more." };
+      }
+      await upsertAddOnSettings(data.key, ADD_ON_LABEL[data.key], Math.round(data.price));
+      return { ok: true };
+    }),
+  );
+
+/** Room Settings redesign (slice C): GST's own editable rate, same
+ *  blur-to-save round-trip as the add-on rates above. Unlike a plain add-on
+ *  rate, 0 and >100 are both rejected, not just negative — a tax rate has no
+ *  legitimate reason to be either, and this is the one field on the panel
+ *  where a fat-fingered value has compliance consequences on every invoice
+ *  issued after it saves. */
+export const updateGstSettingsFn = createServerFn({ method: "POST" })
+  .validator((data: { pct: number }) => data)
+  .handler(({ data }): Promise<Result> =>
+    safely(async () => {
+      const auth = await requireSettingsWriter();
+      if (!auth.ok) return auth;
+      const check = validateGstPct(data.pct);
+      if (!check.ok) return check;
+      await upsertGstSetting(Math.round(data.pct));
+      return { ok: true };
+    }),
+  );
+
+/**
+ * The admin Bookings screen's Apply/Decline/Reverse action on a guest's
+ * requested service, and its ad-hoc "add charge" for a walk-in the guest
+ * never flagged. `resolveRequestedService` in `bookings.ts` holds the actual
+ * rule (rate snapshot, note append/clear, the applied/reversed guards); this
+ * only loads, asks, and persists.
+ */
+export const resolveRequestedServiceFn = createServerFn({ method: "POST" })
+  .validator(
+    (data: {
+      id: string;
+      service: AddOnServiceKey;
+      action: "applied" | "declined" | "reversed";
+      mattressQty?: number;
+    }) => data,
+  )
   .handler(async ({ data }): Promise<Result> => {
-    const auth = await requireRoomWriter();
+    const auth = await requireBookingWriter();
     if (!auth.ok) return auth;
-    if (!Number.isInteger(data.count) || data.count < 0) {
-      return { ok: false, error: "Room count must be a whole number, zero or more." };
-    }
-    return resizeRoomType(data.type, data.count);
+    const current = await load();
+    const booking = current.bookings.find((b) => b.id === data.id);
+    if (!booking) return { ok: false, error: `Booking ${data.id} does not exist.` };
+
+    const res = resolveRequestedService(
+      current,
+      booking,
+      data.service,
+      data.action,
+      data.mattressQty,
+    );
+    if (!res.ok) return res;
+    await updateBookingServiceCharge(data.id, res);
+    return { ok: true };
   });
 
 /**
@@ -866,7 +1517,7 @@ export const setRoomCountFn = createServerFn({ method: "POST" })
  * maintenance after it was assigned but before the guest actually arrives.
  */
 export const updateBookingStatusFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string; status: BookingStatus }) => data)
+  .validator((data: { id: string; status: BookingStatus }) => data)
   .handler(async ({ data }): Promise<Result> => {
     const auth = await requireBookingWriter();
     if (!auth.ok) return auth;
@@ -891,14 +1542,14 @@ export const updateBookingStatusFn = createServerFn({ method: "POST" })
  * maintenance hard-stop, overlap conflicts, the checked-in-unassign block).
  */
 export const updateBookingRoomFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string; roomNo: string | null }) => data)
+  .validator((data: { id: string; roomNo: string | null }) => data)
   .handler(async ({ data }): Promise<Result> => {
     const auth = await requireBookingWriter();
     if (!auth.ok) return auth;
     const current = await load();
     const res = assignBookingRoom(current, data.id, data.roomNo);
     if (!res.ok) return res;
-    await updateBookingRoom(data.id, data.roomNo);
+    await updateBookingRoom(data.id, data.roomNo, res.booking.roomAssignedAt);
     return { ok: true };
   });
 
@@ -917,7 +1568,7 @@ export const updateBookingRoomFn = createServerFn({ method: "POST" })
  * balance settled or added after check-in/out leaves the stay status alone.
  */
 export const setBookingPaymentStatusFn = createServerFn({ method: "POST" })
-  .inputValidator(
+  .validator(
     (data: { id: string; status: "confirmed" | "pending_payment"; pendingAmount?: number }) => data,
   )
   .handler(async ({ data }): Promise<Result> => {
@@ -951,14 +1602,42 @@ export const setBookingPaymentStatusFn = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-/** Sidebar badges. Counts only — the shell has no use for the rows themselves. */
+/**
+ * Sidebar badges. "Gold badge = N items waiting on you" — so Bookings counts
+ * bookings needing attention (no room assigned, or payment still pending) and
+ * Guests counts guests whose first stay starts today, both genuine
+ * attention-worthy events. Party Hall counts enquiries not yet quoted, same
+ * gold treatment. Rooms is informational only (muted badge, see admin-nav.ts)
+ * and shows tonight's available count, not a queue.
+ */
 export const sidebarCounts = createServerFn({ method: "GET" }).handler(
-  async (): Promise<{ bookings: number; guests: number; rooms: number }> => {
+  async (): Promise<{ bookings: number; partyHall: number; rooms: number; guests: number }> => {
     const data = await load();
+    const today = new Date().toISOString().slice(0, 10);
+
+    const firstStayOn = new Map<string, string>();
+    for (const b of data.bookings) {
+      const earliest = firstStayOn.get(b.guestId);
+      if (!earliest || b.checkIn < earliest) firstStayOn.set(b.guestId, b.checkIn);
+    }
+    const newGuestsToday = data.guests.filter((g) => firstStayOn.get(g.id) === today).length;
+
     return {
-      bookings: data.bookings.length,
-      guests: data.guests.length,
-      rooms: await getAvailableRoomCount(data),
+      bookings: data.bookings.filter(
+        (b) =>
+          (b.roomNo === null && OCCUPYING_STATUSES.has(b.status)) || b.status === "pending_payment",
+      ).length,
+      // "Needs attention" for the coarse sidebar signal: a fresh enquiry
+      // needing a quote, or a confirmed event whose date passed without
+      // being marked completed — both genuinely need an admin to act, just
+      // on different pages of the pipeline. The in-page screen keeps these
+      // as two distinct pills/stats; this single scalar can only carry one
+      // number, so it folds them (see #102's audit).
+      partyHall: data.partyHall.filter(
+        (e) => e.status === "enquiry" || isPartyHallEventPastDue(e, today),
+      ).length,
+      rooms: await getAvailableRoomCount(data, today),
+      guests: newGuestsToday,
     };
   },
 );

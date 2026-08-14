@@ -10,31 +10,36 @@ name: Migrate
 # NOT in `netlify.toml`'s build command, deliberately: that runs on every deploy
 # preview, so an unmerged branch would migrate production.
 #
-# Runs on **dev as well as main**, which looks wrong and is not — but the reason
-# has changed since this comment was first written. Only the *production*
-# Netlify context points at the production Neon branch that `secrets.DATABASE_URL`
-# (below) migrates. Preview and branch deploys point at a separate Neon `dev`
-# branch instead — confirmed the hard way in the incident diagnosed in
-# scripts/recovery/README.md, where that branch's migration state had drifted
-# independently of production's. This workflow does NOT migrate that branch;
-# nothing currently does automatically (see #57). So the "dev as well as main"
-# trigger here migrates *production* early, on merge to dev, before main even
-# sees the commit — that part is still deliberate and still safe for the same
-# reason as before: every migration here is additive and backward-compatible,
-# so a table nothing reads yet costs nothing. It is what expand-contract buys.
+# main ONLY. This used to also fire on push to dev, on the theory that
+# `secrets.DATABASE_URL` pointed at the production Neon branch, so migrating
+# early on a dev merge was harmless and even useful (expand-contract migrations
+# cost nothing against tables nothing reads yet). That theory was wrong:
+# `DATABASE_URL` has only ever held the dev/preview branch's connection string —
+# the one Netlify's preview and branch deploys point at — never production's.
+# Production (the live site, thedivinekrc.in) runs on a separate Neon branch
+# that this workflow had never actually migrated, despite every run reporting
+# success, because a clean run against the wrong database still exits 0.
+# Diagnosed and corrected in the incident this comment now reflects; the
+# recovery playbook for the tracker-drift half of that incident is in
+# scripts/recovery/README.md.
 #
-# The preview/branch-deploy Neon `dev` branch getting its own automated
-# migration step (rather than the manual scripts/recovery/ playbook) is tracked
-# in #57 — do that before trusting this comment's "two branches" picture again.
+# The fix has two parts, both required: this trigger restricted to `main` only
+# (a dev merge must never touch prod, so dev pushes no longer invoke this
+# workflow at all), and the migrate step below now reading a distinctly-named
+# `secrets.PROD_DATABASE_URL` instead of `secrets.DATABASE_URL` — so the
+# production target is explicit in the workflow and can't be silently confused
+# with the app's own runtime env var again. `DATABASE_URL` keeps its current
+# value (the dev/preview branch) and stays unused here; it's reserved for the
+# dev-branch automated migration step tracked in #57, whenever that gets built.
 #
 # `workflow_dispatch` is here so the very first migration can be run by hand from
 # the Actions tab. Chicken-and-egg otherwise: the code that queries the tables
 # cannot deploy until the tables exist, and nobody holds DATABASE_URL locally.
 #
-# `DATABASE_URL` is a *repo secret*, separate from the one on Netlify: Netlify's
-# env is invisible to Actions. Two copies of one credential is the cost of an
-# automated, auditable migration; the alternative is remembering to run
-# `npm run db:migrate` by hand before every merge, on a repo where main
+# `PROD_DATABASE_URL` is a *repo secret*, separate from anything Netlify holds:
+# Netlify's env is invisible to Actions. A dedicated copy of the credential is
+# the cost of an automated, auditable migration; the alternative is remembering
+# to run `npm run db:migrate` by hand before every merge, on a repo where main
 # auto-deploys.
 #
 # `workflow_run` only ever runs from the default branch's definition and never
@@ -44,7 +49,7 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
-    branches: [main, dev]
+    branches: [main]
   workflow_dispatch:
     inputs:
       seed:
@@ -97,7 +102,7 @@ jobs:
       - name: Apply migrations
         run: npm run db:migrate
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
 
       # Manual only, and idempotent (ON CONFLICT DO NOTHING). The fixture rows
       # are what the console renders until #14 brings real bookings — the client
@@ -107,4 +112,4 @@ jobs:
         if: inputs.seed
         run: npm run db:seed
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}

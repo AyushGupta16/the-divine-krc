@@ -1,28 +1,41 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
-import { Download, FileText, LogIn, LogOut, Loader2, Plus, Wallet } from "lucide-react";
+import {
+  Download,
+  FileText,
+  LogIn,
+  LogOut,
+  Loader2,
+  MessageSquareText,
+  Plus,
+  Trash2,
+  Wallet,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import type {
+  AddOnServiceKey,
   Booking,
   BookingListItem,
   BookingSource,
   BookingsPageData,
-  BookingsSummaryKey,
   BookingStatus,
   BookingsTotals,
+  GuestPreference,
   MealPlan,
+  RequestedServices,
   RoomTile,
   RoomType,
 } from "@/types/booking";
 import { formatINR } from "@/lib/booking-math";
 import { adminIssueInvoiceFn } from "@/lib/invoices-data";
 import {
+  resolveRequestedServiceFn,
   setBookingPaymentStatusFn,
   updateBookingRoomFn,
   updateBookingStatusFn,
 } from "@/lib/bookings-data";
-import { BookingEntryForm } from "@/components/admin/BookingEntryForm";
+import { useEntryForms } from "@/components/admin/entry-forms-context";
 import {
   Table,
   TableBody,
@@ -32,7 +45,229 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { StatCard } from "@/components/ui/stat-card";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+
+const PREFERENCE_LABEL: Record<GuestPreference, string> = {
+  high_floor: "High floor",
+  low_floor: "Low floor",
+  adjacent_rooms: "Adjacent / connecting rooms",
+  quiet_room: "Quiet room / away from road",
+  dietary: "Special dietary needs",
+  smoking_room: "Smoking room",
+};
+
+/**
+ * Row = signal, detail = content. The list only ever shows a dot; the
+ * preferences-as-tags + note live here, opened on demand, so the already-dense
+ * 20-column table doesn't grow another wide column for a field most rows
+ * won't have.
+ */
+function RequestFlag({ request }: { request: Booking["specialRequest"] }) {
+  if (!request) return null;
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="View guest requests"
+          className="flex size-4.5 items-center justify-center rounded-full bg-gold/15 text-gold hover:bg-gold/25"
+        >
+          <MessageSquareText className="size-2.75" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 text-[12.5px]" align="start">
+        {request.preferences.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {request.preferences.map((p) => (
+              <span
+                key={p}
+                className="rounded-full bg-gold/10 px-2.5 py-1 text-[11px] font-semibold text-obsidian"
+              >
+                {PREFERENCE_LABEL[p]}
+              </span>
+            ))}
+          </div>
+        )}
+        {request.note && (
+          <p className={cn("text-warm-gray", request.preferences.length > 0 && "mt-2.5")}>
+            {request.note}
+          </p>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+const SERVICE_LABEL: Record<AddOnServiceKey, string> = {
+  earlyCheckIn: "Early check-in",
+  lateCheckOut: "Late check-out",
+  extraMattress: "Extra mattress",
+};
+
+const SERVICE_KEYS: AddOnServiceKey[] = ["earlyCheckIn", "lateCheckOut", "extraMattress"];
+
+const STATUS_LABEL: Record<"pending" | "applied" | "declined" | "reversed", string> = {
+  pending: "Pending",
+  applied: "Applied",
+  declined: "Declined",
+  reversed: "Reversed",
+};
+
+const STATUS_COLOR: Record<"applied" | "declined" | "reversed", string> = {
+  applied: "#5a8a5a",
+  declined: "#a49d8d",
+  reversed: "#b4553f",
+};
+
+/**
+ * Slice B's requested-service control. Same popover shell as `RequestFlag`,
+ * but built for a state machine rather than a static note: pending entries
+ * get Apply/Decline, an applied entry gets a Remove action (zeros the charge
+ * and marks it `reversed` — distinct from `declined`, which means never
+ * charged — so a misclick has a way back), and any service with no entry at
+ * all gets an ad-hoc "Add" for a walk-in the guest never flagged. Kept
+ * compact — small padding, tight rows — since it sits inside a dense table
+ * and must not cover the row it's anchored to. The trigger only turns gold
+ * while something is still pending; once nothing is, it drops back to a
+ * quiet neutral icon so resolved history doesn't nag the daily view.
+ */
+function RequestedServicesFlag({
+  bookingId,
+  requested,
+  onChanged,
+}: {
+  bookingId: string;
+  requested: RequestedServices | undefined;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState<AddOnServiceKey | null>(null);
+  const [mattressQty, setMattressQty] = useState("1");
+  const hasPending = SERVICE_KEYS.some((k) => requested?.[k]?.status === "pending");
+
+  async function resolve(service: AddOnServiceKey, action: "applied" | "declined" | "reversed") {
+    setBusy(service);
+    const qty = service === "extraMattress" ? Number(mattressQty) : undefined;
+    const res = await resolveRequestedServiceFn({
+      data: { id: bookingId, service, action, mattressQty: qty },
+    });
+    setBusy(null);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    toast.success(`${SERVICE_LABEL[service]} ${action} on ${bookingId}.`);
+    onChanged();
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="Manage add-on services"
+          className={cn(
+            "flex size-4.5 items-center justify-center rounded-full",
+            hasPending
+              ? "bg-gold/15 text-gold hover:bg-gold/25"
+              : "border border-[#d9d0bd] text-[#a49d8d] hover:text-[#7a746a]",
+          )}
+        >
+          <Plus className="size-2.75" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-52 p-2.5 text-[11.5px]" align="start" sideOffset={2}>
+        <TooltipProvider delayDuration={200}>
+          <div className="flex flex-col gap-2.5">
+            {SERVICE_KEYS.map((key) => {
+              const entry = requested?.[key];
+              return (
+                // Stacked, not side-by-side: at the popover's compact w-52,
+                // sharing a row with the action cluster left too little room
+                // for a label like "Early check-in" and broke it mid-word.
+                // The label gets its own full-width line; actions wrap below.
+                <div key={key} className="flex flex-col gap-0.5">
+                  <span className="whitespace-nowrap font-semibold text-obsidian">
+                    {SERVICE_LABEL[key]}
+                  </span>
+                  {!entry || entry.status !== "applied" ? (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {/* declined/reversed keeps its outcome visible even while
+                          it's still an "open" state an admin can act on again. */}
+                      {entry && entry.status !== "pending" && (
+                        <span
+                          className="text-[10.5px] font-semibold"
+                          style={{ color: STATUS_COLOR[entry.status] }}
+                        >
+                          {STATUS_LABEL[entry.status]}
+                        </span>
+                      )}
+                      {key === "extraMattress" && !entry && (
+                        <input
+                          type="number"
+                          min="1"
+                          max="3"
+                          value={mattressQty}
+                          onChange={(e) => setMattressQty(e.target.value)}
+                          className="w-8 rounded border border-[#eae4d6] px-1 py-px text-[10.5px]"
+                          aria-label="Mattress quantity"
+                        />
+                      )}
+                      <button
+                        type="button"
+                        disabled={busy === key}
+                        onClick={() => void resolve(key, "applied")}
+                        className="text-[10.5px] font-bold uppercase tracking-wider text-[#5a8a5a] hover:opacity-75 disabled:opacity-50"
+                      >
+                        {entry ? "Apply" : "Add"}
+                      </button>
+                      {entry && (
+                        <button
+                          type="button"
+                          disabled={busy === key}
+                          onClick={() => void resolve(key, "declined")}
+                          className="text-[10.5px] font-bold uppercase tracking-wider text-[#a49d8d] hover:opacity-75 disabled:opacity-50"
+                        >
+                          Decline
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span
+                        className="text-[10.5px] font-semibold"
+                        style={{ color: STATUS_COLOR[entry.status] }}
+                      >
+                        {STATUS_LABEL[entry.status]}
+                        {key === "extraMattress" && "qty" in entry ? ` ×${entry.qty}` : ""}
+                      </span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            disabled={busy === key}
+                            onClick={() => void resolve(key, "reversed")}
+                            aria-label="Remove charge"
+                            className="flex size-4 items-center justify-center text-[#a4463a] hover:opacity-75 disabled:opacity-50"
+                          >
+                            <Trash2 className="size-3" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">Remove charge</TooltipContent>
+                      </Tooltip>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </TooltipProvider>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 // ── Display maps ──────────────────────────────────────────────────────────
 
@@ -91,45 +326,30 @@ const STATUS_ORDER: BookingStatus[] = [
   "no_show",
 ];
 
-/** Per-card accent: left bar + optional value ink. */
-const SUMMARY_ACCENT: Record<BookingsSummaryKey, { bar: string; ink?: string }> = {
-  checkInsToday: { bar: "#5a8a5a" },
-  checkOutsToday: { bar: "#7c5cbf" },
-  occupied: { bar: "#c5a059" },
-  available: { bar: "#5a8a5a" },
-  totalUrn: { bar: "#3a6ea5" },
-  roomRevenue: { bar: "#c5a059", ink: "#a8863f" },
-  totalCollected: { bar: "#5a8a5a" },
-  pendingCollection: { bar: "#b4553f", ink: "#b4553f" },
-  otaReceivables: { bar: "#3a6ea5", ink: "#3a6ea5" },
-  cancellations: { bar: "#3a3a3a" },
-};
-
 // ── Summary cards ─────────────────────────────────────────────────────────
+// "Unassigned rooms" is the hero — the check-in/assign screen's operational
+// figure, ahead of the finance-flavoured "Total collected".
 
 function SummaryCards({ summary }: { summary: BookingsPageData["summary"] }) {
+  const hero = summary.find((s) => s.key === "unassignedRooms");
+  const standard = summary.filter((s) => s.key !== "unassignedRooms");
+
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-      {summary.map((s) => {
-        const accent = SUMMARY_ACCENT[s.key];
-        return (
-          <div
-            key={s.key}
-            className="rounded-lg border border-[#eae4d6] bg-white px-3.75 py-3.25"
-            style={{ borderLeft: `3px solid ${accent.bar}` }}
-          >
-            <div className="text-[10px] font-bold uppercase leading-[1.3] tracking-[0.08em] text-[#7a746a]">
-              {s.label}
-            </div>
-            <div
-              className="mt-1.75 font-display text-[23px] font-semibold"
-              style={accent.ink ? { color: accent.ink } : undefined}
-            >
-              {s.value}
-            </div>
-          </div>
-        );
-      })}
+    // One block, not two stacked strips: the hero sits in its own column and
+    // stretches to the height of the 5x2 grid beside it (CSS grid's default
+    // align-items: stretch does this for free — no row-span needed, since the
+    // hero and the standard cards live in separate grids rather than one
+    // flat grid mixing a spanning item with auto-flowing siblings). Below
+    // `lg` the outer grid drops to one column, so the hero stacks above the
+    // standard-card grid instead of trying to preserve the side-by-side shape
+    // at a width that can't fit it.
+    <div className="grid grid-cols-1 gap-2 lg:grid-cols-[240px_1fr]">
+      {hero && <StatCard variant="hero" label={hero.label} value={hero.value} />}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        {standard.map((s) => (
+          <StatCard key={s.key} variant="compact" label={s.label} value={s.value} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -190,7 +410,7 @@ function StatusTabs({
 const bandHead =
   "h-auto whitespace-nowrap px-3.5 py-2.25 text-left align-middle text-[10px] font-bold uppercase tracking-[0.14em] text-gold-soft";
 const colHead =
-  "h-auto whitespace-nowrap px-2 py-2.5 align-middle text-[10px] font-bold uppercase tracking-[0.05em] text-[#a49d8d]";
+  "h-auto whitespace-nowrap px-2 py-2.5 align-middle text-[10px] font-bold uppercase tracking-wider text-[#a49d8d]";
 const cell = "whitespace-nowrap px-2 py-3 align-middle text-[12px]";
 const num = "text-right tabular-nums";
 
@@ -377,7 +597,17 @@ function BookingRow({ item, sr, rooms }: { item: BookingListItem; sr: number; ro
     <TableRow className="group border-[#f2ede2] hover:bg-[#faf7ef]">
       <TableCell className={cn(cell, STICKY_CELL.sr, "text-[#a49d8d]")}>{sr}</TableCell>
       <TableCell className={cn(cell, STICKY_CELL.id, "text-[11.5px] font-bold")}>{b.id}</TableCell>
-      <TableCell className={cn(cell, STICKY_CELL.guest, "font-semibold")}>{guestName}</TableCell>
+      <TableCell className={cn(cell, STICKY_CELL.guest, "font-semibold")}>
+        <span className="flex items-center gap-1.5">
+          {guestName}
+          <RequestFlag request={b.specialRequest} />
+          <RequestedServicesFlag
+            bookingId={b.id}
+            requested={b.requestedServices}
+            onChanged={() => void router.invalidate()}
+          />
+        </span>
+      </TableCell>
       <TableCell className={cell}>
         <RoomSelect booking={b} rooms={rooms} disabled={changingStatus} onChange={assignRoom} />
       </TableCell>
@@ -659,17 +889,15 @@ const UNASSIGNED_SCOPE_STATUSES = new Set<BookingStatus>([
 
 export function Bookings({
   data,
-  openEntryForm = false,
   guestFilter,
   unassignedOnly = false,
 }: {
   data: BookingsPageData;
-  openEntryForm?: boolean;
   guestFilter?: string;
   unassignedOnly?: boolean;
 }) {
   const [active, setActive] = useState<TabKey>("all");
-  const [entryOpen, setEntryOpen] = useState(openEntryForm);
+  const { openBooking } = useEntryForms();
 
   const byStatus = useMemo(
     () => (active === "all" ? data.rows : data.rows.filter((r) => r.booking.status === active)),
@@ -744,7 +972,7 @@ export function Bookings({
           </button>
           <button
             type="button"
-            onClick={() => setEntryOpen(true)}
+            onClick={openBooking}
             className="inline-flex items-center gap-2 rounded-md bg-gold px-3 py-2 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
           >
             <Plus className="size-4" />
@@ -752,8 +980,6 @@ export function Bookings({
           </button>
         </div>
       </div>
-
-      <BookingEntryForm open={entryOpen} onOpenChange={setEntryOpen} />
 
       {unassignedOnly && (
         <p className="rounded-md border border-[#eae4d6] bg-[#faf7ef] px-3.5 py-2.5 text-[12px] font-semibold text-warm-gray">

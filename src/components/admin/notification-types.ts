@@ -2,9 +2,10 @@ import type { NotificationType } from "@/lib/notifications";
 
 /**
  * Icon + colour + label per notification type — matches the design's `TYPE`
- * maps in `Notifications Bell.dc.html` / `Admin Notifications.dc.html`. Only
- * `booking` has a real producer today (spec 19); the rest are wired for when
- * payments/party-hall/check-in specs add one.
+ * maps in `Notifications Bell.dc.html` / `Admin Notifications.dc.html`.
+ * `booking`, `party` and `room` have real producers (`lib/notifications.ts`);
+ * `payment` and `checkin` are wired for when those write paths gain an event
+ * timestamp to derive from.
  */
 export const TYPE_META: Record<
   NotificationType,
@@ -30,6 +31,13 @@ export const TYPE_META: Record<
     iconColor: "#b4553f",
     label: "Party Hall enquiry",
     cta: "Quote",
+  },
+  room: {
+    icon: "🛏",
+    iconBg: "#e4eef7",
+    iconColor: "#3a6ea5",
+    label: "Room assigned",
+    cta: "View",
   },
   checkin: { icon: "→", iconBg: "#e4eef7", iconColor: "#3a6ea5", label: "Check-in", cta: "View" },
   cancel: {
