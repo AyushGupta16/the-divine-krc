@@ -83,6 +83,15 @@ export const bookings = pgTable("bookings", {
   /** Set only after `verifyRazorpaySignature` passes. */
   razorpayPaymentId: text("razorpay_payment_id"),
 
+  /** How the payment actually moved — a `PaymentMethod` value, or `"online"`
+   *  when Razorpay's instrument isn't known. Columns only this slice: no write
+   *  path sets this yet, and every row is null until one does. */
+  paymentMethod: text("payment_method"),
+  /** When the payment actually settled — never the booking's `createdAt`,
+   *  which is when the row was made, not when money moved. Columns only this
+   *  slice: no write path sets this yet, and every row is null until one does. */
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+
   /** Shared by every room created in one guest-flow checkout; null for legacy
    *  rows and admin manual entries — see resolveInvoiceParty. */
   batchId: text("batch_id"),

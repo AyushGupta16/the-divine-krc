@@ -55,6 +55,7 @@ async function main() {
     ...b,
     createdAt: new Date(b.createdAt),
     roomAssignedAt: b.roomAssignedAt ? new Date(b.roomAssignedAt) : null,
+    paidAt: b.paidAt ? new Date(b.paidAt) : null,
     revenueRoom: revenue.room,
     revenueEarlyCheckIn: revenue.earlyCheckIn,
     revenueLateCheckOut: revenue.lateCheckOut,
