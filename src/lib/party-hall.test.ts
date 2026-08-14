@@ -21,6 +21,7 @@ import {
   withAdvance,
 } from "@/lib/bookings";
 import { toPartyHall } from "@/lib/bookings-data";
+import { formatINRCompact } from "@/lib/booking-math";
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import type {
   PartyHallCalendarCell,
@@ -292,6 +293,21 @@ describe("getPartyHallPageData", () => {
     };
     const { stats } = await getPartyHallPageData(custom, 2026, 8, "2026-08-10");
     expect(statValue(stats, "confirmed")).toBe("1");
+  });
+
+  it("drops a completed event from confirmed·upcoming and advance collected — #102 makes this status reachable, so it must not double-count as still-confirmed money", async () => {
+    const custom = {
+      ...fixtures,
+      partyHall: [
+        enquiry({ id: "PH-COMPLETED", status: "completed", date: "2026-08-05", amount: 100000 }),
+        enquiry({ id: "PH-CONFIRMED", status: "confirmed", date: "2026-08-20", amount: 100000 }),
+      ],
+    };
+    const { stats } = await getPartyHallPageData(custom, 2026, 8, "2026-08-10");
+    expect(statValue(stats, "confirmed")).toBe("1");
+    // Only the still-confirmed event's advance (25%) is held; the completed
+    // one's takings are settled revenue, not an advance sitting on the books.
+    expect(statValue(stats, "advanceCollected")).toBe(formatINRCompact(partyHallAdvance(100000)));
   });
 
   it("degrades the quoted-on label to no date for a pre-migration row with no quotedAt", async () => {

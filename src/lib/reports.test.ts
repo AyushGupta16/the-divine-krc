@@ -117,6 +117,43 @@ describe("getReportsPageData", () => {
     expect(month.roomTypes.find((r) => r.key === "party_hall")!.occPct).toBeNull();
   });
 
+  it("counts a completed event's takings as party-hall revenue and leaves a merely-confirmed one out — #102 makes `completed` reachable, so a still-confirmed booking must stay an advance, not settled revenue", async () => {
+    const custom = {
+      ...fixtures,
+      partyHall: [
+        {
+          id: "PH-REPORTS-COMPLETED",
+          title: "Test — completed",
+          date: TODAY,
+          slot: "evening" as const,
+          guests: 100,
+          package: "Gold",
+          addOns: [],
+          status: "completed" as const,
+          amount: 50000,
+          advancePaid: 50000,
+        },
+        {
+          id: "PH-REPORTS-CONFIRMED",
+          title: "Test — confirmed",
+          date: TODAY,
+          slot: "evening" as const,
+          guests: 100,
+          package: "Gold",
+          addOns: [],
+          status: "confirmed" as const,
+          amount: 999999,
+          advancePaid: 250000,
+        },
+      ],
+    };
+    const { ranges } = await getReportsPageData(custom, TODAY);
+    const hall = range(ranges, "30d").roomTypes.find((r) => r.key === "party_hall")!;
+    // Only the completed event's 50000 counts; the confirmed one's 999999
+    // does not, or this would read ~1049999 instead.
+    expect(hall.revenue).toBe(50000);
+  });
+
   it("states no trend when the window before it earned nothing", async () => {
     const { ranges } = await getReportsPageData(fixtures, TODAY);
     const year = range(ranges, "12m");
