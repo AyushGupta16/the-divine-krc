@@ -187,6 +187,17 @@ describe("getPartyHallPageData", () => {
     expect(paid.meta).toContain("advance ₹22k paid");
   });
 
+  it("statusNote is exactly the tail of meta, for every status — one metaNote call, no drift", async () => {
+    const { events } = await getPartyHallPageData(fixtures);
+    for (const e of events) {
+      expect(e.meta.endsWith(e.statusNote)).toBe(true);
+    }
+    const confirmed = events.find((e) => e.enquiry.status === "confirmed")!;
+    expect(confirmed.statusNote).toBe("balance due on day");
+    const completed = events.find((e) => e.enquiry.status === "completed")!;
+    expect(completed.statusNote).toBe("settled");
+  });
+
   it("shows the snapshotted percentage alongside the advance once one is on record", async () => {
     const custom = {
       ...fixtures,
