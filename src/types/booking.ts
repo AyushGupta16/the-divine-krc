@@ -689,9 +689,11 @@ export interface PaymentTransaction {
   id: string;
   bookingId: string;
   guestName: string;
-  method: PaymentMethod;
-  /** ISO timestamp the money moved (or is due, when pending). */
-  at: string;
+  /** `null` until a write path (b-ii/b-iii) records the instrument used. */
+  method: PaymentMethod | null;
+  /** ISO timestamp the payment settled, from `paidAt`. `null` until a write
+   *  path (b-ii/b-iii) records it — never backfilled from `createdAt`. */
+  at: string | null;
   /** Signed rupees: positive is money in, negative is a refund out. */
   amount: number;
   status: TransactionStatus;
@@ -704,14 +706,14 @@ export interface PaymentsTxnItem {
   methodLabel: string;
   /** Signed and formatted, e.g. "+₹5,040" / "−₹3,000". */
   amount: string;
-  /** Clock time today, else a short date — e.g. "9:42 am" / "Yesterday" / "20 Jul". */
+  /** Clock time today, else a short date, else "—" when `paidAt` isn't recorded. */
   time: string;
   /** e.g. "Success". */
   statusLabel: string;
 }
 
 export type PaymentsKpiKey =
-  "collectedToday" | "razorpaySettled" | "otaReceivables" | "pendingFromGuests";
+  "totalCollected" | "collectedToday" | "razorpaySettled" | "otaReceivables" | "pendingFromGuests";
 
 export interface PaymentsKpi {
   key: PaymentsKpiKey;
