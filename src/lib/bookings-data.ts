@@ -94,7 +94,12 @@ import {
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import { getSessionMember } from "@/lib/auth";
 import { db, missingDbInProduction } from "@/lib/db";
-import { createRazorpayOrder, razorpayKeyId, verifyRazorpaySignature } from "@/lib/razorpay";
+import {
+  createRazorpayOrder,
+  razorpayKeyId,
+  resolvePaymentMetadata,
+  verifyRazorpaySignature,
+} from "@/lib/razorpay";
 import { loadRoster } from "@/lib/roster";
 import * as schema from "@/lib/schema";
 import { can, type Result } from "@/lib/team";
@@ -400,9 +405,11 @@ async function updateBookingRoom(
 
 /**
  * The Razorpay verify route's write (#16): persists what `markBookingPaid`
- * decided — status, the now-settled collection, and the two id columns
- * `schema.ts` reserves for a gateway payment. Same fixtures-mutation
- * convenience as the other row-store helpers when there is no database.
+ * decided — status, the now-settled collection, the two id columns
+ * `schema.ts` reserves for a gateway payment, and the payment-instrument
+ * metadata (`paymentMethod`/`paidAt`), all in one write. Same
+ * fixtures-mutation convenience as the other row-store helpers when there is
+ * no database.
  */
 async function updateBookingPayment(booking: Booking): Promise<void> {
   const conn = db();
@@ -420,6 +427,8 @@ async function updateBookingPayment(booking: Booking): Promise<void> {
       collectionPending: booking.collection.pending,
       razorpayOrderId: booking.razorpayOrderId ?? null,
       razorpayPaymentId: booking.razorpayPaymentId ?? null,
+      paymentMethod: booking.paymentMethod ?? null,
+      paidAt: booking.paidAt ? new Date(booking.paidAt) : null,
     })
     .where(eq(schema.bookings.id, booking.id));
 }
@@ -1224,6 +1233,12 @@ export const createRazorpayOrderFn = createServerFn({ method: "POST" })
  * documented tradeoff as `insertBooking` — a failure partway through leaves
  * whatever already settled as `confirmed`, and a retry with the same
  * signature is a no-op on those rows via `markBookingPaid`'s idempotence.
+ *
+ * `resolvePaymentMetadata` runs before the settlement write, not after —
+ * it cannot throw (falls back to `"online"` + now), so `markBookingPaid` +
+ * `updateBookingPayment` stays the single write that always happens once
+ * the signature is verified. A payment that verified never fails because a
+ * secondary Razorpay lookup blipped.
  */
 export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
   .validator(
@@ -1241,10 +1256,19 @@ export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
       return { ok: false, error: "Payment could not be verified. Please contact the front desk." };
     }
 
+    const { method, paidAt } = await resolvePaymentMetadata(data.razorpayPaymentId);
+
     const settled: Booking[] = [];
     for (const id of data.bookingIds) {
       const current = await load();
-      const res = markBookingPaid(current, id, data.razorpayOrderId, data.razorpayPaymentId);
+      const res = markBookingPaid(
+        current,
+        id,
+        data.razorpayOrderId,
+        data.razorpayPaymentId,
+        method,
+        paidAt,
+      );
       if (!res.ok) return res;
       await updateBookingPayment(res.booking);
       settled.push(res.booking);

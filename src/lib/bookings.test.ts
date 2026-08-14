@@ -689,7 +689,14 @@ describe("markBookingPaid", () => {
 
   it("confirms a pending booking and settles the collection to the full total", () => {
     const { state, booking } = pendingState();
-    const res = markBookingPaid(state, booking.id, "order_1", "pay_1");
+    const res = markBookingPaid(
+      state,
+      booking.id,
+      "order_1",
+      "pay_1",
+      "upi",
+      "2026-08-01T10:00:00.000Z",
+    );
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.booking.status).toBe("confirmed");
@@ -697,11 +704,20 @@ describe("markBookingPaid", () => {
     expect(res.booking.collection.pending).toBe(0);
     expect(res.booking.razorpayOrderId).toBe("order_1");
     expect(res.booking.razorpayPaymentId).toBe("pay_1");
+    expect(res.booking.paymentMethod).toBe("upi");
+    expect(res.booking.paidAt).toBe("2026-08-01T10:00:00.000Z");
   });
 
   it("is idempotent on a replay of the same payment id", () => {
     const { state, booking } = pendingState();
-    const first = markBookingPaid(state, booking.id, "order_1", "pay_1");
+    const first = markBookingPaid(
+      state,
+      booking.id,
+      "order_1",
+      "pay_1",
+      "upi",
+      "2026-08-01T10:00:00.000Z",
+    );
     expect(first.ok).toBe(true);
     if (!first.ok) return;
     const replayState = {
@@ -709,7 +725,14 @@ describe("markBookingPaid", () => {
       bookings: [first.booking],
       partyHall: state.partyHall,
     };
-    const second = markBookingPaid(replayState, booking.id, "order_1", "pay_1");
+    const second = markBookingPaid(
+      replayState,
+      booking.id,
+      "order_1",
+      "pay_1",
+      "upi",
+      "2026-08-01T10:00:00.000Z",
+    );
     expect(second.ok).toBe(true);
     if (!second.ok) return;
     expect(second.booking).toEqual(first.booking);
@@ -726,13 +749,17 @@ describe("markBookingPaid", () => {
       booking.id,
       "order_1",
       "pay_1",
+      "upi",
+      "2026-08-01T10:00:00.000Z",
     );
     expect(res.ok).toBe(false);
   });
 
   it("rejects an unknown booking id", () => {
     const { state } = pendingState();
-    expect(markBookingPaid(state, "KRC-nope", "order_1", "pay_1").ok).toBe(false);
+    expect(
+      markBookingPaid(state, "KRC-nope", "order_1", "pay_1", "upi", "2026-08-01T10:00:00.000Z").ok,
+    ).toBe(false);
   });
 });
 
