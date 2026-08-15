@@ -1,4 +1,4 @@
-import { CalendarPlus, Home, UserRound, type LucideIcon } from "lucide-react";
+import { CalendarPlus, Home, UserRound, Wallet, type LucideIcon } from "lucide-react";
 
 /** Declared, not yet shipped — a category with zero items renders no strip
  *  (`QuickCreatePopover` groups in this order and skips empty ones). */
@@ -25,7 +25,7 @@ export const QUICK_CREATE_CATEGORY_LABEL: Record<QuickCreateCategory, string> = 
  *  consume"), unlike every other open listbox/menu/dialog in the app. */
 export const QUICK_CREATE_POPOVER_ID = "quick-create-popover";
 
-export type QuickCreateKey = "booking" | "event" | "guest";
+export type QuickCreateKey = "booking" | "event" | "guest" | "payment";
 
 export interface QuickCreateItem {
   key: QuickCreateKey;
@@ -34,7 +34,7 @@ export interface QuickCreateItem {
   category: QuickCreateCategory;
   icon: LucideIcon;
   /** `KeyboardEvent.code` suffix — `"KeyB"` etc. Layout-independent, single key, no modifier. */
-  shortcut: "B" | "E" | "G";
+  shortcut: "B" | "E" | "G" | "P";
 }
 
 /**
@@ -69,5 +69,13 @@ export const QUICK_CREATE_ITEMS: QuickCreateItem[] = [
     category: "frontDesk",
     icon: UserRound,
     shortcut: "G",
+  },
+  {
+    key: "payment",
+    label: "Record payment",
+    description: "Cash against an outstanding balance",
+    category: "finance",
+    icon: Wallet,
+    shortcut: "P",
   },
 ];
