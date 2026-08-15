@@ -2782,6 +2782,8 @@ const METHOD_LABEL: Record<PaymentMethod, string> = {
   upi: "UPI",
   card: "Card",
   net_banking: "Net Banking",
+  wallet: "Wallet",
+  paylater: "Pay Later",
   cash: "Cash",
   ota: "OTA",
 };

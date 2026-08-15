@@ -125,6 +125,27 @@ describe("getPaymentsPageData", () => {
     }
   });
 
+  it("labels wallet and paylater as real instruments, distinct from the 'online' N/A fallback", async () => {
+    const walletBooking = liveBooking({ id: "KRC-TEST-wallet", paymentMethod: "wallet" });
+    const paylaterBooking = liveBooking({ id: "KRC-TEST-paylater", paymentMethod: "paylater" });
+    const onlineBooking = liveBooking({ id: "KRC-TEST-online", paymentMethod: "online" });
+    const data = {
+      bookings: [walletBooking, paylaterBooking, onlineBooking],
+      guests: fixtures.guests,
+      partyHall: fixtures.partyHall,
+    };
+
+    const { transactions } = await getPaymentsPageData(data, TODAY);
+
+    const wallet = transactions.find((t) => t.txn.bookingId === "KRC-TEST-wallet")!;
+    expect(wallet.methodLabel).toBe("Wallet");
+    const paylater = transactions.find((t) => t.txn.bookingId === "KRC-TEST-paylater")!;
+    expect(paylater.methodLabel).toBe("Pay Later");
+    // "online" stays N/A — it means "Razorpay processed it, instrument unknown", not a real one.
+    const online = transactions.find((t) => t.txn.bookingId === "KRC-TEST-online")!;
+    expect(online.methodLabel).toBe("N/A");
+  });
+
   it("emits a row for a non-void booking holding money", async () => {
     const booking = liveBooking({ id: "KRC-TEST-live" });
     const data = { bookings: [booking], guests: fixtures.guests, partyHall: fixtures.partyHall };

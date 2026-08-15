@@ -69,10 +69,19 @@ describe("resolvePaymentMetadata", () => {
     expect((await resolvePaymentMetadata("pay_1")).method).toBe("card");
   });
 
-  it("falls back to 'online' for an unmapped instrument (wallet, emi, anything else)", async () => {
+  it("maps wallet and paylater straight through", async () => {
     mockFetchOk("wallet");
-    expect((await resolvePaymentMetadata("pay_1")).method).toBe("online");
+    expect((await resolvePaymentMetadata("pay_1")).method).toBe("wallet");
+    mockFetchOk("paylater");
+    expect((await resolvePaymentMetadata("pay_1")).method).toBe("paylater");
+  });
+
+  it("falls back to 'online' for an unmapped instrument (emi, bank_transfer, anything else)", async () => {
     mockFetchOk("emi");
+    expect((await resolvePaymentMetadata("pay_1")).method).toBe("online");
+    mockFetchOk("cardless_emi");
+    expect((await resolvePaymentMetadata("pay_1")).method).toBe("online");
+    mockFetchOk("bank_transfer");
     expect((await resolvePaymentMetadata("pay_1")).method).toBe("online");
     mockFetchOk("something_new_razorpay_added");
     expect((await resolvePaymentMetadata("pay_1")).method).toBe("online");
