@@ -84,9 +84,10 @@ export function verifyRazorpaySignature(
 }
 
 /** Razorpay's `payment.method` strings, mapped to what our ledger tracks.
- *  Wallet/EMI/anything unrecognized fall to "online" — we know Razorpay
- *  processed it, just not the specific instrument. Cash/OTA never come
- *  from here; those originate from manual entry and the OTA source branch. */
+ *  EMI/bank_transfer/anything unrecognized fall to "online" — we know
+ *  Razorpay processed it, just not the specific instrument. Cash/OTA never
+ *  come from here; those originate from manual entry and the OTA source
+ *  branch. */
 function mapRazorpayMethod(method: string): PaymentMethod | "online" {
   switch (method) {
     case "upi":
@@ -95,6 +96,10 @@ function mapRazorpayMethod(method: string): PaymentMethod | "online" {
       return "card";
     case "netbanking":
       return "net_banking";
+    case "wallet":
+      return "wallet";
+    case "paylater":
+      return "paylater";
     default:
       return "online";
   }

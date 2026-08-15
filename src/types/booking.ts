@@ -678,8 +678,8 @@ export interface GuestsPageData {
 // moved (`method`) and when (`at`) are seeded: a booking records how much was
 // collected, but not by what instrument or at what time.
 
-/** Instrument the money moved by. The first three are Razorpay-processed. */
-export type PaymentMethod = "upi" | "card" | "net_banking" | "cash" | "ota";
+/** Instrument the money moved by. The first five are Razorpay-processed. */
+export type PaymentMethod = "upi" | "card" | "net_banking" | "wallet" | "paylater" | "cash" | "ota";
 
 /** Where a transaction stands: money in, money promised, money given back. */
 export type TransactionStatus = "success" | "pending" | "refunded";

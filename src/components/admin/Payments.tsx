@@ -30,6 +30,8 @@ const METHOD_TOKENS: Record<PaymentMethod, { icon: string; bg: string; color: st
   upi: { icon: "U", bg: "#eee7f7", color: "#7c5cbf" },
   card: { icon: "C", bg: "#e4eef7", color: "#3a6ea5" },
   net_banking: { icon: "N", bg: "#e6efe6", color: "#5a8a5a" },
+  wallet: { icon: "W", bg: "#f7e6e0", color: "#b4553f" },
+  paylater: { icon: "P", bg: "#eaf2f0", color: "#3f8a78" },
   cash: { icon: "₹", bg: "#f5ecd7", color: "#a8863f" },
   ota: { icon: "O", bg: "#f0f0f0", color: "#6b7280" },
 };
