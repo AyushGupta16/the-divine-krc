@@ -81,6 +81,38 @@ describe("resolveInvoiceParty", () => {
 
     expect(resolveInvoiceParty(a.id, bookings)).toEqual([a]);
   });
+
+  it("keeps three bookings with distinct batchIds as three separate single-member parties, even sharing one guest and dates", () => {
+    const guests: Guest[] = [];
+    const bookings: Booking[] = [];
+    const a = makeBooking(guests, bookings, { batchId: "batch-1" });
+    makeBooking(guests, bookings, { batchId: "batch-2" });
+    makeBooking(guests, bookings, { batchId: "batch-3" });
+    // Force all three onto the same guest + dates, mirroring the invoice-grouping
+    // bug: without batchId reaching the invoices mapper, these three used to be
+    // merged into one group invoice by guest+date instead of staying separate.
+    for (const b of bookings) {
+      b.guestId = a.guestId;
+      b.checkIn = a.checkIn;
+      b.checkOut = a.checkOut;
+    }
+
+    expect(resolveInvoiceParty(bookings[0].id, bookings)).toEqual([bookings[0]]);
+    expect(resolveInvoiceParty(bookings[1].id, bookings)).toEqual([bookings[1]]);
+    expect(resolveInvoiceParty(bookings[2].id, bookings)).toEqual([bookings[2]]);
+  });
+
+  it("groups all three bookings sharing one batchId from one cart checkout", () => {
+    const guests: Guest[] = [];
+    const bookings: Booking[] = [];
+    const batchId = "batch-shared";
+    const a = makeBooking(guests, bookings, { batchId, roomType: "deluxe" });
+    const b = makeBooking(guests, bookings, { batchId, roomType: "deluxe_balcony" });
+    const c = makeBooking(guests, bookings, { batchId, roomType: "deluxe" });
+
+    const party = resolveInvoiceParty(a.id, bookings);
+    expect(party.map((p) => p.id).sort()).toEqual([a.id, b.id, c.id].sort());
+  });
 });
 
 describe("buildRoomInvoice — Slice B add-on charges", () => {

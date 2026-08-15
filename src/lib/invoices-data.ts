@@ -23,7 +23,8 @@ import {
   resolveInvoiceParty,
   type Invoice,
 } from "@/lib/invoices";
-import { withAdvance, withTier, withTotal } from "@/lib/bookings";
+import { withAdvance, withTier } from "@/lib/bookings";
+import { toBooking } from "@/lib/booking-mappers";
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import { getSessionMember } from "@/lib/auth";
 import { db, missingDbInProduction } from "@/lib/db";
@@ -31,16 +32,10 @@ import { can, type Result } from "@/lib/team";
 import * as schema from "@/lib/schema";
 import type {
   Booking,
-  BookingCollection,
-  BookingRevenue,
-  BookingSource,
-  BookingStatus,
   Guest,
-  MealPlan,
   PartyHallEnquiry,
   PartyHallSlot,
   PartyHallStatus,
-  RoomType,
 } from "@/types/booking";
 
 type InvoiceRow = typeof schema.invoices.$inferSelect;
@@ -81,40 +76,7 @@ async function loadInvoiceParty(): Promise<{
         lifetimeValue: r.lifetimeValue,
       }),
     ),
-    bookings: bookingRows.map((r) => {
-      const revenue: BookingRevenue = {
-        room: r.revenueRoom,
-        earlyCheckIn: r.revenueEarlyCheckIn,
-        lateCheckOut: r.revenueLateCheckOut,
-        other: r.revenueOther,
-        discount: r.revenueDiscount,
-        taxPct: r.revenueTaxPct,
-      };
-      const collection: BookingCollection = {
-        paidToHotel: r.collectionPaidToHotel,
-        otaCollection: r.collectionOtaCollection,
-        otaCommission: r.collectionOtaCommission,
-        complimentary: r.collectionComplimentary,
-        pending: r.collectionPending,
-      };
-      return withTotal({
-        id: r.id,
-        guestId: r.guestId,
-        roomNo: r.roomNo,
-        roomType: r.roomType as RoomType,
-        checkIn: r.checkIn,
-        checkOut: r.checkOut,
-        urn: r.urn,
-        source: r.source as BookingSource,
-        mealPlan: r.mealPlan as MealPlan,
-        revenue,
-        collection,
-        status: r.status as BookingStatus,
-        createdAt: r.createdAt.toISOString(),
-        razorpayOrderId: r.razorpayOrderId ?? undefined,
-        razorpayPaymentId: r.razorpayPaymentId ?? undefined,
-      });
-    }),
+    bookings: bookingRows.map(toBooking),
     partyHall: partyHallRows.map((r) =>
       withAdvance({
         id: r.id,

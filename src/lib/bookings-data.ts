@@ -103,20 +103,17 @@ import {
 import { loadRoster } from "@/lib/roster";
 import * as schema from "@/lib/schema";
 import { can, type Result } from "@/lib/team";
+import { toBooking } from "@/lib/booking-mappers";
 import type {
   AddOnServiceKey,
   Booking,
-  BookingCollection,
   BookingRevenue,
   BookingsPageData,
-  BookingSource,
   BookingStatus,
   CalendarPageData,
   DashboardData,
   Guest,
-  GuestRequest,
   GuestsPageData,
-  MealPlan,
   PartyHallEnquiry,
   PartyHallPageData,
   PartyHallRateKey,
@@ -134,7 +131,6 @@ import type {
 } from "@/types/booking";
 
 type GuestRow = typeof schema.guests.$inferSelect;
-type BookingRow = typeof schema.bookings.$inferSelect;
 type PartyHallRow = typeof schema.partyHallEnquiries.$inferSelect;
 type RoomRow = typeof schema.rooms.$inferSelect;
 
@@ -151,46 +147,6 @@ function toGuest(r: GuestRow): Guest {
     city: r.city,
     stays: r.stays,
     lifetimeValue: r.lifetimeValue,
-  });
-}
-
-function toBooking(r: BookingRow): Booking {
-  const revenue: BookingRevenue = {
-    room: r.revenueRoom,
-    earlyCheckIn: r.revenueEarlyCheckIn,
-    lateCheckOut: r.revenueLateCheckOut,
-    other: r.revenueOther,
-    discount: r.revenueDiscount,
-    taxPct: r.revenueTaxPct,
-  };
-  const collection: BookingCollection = {
-    paidToHotel: r.collectionPaidToHotel,
-    otaCollection: r.collectionOtaCollection,
-    otaCommission: r.collectionOtaCommission,
-    complimentary: r.collectionComplimentary,
-    pending: r.collectionPending,
-  };
-  return withTotal({
-    id: r.id,
-    guestId: r.guestId,
-    roomNo: r.roomNo,
-    roomType: r.roomType as RoomType,
-    checkIn: r.checkIn,
-    checkOut: r.checkOut,
-    urn: r.urn,
-    source: r.source as BookingSource,
-    mealPlan: r.mealPlan as MealPlan,
-    revenue,
-    collection,
-    status: r.status as BookingStatus,
-    createdAt: r.createdAt.toISOString(),
-    roomAssignedAt: r.roomAssignedAt?.toISOString() ?? undefined,
-    razorpayOrderId: r.razorpayOrderId ?? undefined,
-    razorpayPaymentId: r.razorpayPaymentId ?? undefined,
-    batchId: r.batchId ?? undefined,
-    specialRequest: (r.specialRequest ?? undefined) as GuestRequest | undefined,
-    requestedServices: (r.requestedServices ?? undefined) as RequestedServices | undefined,
-    revenueOtherNote: r.revenueOtherNote ?? undefined,
   });
 }
 
