@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { deriveNotifications, derivePartyHallNotifications, groupByDay } from "@/lib/notifications";
+import {
+  deriveNotifications,
+  derivePartyHallNotifications,
+  derivePaymentNotifications,
+  groupByDay,
+} from "@/lib/notifications";
 import type { Booking } from "@/types/booking";
 import type { PartyHallEvent } from "@/lib/notifications";
 
@@ -94,6 +99,44 @@ describe("deriveNotifications", () => {
       null,
     );
     expect(items[0].title).not.toContain("has requests");
+  });
+});
+
+describe("derivePaymentNotifications", () => {
+  it("produces nothing for a booking with no paidAt", () => {
+    const items = derivePaymentNotifications(
+      [booking("KRC-1", "2026-07-15T09:00:00.000Z")],
+      GUEST_NAME,
+      null,
+    );
+    expect(items).toEqual([]);
+  });
+
+  it("produces an item for a booking with paidAt set, newest first", () => {
+    const paid = {
+      ...booking("KRC-1", "2026-07-15T09:00:00.000Z"),
+      paidAt: "2026-07-15T10:00:00.000Z",
+      paymentMethod: "cash" as const,
+    };
+    const paidLater = {
+      ...booking("KRC-2", "2026-07-15T09:00:00.000Z"),
+      paidAt: "2026-07-16T10:00:00.000Z",
+      paymentMethod: "cash" as const,
+    };
+    const items = derivePaymentNotifications([paid, paidLater], GUEST_NAME, null);
+    expect(items.map((i) => i.id)).toEqual(["KRC-2", "KRC-1"]);
+    expect(items[0].title).toContain("cash");
+    expect(items[0].href).toBe("/admin/payments");
+  });
+
+  it("splits read/unread around lastReadAt using paidAt", () => {
+    const paid = {
+      ...booking("KRC-1", "2026-07-15T09:00:00.000Z"),
+      paidAt: "2026-07-15T10:00:00.000Z",
+      paymentMethod: "cash" as const,
+    };
+    const items = derivePaymentNotifications([paid], GUEST_NAME, "2026-07-15T12:00:00.000Z");
+    expect(items[0].read).toBe(true);
   });
 });
 
