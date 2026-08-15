@@ -385,6 +385,7 @@ async function updateBookingPayment(booking: Booking): Promise<void> {
       razorpayPaymentId: booking.razorpayPaymentId ?? null,
       paymentMethod: booking.paymentMethod ?? null,
       paidAt: booking.paidAt ? new Date(booking.paidAt) : null,
+      recordedBy: booking.recordedBy ?? null,
     })
     .where(eq(schema.bookings.id, booking.id));
 }
@@ -1230,6 +1231,55 @@ export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
       settled.push(res.booking);
     }
     return { ok: true, bookings: settled };
+  });
+
+/**
+ * Front desk cash collection — the "Record payment" button on the Payments
+ * screen. Option A scope: settles against the outstanding balance only, no
+ * backfill of bookings already settled. Pending is re-read from the loaded
+ * booking (the same `collection.pending` `getPaymentsPageData` derives its
+ * own pending transactions from) rather than trusted from the client, so a
+ * stale amount on screen can't produce an over-payment. `paymentMethod` is
+ * only ever set here when it's still unset — a booking that already took an
+ * online advance keeps that method, since this write only ever adds the cash
+ * top-up, not the instrument that settled the rest.
+ */
+export const recordCashPaymentFn = createServerFn({ method: "POST" })
+  .validator((data: { bookingId: string; amount: number }) => data)
+  .handler(async ({ data }): Promise<Result<{ booking: Booking }>> => {
+    const auth = await requireBookingWriter();
+    if (!auth.ok) return auth;
+    const member = await getSessionMember();
+    if (!member) return { ok: false, error: "Sign in to record a payment." };
+
+    const current = await load();
+    const booking = current.bookings.find((b) => b.id === data.bookingId);
+    if (!booking) return { ok: false, error: `Booking ${data.bookingId} does not exist.` };
+
+    if (!Number.isFinite(data.amount) || data.amount <= 0) {
+      return { ok: false, error: "Enter an amount greater than zero." };
+    }
+    const pending = booking.collection.pending;
+    if (data.amount > pending) {
+      return {
+        ok: false,
+        error: `Cannot collect more than the outstanding balance (₹${pending}).`,
+      };
+    }
+
+    const updated: Booking = {
+      ...booking,
+      collection: {
+        ...booking.collection,
+        paidToHotel: booking.collection.paidToHotel + data.amount,
+        pending: pending - data.amount,
+      },
+      paymentMethod: booking.paymentMethod ?? "cash",
+      paidAt: new Date().toISOString(),
+      recordedBy: member.email,
+    };
+    await updateBookingPayment(updated);
+    return { ok: true, booking: updated };
   });
 
 export const dashboardPage = createServerFn({ method: "GET" }).handler(
