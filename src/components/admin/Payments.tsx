@@ -12,6 +12,7 @@ import type {
 } from "@/types/booking";
 import { formatINR, formatINRCompact } from "@/lib/booking-math";
 import { adminIssueInvoiceFn } from "@/lib/invoices-data";
+import { CashPaymentForm, type CashPaymentOption } from "@/components/admin/CashPaymentForm";
 import {
   Table,
   TableBody,
@@ -177,6 +178,18 @@ function RollupLine({ label, value }: { label: string; value: string }) {
 
 export function Payments({ data }: { data: PaymentsPageData }) {
   const { rollup } = data;
+  const [recordingPayment, setRecordingPayment] = useState(false);
+  // Only bookings still owing a guest-paid balance — OTA receivables settle
+  // through the channel, not cash at the desk, same split
+  // `getPaymentsPageData`'s "Pending from guests" KPI already draws.
+  const cashOptions: CashPaymentOption[] = data.transactions
+    .filter((item) => item.txn.status === "pending" && item.txn.method !== "ota")
+    .map((item) => ({
+      bookingId: item.txn.bookingId,
+      guestName: item.txn.guestName,
+      pending: item.txn.amount,
+    }));
+
   return (
     <div className="flex flex-col gap-5 p-4 sm:p-6.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -201,13 +214,21 @@ export function Payments({ data }: { data: PaymentsPageData }) {
           <button
             type="button"
             title="Record payment"
-            className="flex size-10 items-center justify-center rounded-md bg-gold text-obsidian transition-colors hover:bg-[#b8933f]"
+            disabled={cashOptions.length === 0}
+            onClick={() => setRecordingPayment(true)}
+            className="flex size-10 items-center justify-center rounded-md bg-gold text-obsidian transition-colors hover:bg-[#b8933f] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Plus className="size-4.25" strokeWidth={2.4} />
             <span className="sr-only">Record payment</span>
           </button>
         </div>
       </div>
+
+      <CashPaymentForm
+        open={recordingPayment}
+        onOpenChange={setRecordingPayment}
+        options={cashOptions}
+      />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         {data.kpis.map((kpi) => (

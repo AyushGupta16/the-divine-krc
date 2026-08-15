@@ -39,8 +39,17 @@ vi.mock("@/lib/razorpay", async (importOriginal) => {
   };
 });
 
-const { verifyRazorpayPaymentFn } = await import("@/lib/bookings-data");
+vi.mock("@/lib/auth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/auth")>();
+  return {
+    ...actual,
+    getSessionMember: vi.fn(),
+  };
+});
+
+const { verifyRazorpayPaymentFn, recordCashPaymentFn } = await import("@/lib/bookings-data");
 const { resolvePaymentMetadata } = await import("@/lib/razorpay");
+const { getSessionMember } = await import("@/lib/auth");
 
 const PENDING_BOOKING_ID = "KRC-20260715-003";
 
@@ -102,5 +111,110 @@ describe("verifyRazorpayPaymentFn", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.bookings[0].paymentMethod).toBe("upi");
+  });
+});
+
+describe("recordCashPaymentFn", () => {
+  const original = { ...fixtures.bookings.find((b) => b.id === PENDING_BOOKING_ID)! };
+  const WRITER = {
+    email: "frontdesk@thedivinekrc.in",
+    name: "Front Desk",
+    role: "Front desk" as const,
+  };
+
+  afterEach(() => {
+    const i = fixtures.bookings.findIndex((b) => b.id === PENDING_BOOKING_ID);
+    fixtures.bookings[i] = { ...original };
+    vi.mocked(getSessionMember).mockReset();
+  });
+
+  it("rejects an unauthenticated caller", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(null);
+
+    const res = await recordCashPaymentFn({ data: { bookingId: PENDING_BOOKING_ID, amount: 100 } });
+
+    expect(res.ok).toBe(false);
+  });
+
+  it("leaves a residual balance on a partial payment", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+
+    const res = await recordCashPaymentFn({
+      data: { bookingId: PENDING_BOOKING_ID, amount: 1000 },
+    });
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.booking.collection.pending).toBe(original.collection.pending - 1000);
+    expect(res.booking.collection.paidToHotel).toBe(original.collection.paidToHotel + 1000);
+  });
+
+  it("zeroes the pending balance on a full payment", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+
+    const res = await recordCashPaymentFn({
+      data: { bookingId: PENDING_BOOKING_ID, amount: original.collection.pending },
+    });
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.booking.collection.pending).toBe(0);
+    expect(res.booking.collection.paidToHotel).toBe(
+      original.collection.paidToHotel + original.collection.pending,
+    );
+  });
+
+  it("rejects an amount greater than the outstanding balance", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+
+    const res = await recordCashPaymentFn({
+      data: { bookingId: PENDING_BOOKING_ID, amount: original.collection.pending + 1 },
+    });
+
+    expect(res.ok).toBe(false);
+  });
+
+  it("rejects a zero amount", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+
+    const res = await recordCashPaymentFn({ data: { bookingId: PENDING_BOOKING_ID, amount: 0 } });
+
+    expect(res.ok).toBe(false);
+  });
+
+  it("rejects a negative amount", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+
+    const res = await recordCashPaymentFn({ data: { bookingId: PENDING_BOOKING_ID, amount: -50 } });
+
+    expect(res.ok).toBe(false);
+  });
+
+  it("sets paymentMethod to cash when it was unset", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+    expect(original.paymentMethod).toBeUndefined();
+
+    const res = await recordCashPaymentFn({
+      data: { bookingId: PENDING_BOOKING_ID, amount: 500 },
+    });
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.booking.paymentMethod).toBe("cash");
+    expect(res.booking.recordedBy).toBe(WRITER.email);
+  });
+
+  it("leaves paymentMethod untouched when a prior advance already set it", async () => {
+    const i = fixtures.bookings.findIndex((b) => b.id === PENDING_BOOKING_ID);
+    fixtures.bookings[i] = { ...original, paymentMethod: "online" };
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+
+    const res = await recordCashPaymentFn({
+      data: { bookingId: PENDING_BOOKING_ID, amount: 500 },
+    });
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.booking.paymentMethod).toBe("online");
   });
 });

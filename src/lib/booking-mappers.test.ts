@@ -36,6 +36,7 @@ const ROW: BookingRow = {
   razorpayPaymentId: "pay_sentinel",
   paymentMethod: "upi",
   paidAt: new Date("2026-08-01T08:00:00Z"),
+  recordedBy: "admin@thedivinekrc.in",
   batchId: "batch_sentinel",
   specialRequest: { preferences: ["high_floor"], note: "arriving late" },
   requestedServices: { earlyCheckIn: { requested: true, status: "applied" } },
@@ -79,6 +80,7 @@ describe("toBooking — mapper completeness", () => {
     expect(booking.razorpayPaymentId).toBe(ROW.razorpayPaymentId);
     expect(booking.paymentMethod).toBe(ROW.paymentMethod);
     expect(booking.paidAt).toBe(ROW.paidAt?.toISOString());
+    expect(booking.recordedBy).toBe(ROW.recordedBy);
     expect(booking.batchId).toBe(ROW.batchId);
     expect(booking.specialRequest).toEqual(ROW.specialRequest);
     expect(booking.requestedServices).toEqual(ROW.requestedServices);
@@ -100,6 +102,7 @@ describe("toBooking — mapper completeness", () => {
       razorpayPaymentId: null,
       paymentMethod: null,
       paidAt: null,
+      recordedBy: null,
       batchId: null,
       specialRequest: null,
       requestedServices: null,
@@ -113,6 +116,7 @@ describe("toBooking — mapper completeness", () => {
     expect(booking.razorpayPaymentId).toBeUndefined();
     expect(booking.paymentMethod).toBeUndefined();
     expect(booking.paidAt).toBeUndefined();
+    expect(booking.recordedBy).toBeUndefined();
     expect(booking.batchId).toBeUndefined();
     expect(booking.specialRequest).toBeUndefined();
     expect(booking.requestedServices).toBeUndefined();

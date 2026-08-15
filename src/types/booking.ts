@@ -120,6 +120,10 @@ export interface Booking {
    *  which is when the row was made. Set by `markBookingPaid` on Razorpay
    *  verify (#16); undefined for pay-at-hotel and legacy rows. */
   paidAt?: string;
+  /** Which admin/team member recorded the payment (email) — set for manual
+   *  entries (cash); undefined for Razorpay-verified payments and every row
+   *  that predates this column. */
+  recordedBy?: string;
   /** Shared by every room created in one guest-flow checkout (`Book.tsx`'s
    *  submit loop); undefined for legacy rows and admin manual entries. */
   batchId?: string;

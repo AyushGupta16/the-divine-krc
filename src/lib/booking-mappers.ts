@@ -54,6 +54,7 @@ export interface BookingRow {
   razorpayPaymentId: string | null;
   paymentMethod: string | null;
   paidAt: Date | null;
+  recordedBy: string | null;
   batchId: string | null;
   specialRequest: { preferences: string[]; note?: string } | null;
   requestedServices: {
@@ -103,6 +104,7 @@ export function toBooking(r: BookingRow): Booking {
     razorpayPaymentId: r.razorpayPaymentId ?? undefined,
     paymentMethod: (r.paymentMethod ?? undefined) as PaymentMethod | "online" | undefined,
     paidAt: r.paidAt?.toISOString() ?? undefined,
+    recordedBy: r.recordedBy ?? undefined,
     batchId: r.batchId ?? undefined,
     specialRequest: (r.specialRequest ?? undefined) as GuestRequest | undefined,
     requestedServices: (r.requestedServices ?? undefined) as RequestedServices | undefined,
