@@ -35,7 +35,9 @@ import {
   updateBookingRoomFn,
   updateBookingStatusFn,
 } from "@/lib/bookings-data";
+import { DIRECT_SOURCES } from "@/lib/bookings";
 import { useEntryForms } from "@/components/admin/entry-forms-context";
+import { CashPaymentForm } from "@/components/admin/CashPaymentForm";
 import {
   Table,
   TableBody,
@@ -298,9 +300,6 @@ const SOURCE_LABEL: Record<BookingSource, string> = {
   oyo: "OYO",
 };
 
-/** Owned channels read green; OTAs read blue. */
-const DIRECT_SOURCES = new Set<BookingSource>(["direct", "walk_in", "phone"]);
-
 interface StatusMeta {
   label: string;
   color: string;
@@ -510,7 +509,17 @@ function RoomSelect({
   );
 }
 
-function BookingRow({ item, sr, rooms }: { item: BookingListItem; sr: number; rooms: RoomTile[] }) {
+function BookingRow({
+  item,
+  sr,
+  rooms,
+  onMarkPaidCash,
+}: {
+  item: BookingListItem;
+  sr: number;
+  rooms: RoomTile[];
+  onMarkPaidCash: (bookingId: string) => void;
+}) {
   const { booking: b, guestName } = item;
   const meal: MealPlan = b.mealPlan;
   const [issuing, setIssuing] = useState(false);
@@ -560,7 +569,13 @@ function BookingRow({ item, sr, rooms }: { item: BookingListItem; sr: number; ro
   // has checked in/out, settling a balance leaves the stay status alone.
   const canManagePayment = b.status !== "cancelled" && b.status !== "no_show";
 
-  async function markPaid() {
+  // Direct rows settle through the cash drawer (unify slice) so "paid" always
+  // writes method + paidAt + status together, not just status. OTA rows keep
+  // this fn: their balance is a channel receivable settling, not cash in
+  // hand, so it stays out of the cash-recording path entirely.
+  const isDirectRow = DIRECT_SOURCES.has(b.source);
+
+  async function markSettled() {
     setChangingStatus(true);
     const res = await setBookingPaymentStatusFn({ data: { id: b.id, status: "confirmed" } });
     setChangingStatus(false);
@@ -698,11 +713,11 @@ function BookingRow({ item, sr, rooms }: { item: BookingListItem; sr: number; ro
             <button
               type="button"
               disabled={changingStatus}
-              onClick={markPaid}
+              onClick={() => (isDirectRow ? onMarkPaidCash(b.id) : markSettled())}
               className="flex items-center gap-1.25 text-[11px] font-bold uppercase tracking-[0.06em] text-[#5a8a5a] hover:opacity-75 disabled:opacity-50"
             >
               <Wallet className="size-3" />
-              Mark paid
+              {isDirectRow ? "Mark paid" : "Mark settled"}
             </button>
           )}
           {canManagePayment &&
@@ -806,10 +821,12 @@ function BookingsTable({
   rows,
   totals,
   rooms,
+  onMarkPaidCash,
 }: {
   rows: BookingListItem[];
   totals: BookingsTotals;
   rooms: RoomTile[];
+  onMarkPaidCash: (bookingId: string) => void;
 }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-[#eae4d6] bg-white">
@@ -862,7 +879,13 @@ function BookingsTable({
             </TableRow>
           ) : (
             rows.map((item, i) => (
-              <BookingRow key={item.booking.id} item={item} sr={i + 1} rooms={rooms} />
+              <BookingRow
+                key={item.booking.id}
+                item={item}
+                sr={i + 1}
+                rooms={rooms}
+                onMarkPaidCash={onMarkPaidCash}
+              />
             ))
           )}
         </TableBody>
@@ -898,6 +921,7 @@ export function Bookings({
 }) {
   const [active, setActive] = useState<TabKey>("all");
   const { openBooking } = useEntryForms();
+  const [cashDrawerBookingId, setCashDrawerBookingId] = useState<string | null>(null);
 
   const byStatus = useMemo(
     () => (active === "all" ? data.rows : data.rows.filter((r) => r.booking.status === active)),
@@ -996,12 +1020,25 @@ export function Bookings({
         onSelect={setActive}
       />
 
-      <BookingsTable rows={visible} totals={totals} rooms={data.rooms} />
+      <BookingsTable
+        rows={visible}
+        totals={totals}
+        rooms={data.rooms}
+        onMarkPaidCash={setCashDrawerBookingId}
+      />
 
       <p className="text-[12px] text-[#7a746a]">
         Showing {visible.length} of {data.total} · scroll the table sideways for revenue &amp;
         collection →
       </p>
+
+      <CashPaymentForm
+        open={cashDrawerBookingId !== null}
+        onOpenChange={(open) => {
+          if (!open) setCashDrawerBookingId(null);
+        }}
+        preselectBookingId={cashDrawerBookingId ?? undefined}
+      />
     </div>
   );
 }

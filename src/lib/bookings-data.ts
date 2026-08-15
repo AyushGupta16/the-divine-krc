@@ -53,6 +53,7 @@ import {
   createGuest,
   createPartyHallEnquiry,
   declinePartyHallEnquiry,
+  DIRECT_SOURCES,
   defaultRoomTiles,
   findGuestBooking,
   getAvailableRoomCount,
@@ -1235,14 +1236,22 @@ export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
 
 /**
  * Front desk cash collection — the "Record payment" button on the Payments
- * screen. Option A scope: settles against the outstanding balance only, no
- * backfill of bookings already settled. Pending is re-read from the loaded
- * booking (the same `collection.pending` `getPaymentsPageData` derives its
- * own pending transactions from) rather than trusted from the client, so a
- * stale amount on screen can't produce an over-payment. `paymentMethod` is
- * only ever set here when it's still unset — a booking that already took an
- * online advance keeps that method, since this write only ever adds the cash
- * top-up, not the instrument that settled the rest.
+ * screen, and (unify slice) direct-row "Mark paid" on Bookings. Option A
+ * scope: settles against the outstanding balance only, no backfill of
+ * bookings already settled. Pending is re-read from the loaded booking (the
+ * same `collection.pending` `getPaymentsPageData` derives its own pending
+ * transactions from) rather than trusted from the client, so a stale amount
+ * on screen can't produce an over-payment. `paymentMethod` is only ever set
+ * here when it's still unset — a booking that already took an online advance
+ * keeps that method, since this write only ever adds the cash top-up, not
+ * the instrument that settled the rest.
+ *
+ * Status flip is partial-aware, unlike `setBookingPaymentStatusFn`'s
+ * all-or-nothing settlement: a `pending_payment` row only flips to
+ * `confirmed` once this payment clears its balance to zero. A partial
+ * payment leaves `pending_payment` in place (there's still money owed), and
+ * a booking that's already `confirmed` (or any other status) is never
+ * touched — this never moves a row backwards.
  */
 export const recordCashPaymentFn = createServerFn({ method: "POST" })
   .validator((data: { bookingId: string; amount: number }) => data)
@@ -1267,12 +1276,15 @@ export const recordCashPaymentFn = createServerFn({ method: "POST" })
       };
     }
 
+    const newPending = pending - data.amount;
     const updated: Booking = {
       ...booking,
+      status:
+        booking.status === "pending_payment" && newPending === 0 ? "confirmed" : booking.status,
       collection: {
         ...booking.collection,
         paidToHotel: booking.collection.paidToHotel + data.amount,
-        pending: pending - data.amount,
+        pending: newPending,
       },
       paymentMethod: booking.paymentMethod ?? "cash",
       paidAt: new Date().toISOString(),
@@ -1316,6 +1328,35 @@ export const guestsPage = createServerFn({ method: "GET" }).handler(
 
 export const paymentsPage = createServerFn({ method: "GET" }).handler(
   async (): Promise<PaymentsPageData> => getPaymentsPageData(await load()),
+);
+
+/**
+ * `CashPaymentForm`'s own data source (both the Payments screen and, in a
+ * follow-up, the "+" menu) — every direct/walk-in/phone booking still owing
+ * a guest-paid balance. OTA rows are excluded: their `pending` is a channel
+ * receivable, not cash the front desk can collect. Same gate as
+ * `paymentsPage` (session-only, via the `/admin` route's `beforeLoad`) — this
+ * is a read the Payments screen already trusts at that level, not a write.
+ * Reads `collection.pending` straight off the loaded booking, the one place
+ * that number lives; no parallel formula. Same session-only gate as
+ * `notificationsFn` — an unauthenticated caller gets an empty list rather
+ * than a thrown error, since this is a read, not a write.
+ */
+export const getOpenBalanceDirectBookingsFn = createServerFn({ method: "GET" }).handler(
+  async (): Promise<{ bookingId: string; guestName: string; pending: number }[]> => {
+    const member = await getSessionMember();
+    if (!member) return [];
+
+    const current = await load();
+    const guestName = new Map(current.guests.map((g) => [g.id, g.name]));
+    return current.bookings
+      .filter((b) => DIRECT_SOURCES.has(b.source) && b.collection.pending > 0)
+      .map((b) => ({
+        bookingId: b.id,
+        guestName: guestName.get(b.guestId) ?? "—",
+        pending: b.collection.pending,
+      }));
+  },
 );
 
 export const reportsPage = createServerFn({ method: "GET" }).handler(
