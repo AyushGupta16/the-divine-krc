@@ -84,8 +84,8 @@ export function NotificationsBell({ notifications }: { notifications: Notificati
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[12.5px] text-[#22201b]">{n.title}</span>
-                  <span className="block text-[11px] text-[#a49d8d]">
-                    {relativeTime(n.timestamp)}
+                  <span className="block truncate text-[11px] text-[#a49d8d]">
+                    {n.subtitle} · {relativeTime(n.timestamp)}
                   </span>
                 </span>
                 {!n.read && <span className="mt-1 size-1.75 shrink-0 rounded-full bg-gold" />}
