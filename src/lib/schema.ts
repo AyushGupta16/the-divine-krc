@@ -91,6 +91,11 @@ export const bookings = pgTable("bookings", {
    *  which is when the row was made, not when money moved. Columns only this
    *  slice: no write path sets this yet, and every row is null until one does. */
   paidAt: timestamp("paid_at", { withTimezone: true }),
+  /** Which admin/team member recorded the payment — set for manual entries
+   *  (e.g. cash); null for Razorpay-verified payments and every row that
+   *  predates this column. Schema only this slice: no write path sets this
+   *  yet. */
+  recordedBy: text("recorded_by"),
 
   /** Shared by every room created in one guest-flow checkout; null for legacy
    *  rows and admin manual entries — see resolveInvoiceParty. */
