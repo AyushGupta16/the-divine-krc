@@ -2821,6 +2821,10 @@ function isOtaSource(source: BookingSource): boolean {
   return source in OTA_CHANNELS;
 }
 
+/** The non-OTA sources — a guest-owed balance on one of these is cash-at-desk
+ *  collectible, unlike an OTA row's balance, which is a channel receivable. */
+export const DIRECT_SOURCES = new Set<BookingSource>(["direct", "walk_in", "phone"]);
+
 /**
  * The transaction ledger, derived whole from the booking set — no seed. A
  * void stay (cancelled/no-show) never earned anything, so it yields no row.
