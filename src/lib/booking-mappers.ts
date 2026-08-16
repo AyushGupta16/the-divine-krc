@@ -33,6 +33,8 @@ export interface BookingRow {
   roomType: string;
   checkIn: string;
   checkOut: string;
+  checkInDate: string | null;
+  checkOutDate: string | null;
   urn: number;
   source: string;
   mealPlan: string;
@@ -90,8 +92,10 @@ export function toBooking(r: BookingRow): Booking {
     guestId: r.guestId,
     roomNo: r.roomNo,
     roomType: r.roomType as RoomType,
-    checkIn: r.checkIn,
-    checkOut: r.checkOut,
+    // 5d cutover: read from the native date columns, backfilled and dual-written
+    // alongside check_in/check_out (still present, not yet dropped).
+    checkIn: r.checkInDate!,
+    checkOut: r.checkOutDate!,
     urn: r.urn,
     source: r.source as BookingSource,
     mealPlan: r.mealPlan as MealPlan,

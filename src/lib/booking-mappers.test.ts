@@ -15,6 +15,8 @@ const ROW: BookingRow = {
   roomType: "deluxe",
   checkIn: "2026-08-01",
   checkOut: "2026-08-03",
+  checkInDate: "2026-08-01",
+  checkOutDate: "2026-08-03",
   urn: 2,
   source: "direct",
   mealPlan: "EP",
@@ -51,8 +53,8 @@ describe("toBooking — mapper completeness", () => {
     expect(booking.guestId).toBe(ROW.guestId);
     expect(booking.roomNo).toBe(ROW.roomNo);
     expect(booking.roomType).toBe(ROW.roomType);
-    expect(booking.checkIn).toBe(ROW.checkIn);
-    expect(booking.checkOut).toBe(ROW.checkOut);
+    expect(booking.checkIn).toBe(ROW.checkInDate);
+    expect(booking.checkOut).toBe(ROW.checkOutDate);
     expect(booking.urn).toBe(ROW.urn);
     expect(booking.source).toBe(ROW.source);
     expect(booking.mealPlan).toBe(ROW.mealPlan);
