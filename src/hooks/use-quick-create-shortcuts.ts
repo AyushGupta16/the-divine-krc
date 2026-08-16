@@ -31,7 +31,7 @@ function isSuppressedTarget(target: EventTarget | null): boolean {
 }
 
 /**
- * The "+" chooser's global single-key shortcuts (spec #19 §4) — `B`/`E`/`G`
+ * The "+" chooser's global single-key shortcuts (spec #19 §4) — `B`/`E`/`G`/`P`
  * open the matching entry Sheet directly (bypassing the popover), `N` opens
  * the popover itself. `KeyboardEvent.code` is used so the binding is
  * layout-independent, and every handler is suppressed while typing in a
@@ -45,12 +45,14 @@ export function useQuickCreateShortcuts({
   onBooking,
   onEvent,
   onGuest,
+  onPayment,
   onOpenPopover,
 }: {
   suppressed: boolean;
   onBooking: () => void;
   onEvent: () => void;
   onGuest: () => void;
+  onPayment: () => void;
   onOpenPopover: () => void;
 }) {
   useEffect(() => {
@@ -72,6 +74,10 @@ export function useQuickCreateShortcuts({
           e.preventDefault();
           onGuest();
           break;
+        case "KeyP":
+          e.preventDefault();
+          onPayment();
+          break;
         case "KeyN":
           e.preventDefault();
           onOpenPopover();
@@ -80,5 +86,5 @@ export function useQuickCreateShortcuts({
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [suppressed, onBooking, onEvent, onGuest, onOpenPopover]);
+  }, [suppressed, onBooking, onEvent, onGuest, onPayment, onOpenPopover]);
 }

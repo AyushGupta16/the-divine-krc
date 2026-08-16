@@ -17,6 +17,7 @@ import { NotificationsBell } from "@/components/admin/NotificationsBell";
 import { BookingEntryForm } from "@/components/admin/BookingEntryForm";
 import { PartyHallEntryForm } from "@/components/admin/PartyHallEntryForm";
 import { GuestEntryForm } from "@/components/admin/GuestEntryForm";
+import { CashPaymentForm } from "@/components/admin/CashPaymentForm";
 import { EntryFormsProvider } from "@/components/admin/entry-forms-context";
 import { QuickCreatePopover } from "@/components/admin/QuickCreatePopover";
 import type { QuickCreateKey } from "@/components/admin/quick-create-items";
@@ -485,6 +486,7 @@ export function AdminShell({
   const [newBookingOpen, setNewBookingOpen] = useState(false);
   const [newEventOpen, setNewEventOpen] = useState(false);
   const [newGuestOpen, setNewGuestOpen] = useState(false);
+  const [newPaymentOpen, setNewPaymentOpen] = useState(false);
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
   const isDashboard = useRouterState({
     select: (s) => (s.location.pathname.replace(/\/$/, "") || "/admin") === "/admin",
@@ -493,6 +495,7 @@ export function AdminShell({
   function onQuickCreateActivate(key: QuickCreateKey) {
     if (key === "booking") setNewBookingOpen(true);
     else if (key === "event") setNewEventOpen(true);
+    else if (key === "payment") setNewPaymentOpen(true);
     else setNewGuestOpen(true);
   }
 
@@ -511,10 +514,11 @@ export function AdminShell({
   // already open, but not by the popover itself: letter keys still act as
   // global shortcuts while the popover is open (§4's "do not consume").
   useQuickCreateShortcuts({
-    suppressed: newBookingOpen || newEventOpen || newGuestOpen,
+    suppressed: newBookingOpen || newEventOpen || newGuestOpen || newPaymentOpen,
     onBooking: () => setNewBookingOpen(true),
     onEvent: () => setNewEventOpen(true),
     onGuest: () => setNewGuestOpen(true),
+    onPayment: () => setNewPaymentOpen(true),
     onOpenPopover: () => setQuickCreateOpen(true),
   });
 
@@ -613,10 +617,19 @@ export function AdminShell({
        * `router.invalidate()` on success is unscoped, same convention every
        * other write in this codebase already follows, so it's safe to fire
        * from whichever route happens to be active.
+       *
+       * `CashPaymentForm` is the one exception: this mount backs only the
+       * popover's "Record payment" entry. Bookings' row-scoped "Mark paid"
+       * and Payments' toolbar button each still mount their own instance
+       * (row-preselect and page-toolbar are each that page's own concern,
+       * same reasoning as `GuestEntryForm`'s edit mount above) — safe to have
+       * three independent instances since the form is self-loading with no
+       * shared state to keep in sync between them.
        */}
       <BookingEntryForm open={newBookingOpen} onOpenChange={setNewBookingOpen} />
       <PartyHallEntryForm open={newEventOpen} onOpenChange={setNewEventOpen} />
       <GuestEntryForm mode="create" open={newGuestOpen} onOpenChange={setNewGuestOpen} />
+      <CashPaymentForm open={newPaymentOpen} onOpenChange={setNewPaymentOpen} />
 
       <BottomNav onMore={() => setDrawerOpen(true)} />
     </div>
