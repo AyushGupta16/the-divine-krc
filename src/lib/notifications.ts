@@ -3,15 +3,17 @@
 // (`notification_reads`, in `notifications-data.ts`); everything else here is
 // a pure function of `bookings.ts` data, same as `totalBill` or `tier`.
 //
-// "booking", "party" and "room" are produced today, each off its own event
-// timestamp (`bookings.createdAt`, `party_hall_enquiries.createdAt`,
-// `bookings.roomAssignedAt`). "payment" and "checkin" stay unproduced: no
-// column records when a payment status or check-in actually changed, and
-// which transition is notification-worthy there is its own design question,
-// not a rushed extension of this pattern — see the tracked follow-up issue.
+// "booking", "party", "room" and "payment" are produced today, each off its
+// own event timestamp (`bookings.createdAt`, `party_hall_enquiries.createdAt`,
+// `bookings.roomAssignedAt`, `bookings.paidAt`). "checkin" stays unproduced:
+// no column records when a check-in actually happened (only the current
+// `status`), and which transition is notification-worthy there is its own
+// design question, not a rushed extension of this pattern — see the tracked
+// follow-up issue.
 
 import type { Booking, PartyHallEnquiry } from "@/types/booking";
 import { ROOM_TYPES } from "@/lib/bookings";
+import { formatINR } from "@/lib/booking-math";
 
 export type NotificationType = "booking" | "payment" | "party" | "room" | "checkin" | "cancel";
 
@@ -93,6 +95,40 @@ export function deriveRoomAssignmentNotifications(
       timestamp: b.roomAssignedAt,
       href: "/admin/bookings",
       read: lastReadAt !== null && b.roomAssignedAt <= lastReadAt,
+    }));
+}
+
+/** Only the fields a "payment" notification needs. */
+export type PaymentEvent = Pick<
+  Booking,
+  "id" | "guestId" | "paidAt" | "paymentMethod" | "collection"
+>;
+
+/**
+ * One "payment" item per booking with a recorded payment, newest first.
+ * Bookings with no `paidAt` (pre-arrival, or predate the column) produce
+ * nothing — same reasoning as `deriveRoomAssignmentNotifications`. A second
+ * payment on the same booking (partial then top-up) still only ever produces
+ * the one item keyed by that booking's id, refreshed to the latest
+ * `paidAt`/amount — same one-item-per-source-row limitation room assignment
+ * already has for reassignment.
+ */
+export function derivePaymentNotifications(
+  bookings: PaymentEvent[],
+  guestName: Map<string, string>,
+  lastReadAt: string | null,
+): NotificationItem[] {
+  return bookings
+    .filter((b): b is PaymentEvent & { paidAt: string } => !!b.paidAt)
+    .sort((a, b) => b.paidAt.localeCompare(a.paidAt))
+    .map((b) => ({
+      id: b.id,
+      type: "payment" as const,
+      title: `Payment recorded — ${b.paymentMethod ?? "—"}, ${guestName.get(b.guestId) ?? "—"}`,
+      subtitle: `${formatINR(b.collection.paidToHotel)} paid · ${b.id}`,
+      timestamp: b.paidAt,
+      href: "/admin/payments",
+      read: lastReadAt !== null && b.paidAt <= lastReadAt,
     }));
 }
 
