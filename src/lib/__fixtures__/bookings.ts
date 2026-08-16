@@ -12,7 +12,7 @@
 // instead, and this file goes back to being what its name says: test fixtures
 // and a local seed.
 
-import type { Booking, Guest, PartyHallEnquiry } from "@/types/booking";
+import type { Booking, BookingStatus, Guest, PartyHallEnquiry } from "@/types/booking";
 import {
   defaultRoomTiles,
   GST_PCT,
@@ -1039,6 +1039,19 @@ export const partyHallEnquiries: PartyHallEnquiry[] = PARTY_HALL_SEED.map((e) =>
  *  `insertBooking` gives bookings when there is no database to persist to. */
 export const rooms = defaultRoomTiles();
 
+/** Slice 3's status-change audit log, no-DB dev path. Not part of
+ *  `BookingData` — nothing derives page rows from it yet, it is purely the
+ *  fixtures-mutation counterpart of the `booking_status_history` table. */
+export interface BookingStatusHistoryRow {
+  bookingId: string;
+  fromStatus: BookingStatus | null;
+  toStatus: BookingStatus;
+  changedBy: string | null;
+  changedAt: string;
+}
+
+export const statusHistory: BookingStatusHistoryRow[] = [];
+
 /** The whole seeded world, in the shape every derivation function reads.
  *  `rooms` and `roomTypeOverrides` are always present here (unlike the
  *  optional fields on `BookingData`), since this is the no-DB dev path's own
@@ -1048,6 +1061,7 @@ export const fixtures: BookingData & {
   roomTypeOverrides: NonNullable<BookingData["roomTypeOverrides"]>;
   addOnRateOverrides: NonNullable<BookingData["addOnRateOverrides"]>;
   partyHallRateOverrides: NonNullable<BookingData["partyHallRateOverrides"]>;
+  statusHistory: BookingStatusHistoryRow[];
 } = {
   bookings,
   guests,
@@ -1056,4 +1070,5 @@ export const fixtures: BookingData & {
   roomTypeOverrides: {},
   addOnRateOverrides: {},
   partyHallRateOverrides: {},
+  statusHistory,
 };
