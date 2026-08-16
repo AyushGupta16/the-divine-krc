@@ -38,6 +38,7 @@ import {
   updateBookingStatusFn,
 } from "@/lib/bookings-data";
 import { DIRECT_SOURCES } from "@/lib/bookings";
+import { filterBookingRows } from "@/lib/bookings-filter";
 import {
   sortBookingRows,
   STATUS_ORDER,
@@ -399,6 +400,38 @@ function StatusTabs({
         );
       })}
     </div>
+  );
+}
+
+/**
+ * A toggle, not a status chip — dashed border + gold accent (vs. the status
+ * tabs' solid obsidian) so it reads as a second, independently-stackable
+ * filter dimension rather than another entry in the single-select row above.
+ */
+function UnassignedPill({
+  on,
+  count,
+  onToggle,
+}: {
+  on: boolean;
+  count: string;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={on}
+      className={cn(
+        "flex items-center gap-1.75 rounded-full border px-3.25 py-1.5 text-[12px] font-semibold transition-colors",
+        on
+          ? "border-solid border-gold bg-gold/15 text-obsidian"
+          : "border-dashed border-[#d8d0bf] bg-white text-warm-gray hover:border-[#c5b993]",
+      )}
+    >
+      Unassigned
+      <span className="text-[11px] font-bold opacity-75">{count}</span>
+    </button>
   );
 }
 
@@ -1004,15 +1037,6 @@ function BookingsTable({
 
 // ── Page ──────────────────────────────────────────────────────────────────
 
-// Mirrors `OCCUPYING_STATUSES` in `lib/bookings.ts` — the dashboard's
-// "Unassigned rooms" stat counts exactly these, so the scoped view it links
-// to must filter the same set or the count and the rows it lands on disagree.
-const UNASSIGNED_SCOPE_STATUSES = new Set<BookingStatus>([
-  "confirmed",
-  "checked_in",
-  "pending_payment",
-]);
-
 export function Bookings({
   data,
   guestFilter,
@@ -1020,12 +1044,16 @@ export function Bookings({
 }: {
   data: BookingsPageData;
   guestFilter?: string;
+  /** Route-level scoped view (e.g. the dashboard's "Unassigned rooms" link)
+   *  — seeds the pill's initial state; from then on the pill is a normal
+   *  toggle the admin can turn back off. */
   unassignedOnly?: boolean;
 }) {
   const [active, setActive] = useState<TabKey>("all");
   const { openBooking } = useEntryForms();
   const [cashDrawerBookingId, setCashDrawerBookingId] = useState<string | null>(null);
   const [sort, setSort] = useState<SortState>({ key: null, dir: "asc" });
+  const [unassignedFilter, setUnassignedFilter] = useState(unassignedOnly);
 
   function handleSort(key: SortableColumnKey) {
     setSort((prev) => {
@@ -1035,32 +1063,21 @@ export function Bookings({
     });
   }
 
-  const byStatus = useMemo(
-    () => (active === "all" ? data.rows : data.rows.filter((r) => r.booking.status === active)),
-    [active, data.rows],
-  );
-
-  const byGuest = useMemo(
-    () =>
-      guestFilter
-        ? byStatus.filter((r) => r.guestName.toLowerCase() === guestFilter.toLowerCase())
-        : byStatus,
-    [byStatus, guestFilter],
-  );
-
+  // Status tab → unassigned pill (if on) → guest search — each stage
+  // narrows the previous one, so status + unassigned compose as AND, not OR.
   const visible = useMemo(
     () =>
-      unassignedOnly
-        ? byGuest.filter(
-            (r) => r.booking.roomNo === null && UNASSIGNED_SCOPE_STATUSES.has(r.booking.status),
-          )
-        : byGuest,
-    [byGuest, unassignedOnly],
+      filterBookingRows(data.rows, {
+        status: active,
+        unassignedOnly: unassignedFilter,
+        guestFilter,
+      }),
+    [data.rows, active, unassignedFilter, guestFilter],
   );
 
   // Footer totals track the visible rows so they stay honest as tabs filter.
   const totals = useMemo<BookingsTotals>(() => {
-    if (active === "all") return data.totals;
+    if (active === "all" && !unassignedFilter) return data.totals;
     return visible.reduce<BookingsTotals>(
       (acc, { booking: b }) => {
         acc.roomRev += b.revenue.room;
@@ -1084,7 +1101,7 @@ export function Bookings({
         pending: 0,
       },
     );
-  }, [active, visible, data.totals]);
+  }, [active, unassignedFilter, visible, data.totals]);
 
   const sorted = useMemo(
     () => sortBookingRows(visible, sort.key, sort.dir),
@@ -1122,7 +1139,7 @@ export function Bookings({
         </div>
       </div>
 
-      {unassignedOnly && (
+      {unassignedFilter && (
         <p className="rounded-md border border-[#eae4d6] bg-[#faf7ef] px-3.5 py-2.5 text-[12px] font-semibold text-warm-gray">
           Showing only bookings without a room assigned.
         </p>
@@ -1130,12 +1147,20 @@ export function Bookings({
 
       <SummaryCards summary={data.summary} />
 
-      <StatusTabs
-        counts={data.countsByStatus}
-        total={data.total}
-        active={active}
-        onSelect={setActive}
-      />
+      <div className="flex flex-wrap items-center gap-2.5">
+        <StatusTabs
+          counts={data.countsByStatus}
+          total={data.total}
+          active={active}
+          onSelect={setActive}
+        />
+        <span className="hidden h-5 w-px bg-[#eae4d6] sm:block" />
+        <UnassignedPill
+          on={unassignedFilter}
+          count={data.summary.find((s) => s.key === "unassignedRooms")?.value ?? "0"}
+          onToggle={() => setUnassignedFilter((v) => !v)}
+        />
+      </div>
 
       <BookingsTable
         rows={sorted}

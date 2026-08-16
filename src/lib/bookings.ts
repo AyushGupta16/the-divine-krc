@@ -1422,6 +1422,17 @@ export function markBookingPaid(
 /** Statuses that hold a physical room off the market. */
 export const OCCUPYING_STATUSES = new Set(["confirmed", "checked_in", "pending_payment"]);
 
+/**
+ * A booking that still needs a room but doesn't have one — the shared
+ * predicate behind the dashboard/summary "Unassigned rooms" count, the
+ * `unassignedOnly` scoped view, and the Bookings screen's unassigned pill.
+ * `checked_out`/`cancelled`/`no_show` bookings never need a room, so they're
+ * excluded via `OCCUPYING_STATUSES` rather than checked separately.
+ */
+export function isUnassignedOccupyingBooking(b: Pick<Booking, "roomNo" | "status">): boolean {
+  return b.roomNo === null && OCCUPYING_STATUSES.has(b.status);
+}
+
 /** A stay the guest never took. Money held against one is owed back, not earned. */
 const VOID_STAY_STATUSES = new Set<BookingStatus>(["cancelled", "no_show"]);
 
@@ -1850,9 +1861,7 @@ export async function getBookingsPageData(
     0,
   );
 
-  const unassignedRooms = data.bookings.filter(
-    (b) => b.roomNo === null && OCCUPYING_STATUSES.has(b.status),
-  ).length;
+  const unassignedRooms = data.bookings.filter(isUnassignedOccupyingBooking).length;
 
   const summary: BookingsPageData["summary"] = [
     {
