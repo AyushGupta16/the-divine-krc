@@ -321,18 +321,71 @@ async function insertBooking(guest: Guest, booking: Booking): Promise<void> {
 }
 
 /**
+ * Slice 3's audit-log write, called only from the two writers below, after
+ * the status update they guard has already landed. Neon's HTTP driver has no
+ * multi-statement transaction here (see the note on `insertBooking` above),
+ * so this is deliberately non-atomic with the status write it logs: a failed
+ * insert here is a gap in the log, never a reason to fail or roll back the
+ * booking mutation the user actually asked for. Every error is swallowed and
+ * logged, not rethrown — callers never `await` for failure here.
+ *
+ * Skips the insert entirely when `fromStatus === toStatus`: several callers
+ * (`setBookingPaymentStatusFn`'s pre-arrival guard, `recordCashPaymentFn`'s
+ * partial-payment case) call the writers below without always moving
+ * `status`, and a same-status write is not a transition — logging one would
+ * fabricate history that never happened.
+ */
+async function recordStatusChange(
+  bookingId: string,
+  fromStatus: BookingStatus | null,
+  toStatus: BookingStatus,
+  changedBy: string | null,
+): Promise<void> {
+  if (fromStatus === toStatus) return;
+  try {
+    const conn = db();
+    const changedAt = new Date();
+    if (!conn) {
+      fixtures.statusHistory.push({
+        bookingId,
+        fromStatus,
+        toStatus,
+        changedBy,
+        changedAt: changedAt.toISOString(),
+      });
+      return;
+    }
+    await conn.insert(schema.bookingStatusHistory).values({
+      bookingId,
+      fromStatus,
+      toStatus,
+      changedBy,
+      changedAt,
+    });
+  } catch (err) {
+    console.error(`Failed to record status history for booking ${bookingId}:`, err);
+  }
+}
+
+/**
  * Spec 15's cancel action — the first `UPDATE` against `bookings`. Same
  * fixtures-mutation convenience as `insertBooking` when there is no database.
  */
-async function updateBookingStatus(bookingId: string, status: BookingStatus): Promise<void> {
+async function updateBookingStatus(
+  bookingId: string,
+  status: BookingStatus,
+  previousStatus: BookingStatus,
+  changedBy: string | null,
+): Promise<void> {
   const conn = db();
   if (!conn) {
     noDbInsert();
     const booking = fixtures.bookings.find((b) => b.id === bookingId);
     if (booking) booking.status = status;
-    return;
+  } else {
+    await conn.update(schema.bookings).set({ status }).where(eq(schema.bookings.id, bookingId));
   }
-  await conn.update(schema.bookings).set({ status }).where(eq(schema.bookings.id, bookingId));
+  await recordStatusChange(bookingId, previousStatus, status, changedBy);
 }
 
 /**
@@ -368,27 +421,32 @@ async function updateBookingRoom(
  * fixtures-mutation convenience as the other row-store helpers when there is
  * no database.
  */
-async function updateBookingPayment(booking: Booking): Promise<void> {
+async function updateBookingPayment(
+  booking: Booking,
+  previousStatus: BookingStatus,
+  changedBy: string | null,
+): Promise<void> {
   const conn = db();
   if (!conn) {
     noDbInsert();
     const existing = fixtures.bookings.find((b) => b.id === booking.id);
     if (existing) Object.assign(existing, booking);
-    return;
+  } else {
+    await conn
+      .update(schema.bookings)
+      .set({
+        status: booking.status,
+        collectionPaidToHotel: booking.collection.paidToHotel,
+        collectionPending: booking.collection.pending,
+        razorpayOrderId: booking.razorpayOrderId ?? null,
+        razorpayPaymentId: booking.razorpayPaymentId ?? null,
+        paymentMethod: booking.paymentMethod ?? null,
+        paidAt: booking.paidAt ? new Date(booking.paidAt) : null,
+        recordedBy: booking.recordedBy ?? null,
+      })
+      .where(eq(schema.bookings.id, booking.id));
   }
-  await conn
-    .update(schema.bookings)
-    .set({
-      status: booking.status,
-      collectionPaidToHotel: booking.collection.paidToHotel,
-      collectionPending: booking.collection.pending,
-      razorpayOrderId: booking.razorpayOrderId ?? null,
-      razorpayPaymentId: booking.razorpayPaymentId ?? null,
-      paymentMethod: booking.paymentMethod ?? null,
-      paidAt: booking.paidAt ? new Date(booking.paidAt) : null,
-      recordedBy: booking.recordedBy ?? null,
-    })
-    .where(eq(schema.bookings.id, booking.id));
+  await recordStatusChange(booking.id, previousStatus, booking.status, changedBy);
 }
 
 /**
@@ -710,13 +768,15 @@ function noDbInsert(): void {
   }
 }
 
-async function requireBookingWriter(): Promise<Result> {
+async function requireBookingWriter(): Promise<
+  Result<{ member: NonNullable<Awaited<ReturnType<typeof getSessionMember>>> }>
+> {
   const member = await getSessionMember();
   if (!member) return { ok: false, error: "Sign in to create a booking." };
   if (!can(member.role, "bookings:write")) {
     return { ok: false, error: `A ${member.role} account cannot create bookings.` };
   }
-  return { ok: true };
+  return { ok: true, member };
 }
 
 async function requireRoomWriter(): Promise<Result> {
@@ -1144,10 +1204,15 @@ export const cancelGuestBookingFn = createServerFn({ method: "POST" })
   .validator((data: { bookingId: string; contact: string }) => data)
   .handler(async ({ data }): Promise<Result<{ booking: Booking }>> => {
     const current = await load();
+    const previousStatus = current.bookings.find((b) => b.id === data.bookingId)?.status;
     const res = cancelGuestBooking(current, data.bookingId, data.contact);
     if (!res.ok) return res;
 
-    await updateBookingStatus(res.booking.id, "cancelled");
+    // Public, no-login path (guest self-cancel via /booking-lookup) — there is
+    // no session to attribute this to, unlike every admin-side status write.
+    // `changedBy: null` here is the genuine "no session" case the history
+    // schema reserves the column for, not a fallback for a broken auth check.
+    await updateBookingStatus(res.booking.id, "cancelled", previousStatus ?? "cancelled", null);
     return res;
   });
 
@@ -1219,6 +1284,7 @@ export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
     const settled: Booking[] = [];
     for (const id of data.bookingIds) {
       const current = await load();
+      const previousStatus = current.bookings.find((b) => b.id === id)?.status;
       const res = markBookingPaid(
         current,
         id,
@@ -1228,7 +1294,11 @@ export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
         paidAt,
       );
       if (!res.ok) return res;
-      await updateBookingPayment(res.booking);
+      // Razorpay's checkout callback, not an admin session — the guest who
+      // just paid is never a signed-in team member, so there is genuinely no
+      // session member to attribute this to. `changedBy: null` records that
+      // honestly rather than inventing a system email.
+      await updateBookingPayment(res.booking, previousStatus ?? res.booking.status, null);
       settled.push(res.booking);
     }
     return { ok: true, bookings: settled };
@@ -1290,7 +1360,7 @@ export const recordCashPaymentFn = createServerFn({ method: "POST" })
       paidAt: new Date().toISOString(),
       recordedBy: member.email,
     };
-    await updateBookingPayment(updated);
+    await updateBookingPayment(updated, booking.status, member.email);
     return { ok: true, booking: updated };
   });
 
@@ -1601,7 +1671,7 @@ export const updateBookingStatusFn = createServerFn({ method: "POST" })
       const error = checkInEligibilityError(current, booking);
       if (error) return { ok: false, error };
     }
-    await updateBookingStatus(data.id, data.status);
+    await updateBookingStatus(data.id, data.status, booking.status, auth.member.email);
     return { ok: true };
   });
 
@@ -1654,21 +1724,29 @@ export const setBookingPaymentStatusFn = createServerFn({ method: "POST" })
       if (!Number.isFinite(amount) || amount <= 0) {
         return { ok: false, error: "Enter a pending amount greater than zero." };
       }
-      await updateBookingPayment({
-        ...booking,
-        status: booking.status === "confirmed" ? "pending_payment" : booking.status,
-        collection: { ...booking.collection, pending: amount },
-      });
-    } else {
-      await updateBookingPayment({
-        ...booking,
-        status: booking.status === "pending_payment" ? "confirmed" : booking.status,
-        collection: {
-          ...booking.collection,
-          paidToHotel: booking.collection.paidToHotel + booking.collection.pending,
-          pending: 0,
+      await updateBookingPayment(
+        {
+          ...booking,
+          status: booking.status === "confirmed" ? "pending_payment" : booking.status,
+          collection: { ...booking.collection, pending: amount },
         },
-      });
+        booking.status,
+        auth.member.email,
+      );
+    } else {
+      await updateBookingPayment(
+        {
+          ...booking,
+          status: booking.status === "pending_payment" ? "confirmed" : booking.status,
+          collection: {
+            ...booking.collection,
+            paidToHotel: booking.collection.paidToHotel + booking.collection.pending,
+            pending: 0,
+          },
+        },
+        booking.status,
+        auth.member.email,
+      );
     }
     return { ok: true };
   });

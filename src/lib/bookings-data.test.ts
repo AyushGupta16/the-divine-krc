@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fixtures } from "@/lib/__fixtures__/bookings";
 
@@ -47,8 +47,13 @@ vi.mock("@/lib/auth", async (importOriginal) => {
   };
 });
 
-const { verifyRazorpayPaymentFn, recordCashPaymentFn, getOpenBalanceDirectBookingsFn } =
-  await import("@/lib/bookings-data");
+const {
+  verifyRazorpayPaymentFn,
+  recordCashPaymentFn,
+  getOpenBalanceDirectBookingsFn,
+  updateBookingStatusFn,
+  setBookingPaymentStatusFn,
+} = await import("@/lib/bookings-data");
 const { resolvePaymentMetadata } = await import("@/lib/razorpay");
 const { getSessionMember } = await import("@/lib/auth");
 
@@ -311,5 +316,128 @@ describe("getOpenBalanceDirectBookingsFn", () => {
     expect(res.map((r) => r.bookingId)).not.toContain(CONFIRMED_WITH_BALANCE_ID);
 
     fixtures.bookings[i] = original;
+  });
+});
+
+describe("status history", () => {
+  const WRITER = {
+    email: "frontdesk@thedivinekrc.in",
+    name: "Front Desk",
+    role: "Front desk" as const,
+  };
+
+  function bookingsLength() {
+    return fixtures.statusHistory.length;
+  }
+
+  beforeEach(() => {
+    fixtures.statusHistory.length = 0;
+  });
+
+  afterEach(() => {
+    vi.mocked(getSessionMember).mockReset();
+    fixtures.statusHistory.length = 0;
+    const i = fixtures.bookings.findIndex((b) => b.id === CONFIRMED_WITH_BALANCE_ID);
+    if (fixtures.bookings[i].status !== "confirmed") {
+      fixtures.bookings[i] = { ...fixtures.bookings[i], status: "confirmed" };
+    }
+  });
+
+  it("updateBookingStatusFn: a real transition emits exactly one history row with the right from/to/changedBy", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+
+    const res = await updateBookingStatusFn({
+      data: { id: CONFIRMED_WITH_BALANCE_ID, status: "cancelled" },
+    });
+
+    expect(res.ok).toBe(true);
+    expect(bookingsLength()).toBe(1);
+    expect(fixtures.statusHistory[0]).toMatchObject({
+      bookingId: CONFIRMED_WITH_BALANCE_ID,
+      fromStatus: "confirmed",
+      toStatus: "cancelled",
+      changedBy: WRITER.email,
+    });
+  });
+
+  it("updateBookingStatusFn: a no-op status write (unchanged status) emits zero history rows", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+    const before = fixtures.bookings.find((b) => b.id === CONFIRMED_WITH_BALANCE_ID)!.status;
+    expect(before).toBe("confirmed");
+
+    const res = await updateBookingStatusFn({
+      data: { id: CONFIRMED_WITH_BALANCE_ID, status: "confirmed" },
+    });
+
+    expect(res.ok).toBe(true);
+    expect(bookingsLength()).toBe(0);
+  });
+
+  it("setBookingPaymentStatusFn: marking an already-confirmed booking paid is a no-op and logs nothing", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+    const before = fixtures.bookings.find((b) => b.id === CONFIRMED_WITH_BALANCE_ID)!.status;
+    expect(before).toBe("confirmed");
+
+    const res = await setBookingPaymentStatusFn({
+      data: { id: CONFIRMED_WITH_BALANCE_ID, status: "confirmed" },
+    });
+
+    expect(res.ok).toBe(true);
+    expect(bookingsLength()).toBe(0);
+  });
+
+  it("setBookingPaymentStatusFn: a real pending_payment -> confirmed flip logs one row attributed to the actor", async () => {
+    const i = fixtures.bookings.findIndex((b) => b.id === PENDING_BOOKING_ID);
+    const original = { ...fixtures.bookings[i] };
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+
+    const res = await setBookingPaymentStatusFn({
+      data: { id: PENDING_BOOKING_ID, status: "confirmed" },
+    });
+
+    expect(res.ok).toBe(true);
+    expect(bookingsLength()).toBe(1);
+    expect(fixtures.statusHistory[0]).toMatchObject({
+      bookingId: PENDING_BOOKING_ID,
+      fromStatus: "pending_payment",
+      toStatus: "confirmed",
+      changedBy: WRITER.email,
+    });
+
+    fixtures.bookings[i] = original;
+  });
+
+  it("a failed history insert does not fail or roll back the status update", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+    const pushSpy = vi.spyOn(fixtures.statusHistory, "push").mockImplementation(() => {
+      throw new Error("simulated audit-log failure");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const res = await updateBookingStatusFn({
+      data: { id: CONFIRMED_WITH_BALANCE_ID, status: "cancelled" },
+    });
+
+    expect(res.ok).toBe(true);
+    expect(fixtures.bookings.find((b) => b.id === CONFIRMED_WITH_BALANCE_ID)!.status).toBe(
+      "cancelled",
+    );
+    expect(errorSpy).toHaveBeenCalled();
+
+    pushSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("requireBookingWriter's member flows through to both status-writing paths' changedBy", async () => {
+    const OTHER = {
+      email: "owner@thedivinekrc.in",
+      name: "Owner",
+      role: "Owner" as const,
+    };
+    vi.mocked(getSessionMember).mockResolvedValue(OTHER);
+
+    await updateBookingStatusFn({ data: { id: CONFIRMED_WITH_BALANCE_ID, status: "cancelled" } });
+
+    expect(fixtures.statusHistory[0].changedBy).toBe(OTHER.email);
   });
 });
