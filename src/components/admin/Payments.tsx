@@ -12,6 +12,7 @@ import type {
 } from "@/types/booking";
 import { formatINR, formatINRCompact } from "@/lib/booking-math";
 import { adminIssueInvoiceFn } from "@/lib/invoices-data";
+import { CashPaymentForm } from "@/components/admin/CashPaymentForm";
 import {
   Table,
   TableBody,
@@ -30,9 +31,14 @@ const METHOD_TOKENS: Record<PaymentMethod, { icon: string; bg: string; color: st
   upi: { icon: "U", bg: "#eee7f7", color: "#7c5cbf" },
   card: { icon: "C", bg: "#e4eef7", color: "#3a6ea5" },
   net_banking: { icon: "N", bg: "#e6efe6", color: "#5a8a5a" },
+  wallet: { icon: "W", bg: "#f7e6e0", color: "#b4553f" },
+  paylater: { icon: "P", bg: "#eaf2f0", color: "#3f8a78" },
   cash: { icon: "₹", bg: "#f5ecd7", color: "#a8863f" },
   ota: { icon: "O", bg: "#f0f0f0", color: "#6b7280" },
 };
+
+/** For a transaction whose instrument isn't recorded yet (`method` is `null`). */
+const UNKNOWN_METHOD_TOKEN = { icon: "—", bg: "#f2ede2", color: "#a49d8d" };
 
 /** Status → pill ink/fill, per the design's `stMap`. */
 const STATUS_TOKENS: Record<TransactionStatus, { bg: string; color: string }> = {
@@ -56,7 +62,7 @@ const cell = "px-2 py-3.25 align-middle text-[12.5px]";
 // ── KPI row ─────────────────────────────────────────────────────────────────
 
 function KpiCard({ kpi }: { kpi: PaymentsKpi }) {
-  const lead = kpi.key === "collectedToday";
+  const lead = kpi.key === "totalCollected";
   return (
     <StatCard
       variant={lead ? "hero" : "standard"}
@@ -70,7 +76,7 @@ function KpiCard({ kpi }: { kpi: PaymentsKpi }) {
 // ── Transactions ────────────────────────────────────────────────────────────
 
 function TxnRow({ item }: { item: PaymentsTxnItem }) {
-  const m = METHOD_TOKENS[item.txn.method];
+  const m = item.txn.method ? METHOD_TOKENS[item.txn.method] : UNKNOWN_METHOD_TOKEN;
   const s = STATUS_TOKENS[item.txn.status];
   const [issuing, setIssuing] = useState(false);
 
@@ -172,6 +178,8 @@ function RollupLine({ label, value }: { label: string; value: string }) {
 
 export function Payments({ data }: { data: PaymentsPageData }) {
   const { rollup } = data;
+  const [recordingPayment, setRecordingPayment] = useState(false);
+
   return (
     <div className="flex flex-col gap-5 p-4 sm:p-6.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -196,6 +204,7 @@ export function Payments({ data }: { data: PaymentsPageData }) {
           <button
             type="button"
             title="Record payment"
+            onClick={() => setRecordingPayment(true)}
             className="flex size-10 items-center justify-center rounded-md bg-gold text-obsidian transition-colors hover:bg-[#b8933f]"
           >
             <Plus className="size-4.25" strokeWidth={2.4} />
@@ -204,7 +213,9 @@ export function Payments({ data }: { data: PaymentsPageData }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <CashPaymentForm open={recordingPayment} onOpenChange={setRecordingPayment} />
+
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         {data.kpis.map((kpi) => (
           <KpiCard key={kpi.key} kpi={kpi} />
         ))}

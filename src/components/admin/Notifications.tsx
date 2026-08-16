@@ -105,8 +105,8 @@ export function Notifications({ data }: { data: NotificationsData }) {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13.5px] text-obsidian">{n.title}</span>
-                      <span className="block text-[11.5px] text-[#a49d8d]">
-                        {meta.label} · {relativeTime(n.timestamp)}
+                      <span className="block truncate text-[11.5px] text-[#a49d8d]">
+                        {meta.label} · {n.subtitle} · {relativeTime(n.timestamp)}
                       </span>
                     </span>
                     {!n.read && <span className="size-2 shrink-0 rounded-full bg-gold" />}

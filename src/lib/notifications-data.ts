@@ -20,11 +20,13 @@ import { createServerFn } from "@tanstack/react-start";
 import {
   deriveNotifications,
   derivePartyHallNotifications,
+  derivePaymentNotifications,
   deriveRoomAssignmentNotifications,
   groupByDay,
   type BookingEvent,
   type NotificationGroup,
   type PartyHallEvent,
+  type PaymentEvent,
   type RoomAssignmentEvent,
 } from "@/lib/notifications";
 import { fixtures } from "@/lib/__fixtures__/bookings";
@@ -32,7 +34,7 @@ import { getSessionMember } from "@/lib/auth";
 import { db, missingDbInProduction } from "@/lib/db";
 import * as schema from "@/lib/schema";
 import { normalizeEmail, type Result } from "@/lib/team";
-import type { GuestRequest, RoomType } from "@/types/booking";
+import type { GuestRequest, PaymentMethod, RoomType } from "@/types/booking";
 
 let memory: Map<string, string> | undefined;
 
@@ -53,6 +55,7 @@ function noDb(): void {
 async function loadBookingEvents(): Promise<{
   bookings: BookingEvent[];
   rooms: RoomAssignmentEvent[];
+  payments: PaymentEvent[];
   guestName: Map<string, string>;
 }> {
   const conn = db();
@@ -73,6 +76,13 @@ async function loadBookingEvents(): Promise<{
         roomNo: b.roomNo,
         roomAssignedAt: b.roomAssignedAt,
       })),
+      payments: fixtures.bookings.map((b) => ({
+        id: b.id,
+        guestId: b.guestId,
+        paidAt: b.paidAt,
+        paymentMethod: b.paymentMethod,
+        collection: b.collection,
+      })),
       guestName: new Map(fixtures.guests.map((g) => [g.id, g.name])),
     };
   }
@@ -87,6 +97,13 @@ async function loadBookingEvents(): Promise<{
         createdAt: schema.bookings.createdAt,
         roomAssignedAt: schema.bookings.roomAssignedAt,
         specialRequest: schema.bookings.specialRequest,
+        paidAt: schema.bookings.paidAt,
+        paymentMethod: schema.bookings.paymentMethod,
+        collectionPaidToHotel: schema.bookings.collectionPaidToHotel,
+        collectionOtaCollection: schema.bookings.collectionOtaCollection,
+        collectionOtaCommission: schema.bookings.collectionOtaCommission,
+        collectionComplimentary: schema.bookings.collectionComplimentary,
+        collectionPending: schema.bookings.collectionPending,
       })
       .from(schema.bookings)
       .orderBy(schema.bookings.id),
@@ -106,6 +123,19 @@ async function loadBookingEvents(): Promise<{
       guestId: b.guestId,
       roomNo: b.roomNo,
       roomAssignedAt: b.roomAssignedAt?.toISOString() ?? undefined,
+    })),
+    payments: bookingRows.map((b) => ({
+      id: b.id,
+      guestId: b.guestId,
+      paidAt: b.paidAt?.toISOString() ?? undefined,
+      paymentMethod: (b.paymentMethod ?? undefined) as PaymentMethod | "online" | undefined,
+      collection: {
+        paidToHotel: b.collectionPaidToHotel,
+        otaCollection: b.collectionOtaCollection,
+        otaCommission: b.collectionOtaCommission,
+        complimentary: b.collectionComplimentary,
+        pending: b.collectionPending,
+      },
     })),
     guestName: new Map(guestRows.map((g) => [g.id, g.name])),
   };
@@ -169,7 +199,7 @@ export interface NotificationsData {
 }
 
 async function loadNotificationsData(email: string): Promise<NotificationsData> {
-  const [{ bookings, rooms, guestName }, partyHall, lastReadAt] = await Promise.all([
+  const [{ bookings, rooms, payments, guestName }, partyHall, lastReadAt] = await Promise.all([
     loadBookingEvents(),
     loadPartyHallEvents(),
     loadLastReadAt(email),
@@ -177,6 +207,7 @@ async function loadNotificationsData(email: string): Promise<NotificationsData> 
   const items = [
     ...deriveNotifications(bookings, guestName, lastReadAt),
     ...deriveRoomAssignmentNotifications(rooms, guestName, lastReadAt),
+    ...derivePaymentNotifications(payments, guestName, lastReadAt),
     ...derivePartyHallNotifications(partyHall, lastReadAt),
   ].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   return { groups: groupByDay(items), unread: items.filter((i) => !i.read).length };

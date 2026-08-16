@@ -1376,7 +1376,10 @@ export function cancelGuestBooking(
  * The Razorpay verify route's write (#16): flips a `pending_payment` booking to
  * `confirmed` and settles its collection — `paidToHotel` takes the whole bill,
  * `pending` drops to zero, since a Checkout payment is always the full amount,
- * never a partial one.
+ * never a partial one. `paymentMethod`/`paidAt` settle in the same write —
+ * the caller resolves them (via `resolvePaymentMetadata`, which cannot throw)
+ * before calling in, so this stays a single atomic settlement with no
+ * separate metadata write that could fail after the payment has moved.
  *
  * Idempotent by construction: a webhook retry or a duplicate `handler` fire
  * with the same `paymentId` on an already-`confirmed` booking returns the
@@ -1389,6 +1392,8 @@ export function markBookingPaid(
   bookingId: string,
   razorpayOrderId: string,
   razorpayPaymentId: string,
+  paymentMethod: PaymentMethod | "online",
+  paidAt: string,
 ): Result<{ booking: Booking }> {
   const booking = data.bookings.find((b) => b.id === bookingId);
   if (!booking) return { ok: false, error: "Booking not found." };
@@ -1408,6 +1413,8 @@ export function markBookingPaid(
       collection: { ...booking.collection, paidToHotel: booking.totalBill, pending: 0 },
       razorpayOrderId,
       razorpayPaymentId,
+      paymentMethod,
+      paidAt,
     },
   };
 }
@@ -2771,31 +2778,12 @@ export async function getGuestsPageData(data: BookingData): Promise<GuestsPageDa
 
 // ── Payments ────────────────────────────────────────────────────────────────
 
-/**
- * How each booking's money moved, and when.
- *
- * This is the *only* thing the payments screen seeds. A booking already records
- * how much was collected (`collection`) — re-stating those amounts here would be
- * seeding the same figures twice, and the two copies would drift the first time
- * a booking was edited. What a booking doesn't record is the instrument and the
- * clock time, so that alone is seeded and every amount is derived from
- * `collection` below. A booking with no money in play needs no entry.
- */
-const PAYMENT_SEED: Record<string, { method: PaymentMethod; at: string }> = {
-  "KRC-20260714-001": { method: "upi", at: "2026-07-14T09:42:00+05:30" },
-  "KRC-20260715-002": { method: "ota", at: "2026-07-14T09:10:00+05:30" },
-  "KRC-20260715-003": { method: "upi", at: "2026-07-20T12:00:00+05:30" },
-  "KRC-20260714-004": { method: "ota", at: "2026-07-09T11:20:00+05:30" },
-  "KRC-20260711-005": { method: "cash", at: "2026-07-13T08:30:00+05:30" },
-  "KRC-20260710-006": { method: "ota", at: "2026-07-10T10:15:00+05:30" },
-  "KRC-20260714-007": { method: "card", at: "2026-07-16T12:00:00+05:30" },
-  "KRC-20260712-010": { method: "net_banking", at: "2026-07-14T08:55:00+05:30" },
-};
-
 const METHOD_LABEL: Record<PaymentMethod, string> = {
   upi: "UPI",
   card: "Card",
   net_banking: "Net Banking",
+  wallet: "Wallet",
+  paylater: "Pay Later",
   cash: "Cash",
   ota: "OTA",
 };
@@ -2805,9 +2793,6 @@ const TRANSACTION_STATUS_LABEL: Record<TransactionStatus, string> = {
   pending: "Pending",
   refunded: "Refunded",
 };
-
-/** Methods Razorpay processes for us. Cash is taken at the desk; OTA settles bank-to-bank. */
-const RAZORPAY_METHODS = new Set<PaymentMethod>(["upi", "card", "net_banking"]);
 
 /** Booking sources that are OTA channels, with their display name and disc letter. */
 /**
@@ -2836,59 +2821,77 @@ function isOtaSource(source: BookingSource): boolean {
   return source in OTA_CHANNELS;
 }
 
+/** The non-OTA sources — a guest-owed balance on one of these is cash-at-desk
+ *  collectible, unlike an OTA row's balance, which is a channel receivable. */
+export const DIRECT_SOURCES = new Set<BookingSource>(["direct", "walk_in", "phone"]);
+
 /**
- * The transaction ledger, derived whole from the booking set.
- *
- * One booking yields at most one row, and which row is a question its
- * `collection` already answers:
- *   - a void stay (cancelled/no-show) holding money → that money is a *refund*,
- *     signed negative — it is owed back, not collected;
+ * The transaction ledger, derived whole from the booking set — no seed. A
+ * void stay (cancelled/no-show) never earned anything, so it yields no row.
+ * Which row a live booking yields is a question its `collection` answers:
  *   - money the channel collected (`otaCollection`) → *pending*, because an OTA
  *     holds the guest's payment until it settles to us;
  *   - money in hand (`paidToHotel`) → *success*;
  *   - money still owed (`pending`) → *pending*, dated its due date.
+ *
+ * `method`/`at` are the instrument and settlement clock — `paymentMethod`/
+ * `paidAt` on the booking. No write path sets either yet (that's b-ii/b-iii),
+ * so today every non-OTA row shows both as `null`, rendered "—" — never
+ * inferred from `razorpayPaymentId` (an instrument we don't actually know) or
+ * backfilled from `createdAt` (when the row was made, not when it paid).
  */
 function transactionsFrom(
   bookings: Booking[],
   guestName: Map<string, string>,
 ): PaymentTransaction[] {
-  const txns: PaymentTransaction[] = [];
+  const rows: { txn: PaymentTransaction; sortAt: string }[] = [];
 
   for (const b of bookings) {
-    const seed = PAYMENT_SEED[b.id];
-    if (!seed) continue;
+    if (VOID_STAY_STATUSES.has(b.status)) continue;
 
-    const collected = b.collection.paidToHotel + b.collection.otaCollection;
-    const isVoid = VOID_STAY_STATUSES.has(b.status);
-    const [amount, status]: [number, TransactionStatus] = isVoid
-      ? [-collected, "refunded"]
-      : b.collection.otaCollection > 0
+    const total = b.collection.paidToHotel + b.collection.otaCollection + b.collection.pending;
+    if (total <= 0) continue;
+
+    const [amount, status]: [number, TransactionStatus] =
+      b.collection.otaCollection > 0
         ? [b.collection.otaCollection, "pending"]
         : b.collection.paidToHotel > 0
           ? [b.collection.paidToHotel, "success"]
           : [b.collection.pending, "pending"];
 
-    if (amount === 0) continue;
+    const method: PaymentMethod | null = isOtaSource(b.source)
+      ? "ota"
+      : b.paymentMethod && b.paymentMethod !== "online"
+        ? b.paymentMethod
+        : null;
 
-    txns.push({
-      id: `${b.id}-${status}`,
-      bookingId: b.id,
-      guestName: guestName.get(b.guestId) ?? "—",
-      method: seed.method,
-      at: seed.at,
-      amount,
-      status,
+    rows.push({
+      txn: {
+        id: `${b.id}-${status}`,
+        bookingId: b.id,
+        guestName: guestName.get(b.guestId) ?? "—",
+        method,
+        at: b.paidAt ?? null,
+        amount,
+        status,
+      },
+      // Sort key only — never shown. Falls back to `createdAt` so undated rows
+      // still land in a stable, sensible order instead of clumping arbitrarily.
+      sortAt: b.paidAt ?? b.createdAt,
     });
   }
 
   // Newest first, and `id` breaks the tie: two payments can share a timestamp,
   // and `sort` is stable, so without this the list would fall back on the order
   // the rows happened to arrive in — which, from Postgres, is no order at all.
-  return txns.sort((a, b) => Date.parse(b.at) - Date.parse(a.at) || a.id.localeCompare(b.id));
+  return rows
+    .sort((a, b) => Date.parse(b.sortAt) - Date.parse(a.sortAt) || a.txn.id.localeCompare(b.txn.id))
+    .map((r) => r.txn);
 }
 
-/** "9:42 am" for a movement today, "Yesterday", else "20 Jul". */
-function transactionTime(at: string, today: string): string {
+/** "9:42 am" for a movement today, "Yesterday", "20 Jul", or "—" when unrecorded. */
+function transactionTime(at: string | null, today: string): string {
+  if (at === null) return "—";
   const when = new Date(at);
   const day = at.slice(0, 10);
 
@@ -2999,29 +3002,42 @@ export async function getPaymentsPageData(
 ): Promise<PaymentsPageData> {
   const guestName = new Map(data.guests.map((g) => [g.id, g.name]));
   const txns = transactionsFrom(data.bookings, guestName);
+  const live = data.bookings.filter((b) => !VOID_STAY_STATUSES.has(b.status));
 
-  const collectedToday = txns.filter((t) => t.status === "success" && t.at.startsWith(today));
-  const razorpaySettled = txns.filter(
-    (t) => t.status === "success" && RAZORPAY_METHODS.has(t.method),
+  const collectedToday = txns.filter(
+    (t) => t.status === "success" && t.at !== null && t.at.startsWith(today),
+  );
+  // Razorpay's involvement is a fact of the booking (`razorpayPaymentId`), not
+  // the transaction's `method` — that stays "—" until b-ii/b-iii records it,
+  // and a razorpayPaymentId is the one signal that's already real.
+  const razorpaySettledBookings = live.filter(
+    (b) => b.razorpayPaymentId != null && b.collection.paidToHotel > 0,
   );
   const ota = otaSettlements(data.bookings);
-  const pendingFromGuests = txns.filter((t) => t.status === "pending" && t.method !== "ota");
+  // Keyed off the booking's *source* — the branch that built the row — not
+  // `t.method`, which is "—" for every non-OTA row right now and would
+  // otherwise wrongly exclude every guest-owed booking from this KPI.
+  const otaBookingIds = new Set(live.filter((b) => isOtaSource(b.source)).map((b) => b.id));
+  const pendingFromGuests = txns.filter(
+    (t) => t.status === "pending" && !otaBookingIds.has(t.bookingId),
+  );
 
   const sum = (list: PaymentTransaction[]) => list.reduce((total, t) => total + t.amount, 0);
+  const totalCollected = live.reduce((total, b) => total + b.collection.paidToHotel, 0);
   const otaTotal = ota.reduce((total, o) => total + o.amount, 0);
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
   const kpis: PaymentsKpi[] = [
     {
-      key: "collectedToday",
-      label: "Collected · today",
-      value: formatINR(sum(collectedToday)),
-      note: plural(collectedToday.length, "transaction"),
+      key: "totalCollected",
+      label: "Total collected",
+      value: formatINR(totalCollected),
+      note: "all-time, in hand",
     },
     {
       key: "razorpaySettled",
       label: "Razorpay · settled",
-      value: formatINR(sum(razorpaySettled)),
+      value: formatINR(razorpaySettledBookings.reduce((s, b) => s + b.collection.paidToHotel, 0)),
       note: "to bank T+2",
     },
     {
@@ -3036,11 +3052,17 @@ export async function getPaymentsPageData(
       value: formatINR(sum(pendingFromGuests)),
       note: plural(pendingFromGuests.length, "booking"),
     },
+    {
+      key: "collectedToday",
+      label: "Collected · today",
+      value: formatINR(sum(collectedToday)),
+      note: `${plural(collectedToday.length, "transaction")} · by recorded payment time`,
+    },
   ];
 
   const transactions: PaymentsTxnItem[] = txns.map((txn) => ({
     txn,
-    methodLabel: METHOD_LABEL[txn.method],
+    methodLabel: txn.method ? METHOD_LABEL[txn.method] : "N/A",
     amount: signedAmount(txn.amount),
     time: transactionTime(txn.at, today),
     statusLabel: TRANSACTION_STATUS_LABEL[txn.status],

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { getBookingsPageData, getPaymentsPageData } from "@/lib/bookings";
+import { getBookingsPageData, getPaymentsPageData, withTotal } from "@/lib/bookings";
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import { formatINR } from "@/lib/booking-math";
-import type { PaymentsKpi } from "@/types/booking";
+import type { Booking, PaymentsKpi } from "@/types/booking";
 
 const TODAY = "2026-07-14";
 
@@ -11,19 +11,41 @@ function kpi(kpis: PaymentsKpi[], key: PaymentsKpi["key"]): PaymentsKpi {
   return kpis.find((k) => k.key === key)!;
 }
 
+/** A live (checked-in) direct booking with money in hand — the base every
+ *  synthetic case below tweaks, so each test only states what it changes. */
+function liveBooking(overrides: Partial<Booking>): Booking {
+  return withTotal({
+    id: "KRC-TEST-001",
+    guestId: "G-001",
+    roomNo: "101",
+    roomType: "deluxe",
+    checkIn: "2026-07-14",
+    checkOut: "2026-07-15",
+    urn: 1,
+    source: "direct",
+    mealPlan: "EP",
+    revenue: { room: 5000, earlyCheckIn: 0, lateCheckOut: 0, other: 0, discount: 0, taxPct: 12 },
+    collection: {
+      paidToHotel: 5000,
+      otaCollection: 0,
+      otaCommission: 0,
+      complimentary: 0,
+      pending: 0,
+    },
+    status: "checked_in",
+    createdAt: "2026-07-10T09:00:00.000Z",
+    ...overrides,
+  });
+}
+
 describe("getPaymentsPageData", () => {
-  it("signs money out negative and money in positive", async () => {
+  it("signs every live movement as money in", async () => {
     const { transactions } = await getPaymentsPageData(fixtures, TODAY);
 
+    expect(transactions.length).toBeGreaterThan(0);
     for (const t of transactions) {
-      expect(t.txn.amount).not.toBe(0);
-      if (t.txn.status === "refunded") {
-        expect(t.txn.amount).toBeLessThan(0);
-        expect(t.amount.startsWith("−")).toBe(true);
-      } else {
-        expect(t.txn.amount).toBeGreaterThan(0);
-        expect(t.amount.startsWith("+")).toBe(true);
-      }
+      expect(t.txn.amount).toBeGreaterThan(0);
+      expect(t.amount.startsWith("+")).toBe(true);
     }
   });
 
@@ -32,13 +54,10 @@ describe("getPaymentsPageData", () => {
     const bookings = fixtures.bookings;
     const otaSourced = new Set(ota.map((o) => o.source));
 
-    // Every OTA-method row belongs to a channel booking, and vice versa.
     for (const t of transactions) {
       const b = bookings.find((x) => x.id === t.txn.bookingId)!;
       expect(t.txn.method === "ota").toBe(otaSourced.has(b.source));
     }
-    // Direct money never lands in the OTA panel: the panel's total is exactly
-    // what the channels collected.
     const panelTotal = ota.reduce((sum, o) => sum + o.amount, 0);
     const channelMoney = bookings.reduce((sum, b) => sum + b.collection.otaCollection, 0);
     expect(panelTotal).toBe(channelMoney);
@@ -68,7 +87,6 @@ describe("getPaymentsPageData", () => {
     const { rollup } = await getPaymentsPageData(fixtures, TODAY);
     const bookings = fixtures.bookings;
 
-    // A cancelled booking and a no-show earned nothing, so neither is in gross.
     const billed = bookings.filter(
       (b) => b.checkIn.startsWith("2026-07") && b.status !== "cancelled" && b.status !== "no_show",
     );
@@ -92,41 +110,196 @@ describe("getPaymentsPageData", () => {
     expect(kpi(kpis, "pendingFromGuests").value).toBe(formatINR(totals.pending));
   });
 
-  it("counts toward 'collected today' only successful movements dated today", async () => {
-    const { kpis, transactions } = await getPaymentsPageData(fixtures, TODAY);
-
-    const today = transactions.filter(
-      (t) => t.txn.status === "success" && t.txn.at.startsWith(TODAY),
-    );
-    expect(today.length).toBeGreaterThan(0);
-    expect(kpi(kpis, "collectedToday").value).toBe(
-      formatINR(today.reduce((sum, t) => sum + t.txn.amount, 0)),
-    );
-    expect(kpi(kpis, "collectedToday").note).toBe(`${today.length} transactions`);
-  });
-
-  it("settles through Razorpay only what Razorpay processed", async () => {
-    const { kpis, transactions } = await getPaymentsPageData(fixtures, TODAY);
-
-    const online = transactions.filter(
-      (t) => t.txn.status === "success" && ["upi", "card", "net_banking"].includes(t.txn.method),
-    );
-    expect(kpi(kpis, "razorpaySettled").value).toBe(
-      formatINR(online.reduce((sum, t) => sum + t.txn.amount, 0)),
-    );
-    // Cash is taken at the desk — it never routes through the gateway.
-    expect(transactions.some((t) => t.txn.method === "cash")).toBe(true);
-  });
-
-  it("lists the most recent movement first, and dates it against today", async () => {
+  it("renders 'N/A' method and '—' time for a booking with no recorded method or settlement time, without crashing", async () => {
     const { transactions } = await getPaymentsPageData(fixtures, TODAY);
 
-    const times = transactions.map((t) => Date.parse(t.txn.at));
-    expect(times).toEqual([...times].sort((a, b) => b - a));
+    // None of the fixture bookings have paymentMethod/paidAt yet (b-ii/b-iii
+    // haven't landed), so every non-OTA row should read "N/A"/"—" respectively.
+    const directRows = transactions.filter((t) => t.txn.method !== "ota");
+    expect(directRows.length).toBeGreaterThan(0);
+    for (const t of directRows) {
+      expect(t.txn.method).toBeNull();
+      expect(t.methodLabel).toBe("N/A");
+      expect(t.txn.at).toBeNull();
+      expect(t.time).toBe("—");
+    }
+  });
 
-    const todayRow = transactions.find((t) => t.txn.at.startsWith(TODAY))!;
-    expect(todayRow.time).toMatch(/^\d{1,2}:\d{2}\s?(am|pm)$/);
-    const yesterday = transactions.find((t) => t.txn.at.startsWith("2026-07-13"))!;
-    expect(yesterday.time).toBe("Yesterday");
+  it("labels wallet and paylater as real instruments, distinct from the 'online' N/A fallback", async () => {
+    const walletBooking = liveBooking({ id: "KRC-TEST-wallet", paymentMethod: "wallet" });
+    const paylaterBooking = liveBooking({ id: "KRC-TEST-paylater", paymentMethod: "paylater" });
+    const onlineBooking = liveBooking({ id: "KRC-TEST-online", paymentMethod: "online" });
+    const data = {
+      bookings: [walletBooking, paylaterBooking, onlineBooking],
+      guests: fixtures.guests,
+      partyHall: fixtures.partyHall,
+    };
+
+    const { transactions } = await getPaymentsPageData(data, TODAY);
+
+    const wallet = transactions.find((t) => t.txn.bookingId === "KRC-TEST-wallet")!;
+    expect(wallet.methodLabel).toBe("Wallet");
+    const paylater = transactions.find((t) => t.txn.bookingId === "KRC-TEST-paylater")!;
+    expect(paylater.methodLabel).toBe("Pay Later");
+    // "online" stays N/A — it means "Razorpay processed it, instrument unknown", not a real one.
+    const online = transactions.find((t) => t.txn.bookingId === "KRC-TEST-online")!;
+    expect(online.methodLabel).toBe("N/A");
+  });
+
+  it("emits a row for a non-void booking holding money", async () => {
+    const booking = liveBooking({ id: "KRC-TEST-live" });
+    const data = { bookings: [booking], guests: fixtures.guests, partyHall: fixtures.partyHall };
+
+    const { transactions } = await getPaymentsPageData(data, TODAY);
+
+    expect(transactions).toHaveLength(1);
+    expect(transactions[0].txn.bookingId).toBe("KRC-TEST-live");
+    expect(transactions[0].txn.amount).toBe(5000);
+    expect(transactions[0].txn.status).toBe("success");
+  });
+
+  it("emits no row for a cancelled booking, even one still holding money", async () => {
+    const booking = liveBooking({ id: "KRC-TEST-cancelled", status: "cancelled" });
+    const data = { bookings: [booking], guests: fixtures.guests, partyHall: fixtures.partyHall };
+
+    const { transactions } = await getPaymentsPageData(data, TODAY);
+
+    expect(transactions).toHaveLength(0);
+  });
+
+  it("excludes void bookings from every KPI sum", async () => {
+    const live = liveBooking({ id: "KRC-TEST-live" });
+    const cancelled = liveBooking({ id: "KRC-TEST-cancelled", status: "cancelled" });
+    const noShow = liveBooking({ id: "KRC-TEST-noshow", status: "no_show" });
+    const data = {
+      bookings: [live, cancelled, noShow],
+      guests: fixtures.guests,
+      partyHall: fixtures.partyHall,
+    };
+
+    const { kpis } = await getPaymentsPageData(data, TODAY);
+
+    expect(kpi(kpis, "totalCollected").value).toBe(formatINR(5000));
+  });
+
+  it("sums 'Total collected' as real paidToHotel across non-void bookings", async () => {
+    const { kpis } = await getPaymentsPageData(fixtures, TODAY);
+    const bookings = fixtures.bookings;
+
+    const expected = bookings
+      .filter((b) => b.status !== "cancelled" && b.status !== "no_show")
+      .reduce((sum, b) => sum + b.collection.paidToHotel, 0);
+    expect(kpi(kpis, "totalCollected").value).toBe(formatINR(expected));
+  });
+
+  it("settles through Razorpay only bookings Razorpay actually processed", async () => {
+    const settled = liveBooking({ id: "KRC-TEST-razorpay", razorpayPaymentId: "pay_abc123" });
+    const unsettled = liveBooking({ id: "KRC-TEST-unsettled" });
+    const data = {
+      bookings: [settled, unsettled],
+      guests: fixtures.guests,
+      partyHall: fixtures.partyHall,
+    };
+
+    const { kpis } = await getPaymentsPageData(data, TODAY);
+
+    // Only the booking carrying a razorpayPaymentId counts — not a method
+    // string, which stays "—" for both until a write path records it.
+    expect(kpi(kpis, "razorpaySettled").value).toBe(formatINR(5000));
+  });
+
+  it("counts toward 'collected today' only rows with a paidAt recorded today", async () => {
+    const { kpis } = await getPaymentsPageData(fixtures, TODAY);
+
+    // No fixture booking has paidAt set yet — that's b-ii/b-iii's job — so the
+    // honest answer today is zero, not a figure borrowed from createdAt.
+    expect(kpi(kpis, "collectedToday").value).toBe(formatINR(0));
+    expect(kpi(kpis, "collectedToday").note).toBe("0 transactions · by recorded payment time");
+  });
+
+  it("counts a paidAt dated today toward 'collected today'", async () => {
+    const paidToday = liveBooking({ id: "KRC-TEST-today", paidAt: "2026-07-14T09:42:00+05:30" });
+    const paidEarlier = liveBooking({
+      id: "KRC-TEST-earlier",
+      paidAt: "2026-07-10T09:42:00+05:30",
+    });
+    const data = {
+      bookings: [paidToday, paidEarlier],
+      guests: fixtures.guests,
+      partyHall: fixtures.partyHall,
+    };
+
+    const { kpis, transactions } = await getPaymentsPageData(data, TODAY);
+
+    expect(kpi(kpis, "collectedToday").value).toBe(formatINR(5000));
+    const today = transactions.find((t) => t.txn.bookingId === "KRC-TEST-today")!;
+    expect(today.time).toMatch(/^\d{1,2}:\d{2}\s?(am|pm)$/);
+  });
+
+  it("keys 'pending from guests' off the booking's source, not the method string", async () => {
+    const guestPending = liveBooking({
+      id: "KRC-TEST-guest-pending",
+      collection: {
+        paidToHotel: 0,
+        otaCollection: 0,
+        otaCommission: 0,
+        complimentary: 0,
+        pending: 2000,
+      },
+    });
+    const otaPending = liveBooking({
+      id: "KRC-TEST-ota-pending",
+      source: "booking_com",
+      collection: {
+        paidToHotel: 0,
+        otaCollection: 3000,
+        otaCommission: 450,
+        complimentary: 0,
+        pending: 0,
+      },
+    });
+    const data = {
+      bookings: [guestPending, otaPending],
+      guests: fixtures.guests,
+      partyHall: fixtures.partyHall,
+    };
+
+    const { kpis } = await getPaymentsPageData(data, TODAY);
+
+    // Both rows land in "pending" status with method "—"/"ota" respectively —
+    // only the guestPending booking (a non-OTA source) should count here.
+    expect(kpi(kpis, "pendingFromGuests").value).toBe(formatINR(2000));
+  });
+
+  it("lists the most recent movement first, falling back to createdAt when paidAt is unset", async () => {
+    const older = liveBooking({
+      id: "KRC-TEST-older",
+      paidAt: "2026-07-10T09:00:00+05:30",
+      createdAt: "2026-07-01T00:00:00.000Z",
+    });
+    const newer = liveBooking({
+      id: "KRC-TEST-newer",
+      paidAt: "2026-07-13T09:00:00+05:30",
+      createdAt: "2026-07-02T00:00:00.000Z",
+    });
+    const undated = liveBooking({
+      id: "KRC-TEST-undated",
+      createdAt: "2026-07-20T00:00:00.000Z",
+    });
+    const data = {
+      bookings: [older, newer, undated],
+      guests: fixtures.guests,
+      partyHall: fixtures.partyHall,
+    };
+
+    const { transactions } = await getPaymentsPageData(data, TODAY);
+
+    expect(transactions.map((t) => t.txn.bookingId)).toEqual([
+      "KRC-TEST-undated",
+      "KRC-TEST-newer",
+      "KRC-TEST-older",
+    ]);
+    const olderRow = transactions.find((t) => t.txn.bookingId === "KRC-TEST-older")!;
+    expect(olderRow.time).toBe("10 Jul");
   });
 });

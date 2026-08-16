@@ -11,7 +11,10 @@
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import type { PaymentMethod } from "@/types/booking";
+
 const RAZORPAY_API = "https://api.razorpay.com/v1";
+const FETCH_TIMEOUT_MS = 5000;
 
 function credentials(): { keyId: string; keySecret: string } {
   const keyId = process.env.RAZORPAY_KEY_ID;
@@ -78,4 +81,66 @@ export function verifyRazorpaySignature(
   const b = Buffer.from(signature);
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
+}
+
+/** Razorpay's `payment.method` strings, mapped to what our ledger tracks.
+ *  EMI/bank_transfer/anything unrecognized fall to "online" — we know
+ *  Razorpay processed it, just not the specific instrument. Cash/OTA never
+ *  come from here; those originate from manual entry and the OTA source
+ *  branch. */
+function mapRazorpayMethod(method: string): PaymentMethod | "online" {
+  switch (method) {
+    case "upi":
+      return "upi";
+    case "card":
+      return "card";
+    case "netbanking":
+      return "net_banking";
+    case "wallet":
+      return "wallet";
+    case "paylater":
+      return "paylater";
+    default:
+      return "online";
+  }
+}
+
+/**
+ * Fetches the instrument Razorpay actually used for a payment (Payments
+ * Fetch API), same auth as `createRazorpayOrder`. Never called before the
+ * payment's signature is already verified — this is secondary metadata,
+ * not part of the trust boundary.
+ */
+async function fetchRazorpayPayment(paymentId: string): Promise<{ method: string }> {
+  const { keyId, keySecret } = credentials();
+  const res = await fetch(`${RAZORPAY_API}/payments/${paymentId}`, {
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString("base64")}`,
+    },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    throw new Error(`Razorpay payment fetch failed: ${res.status} ${await res.text()}`);
+  }
+  const payment = (await res.json()) as { method: string };
+  return { method: payment.method };
+}
+
+/**
+ * The metadata half of a Razorpay settlement — how it was paid and when.
+ * Deliberately unable to throw: a verified payment must settle regardless
+ * of whether this lookup succeeds, so any failure (network, timeout,
+ * non-2xx, bad JSON) just downgrades to `"online"` + "now" rather than
+ * blocking the caller.
+ */
+export async function resolvePaymentMetadata(
+  paymentId: string,
+): Promise<{ method: PaymentMethod | "online"; paidAt: string }> {
+  const paidAt = new Date().toISOString();
+  try {
+    const payment = await fetchRazorpayPayment(paymentId);
+    return { method: mapRazorpayMethod(payment.method), paidAt };
+  } catch {
+    return { method: "online", paidAt };
+  }
 }

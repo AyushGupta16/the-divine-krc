@@ -53,6 +53,7 @@ import {
   createGuest,
   createPartyHallEnquiry,
   declinePartyHallEnquiry,
+  DIRECT_SOURCES,
   defaultRoomTiles,
   findGuestBooking,
   getAvailableRoomCount,
@@ -94,24 +95,26 @@ import {
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import { getSessionMember } from "@/lib/auth";
 import { db, missingDbInProduction } from "@/lib/db";
-import { createRazorpayOrder, razorpayKeyId, verifyRazorpaySignature } from "@/lib/razorpay";
+import {
+  createRazorpayOrder,
+  razorpayKeyId,
+  resolvePaymentMetadata,
+  verifyRazorpaySignature,
+} from "@/lib/razorpay";
 import { loadRoster } from "@/lib/roster";
 import * as schema from "@/lib/schema";
 import { can, type Result } from "@/lib/team";
+import { toBooking } from "@/lib/booking-mappers";
 import type {
   AddOnServiceKey,
   Booking,
-  BookingCollection,
   BookingRevenue,
   BookingsPageData,
-  BookingSource,
   BookingStatus,
   CalendarPageData,
   DashboardData,
   Guest,
-  GuestRequest,
   GuestsPageData,
-  MealPlan,
   PartyHallEnquiry,
   PartyHallPageData,
   PartyHallRateKey,
@@ -129,7 +132,6 @@ import type {
 } from "@/types/booking";
 
 type GuestRow = typeof schema.guests.$inferSelect;
-type BookingRow = typeof schema.bookings.$inferSelect;
 type PartyHallRow = typeof schema.partyHallEnquiries.$inferSelect;
 type RoomRow = typeof schema.rooms.$inferSelect;
 
@@ -146,46 +148,6 @@ function toGuest(r: GuestRow): Guest {
     city: r.city,
     stays: r.stays,
     lifetimeValue: r.lifetimeValue,
-  });
-}
-
-function toBooking(r: BookingRow): Booking {
-  const revenue: BookingRevenue = {
-    room: r.revenueRoom,
-    earlyCheckIn: r.revenueEarlyCheckIn,
-    lateCheckOut: r.revenueLateCheckOut,
-    other: r.revenueOther,
-    discount: r.revenueDiscount,
-    taxPct: r.revenueTaxPct,
-  };
-  const collection: BookingCollection = {
-    paidToHotel: r.collectionPaidToHotel,
-    otaCollection: r.collectionOtaCollection,
-    otaCommission: r.collectionOtaCommission,
-    complimentary: r.collectionComplimentary,
-    pending: r.collectionPending,
-  };
-  return withTotal({
-    id: r.id,
-    guestId: r.guestId,
-    roomNo: r.roomNo,
-    roomType: r.roomType as RoomType,
-    checkIn: r.checkIn,
-    checkOut: r.checkOut,
-    urn: r.urn,
-    source: r.source as BookingSource,
-    mealPlan: r.mealPlan as MealPlan,
-    revenue,
-    collection,
-    status: r.status as BookingStatus,
-    createdAt: r.createdAt.toISOString(),
-    roomAssignedAt: r.roomAssignedAt?.toISOString() ?? undefined,
-    razorpayOrderId: r.razorpayOrderId ?? undefined,
-    razorpayPaymentId: r.razorpayPaymentId ?? undefined,
-    batchId: r.batchId ?? undefined,
-    specialRequest: (r.specialRequest ?? undefined) as GuestRequest | undefined,
-    requestedServices: (r.requestedServices ?? undefined) as RequestedServices | undefined,
-    revenueOtherNote: r.revenueOtherNote ?? undefined,
   });
 }
 
@@ -400,9 +362,11 @@ async function updateBookingRoom(
 
 /**
  * The Razorpay verify route's write (#16): persists what `markBookingPaid`
- * decided — status, the now-settled collection, and the two id columns
- * `schema.ts` reserves for a gateway payment. Same fixtures-mutation
- * convenience as the other row-store helpers when there is no database.
+ * decided — status, the now-settled collection, the two id columns
+ * `schema.ts` reserves for a gateway payment, and the payment-instrument
+ * metadata (`paymentMethod`/`paidAt`), all in one write. Same
+ * fixtures-mutation convenience as the other row-store helpers when there is
+ * no database.
  */
 async function updateBookingPayment(booking: Booking): Promise<void> {
   const conn = db();
@@ -420,6 +384,9 @@ async function updateBookingPayment(booking: Booking): Promise<void> {
       collectionPending: booking.collection.pending,
       razorpayOrderId: booking.razorpayOrderId ?? null,
       razorpayPaymentId: booking.razorpayPaymentId ?? null,
+      paymentMethod: booking.paymentMethod ?? null,
+      paidAt: booking.paidAt ? new Date(booking.paidAt) : null,
+      recordedBy: booking.recordedBy ?? null,
     })
     .where(eq(schema.bookings.id, booking.id));
 }
@@ -1224,6 +1191,12 @@ export const createRazorpayOrderFn = createServerFn({ method: "POST" })
  * documented tradeoff as `insertBooking` — a failure partway through leaves
  * whatever already settled as `confirmed`, and a retry with the same
  * signature is a no-op on those rows via `markBookingPaid`'s idempotence.
+ *
+ * `resolvePaymentMetadata` runs before the settlement write, not after —
+ * it cannot throw (falls back to `"online"` + now), so `markBookingPaid` +
+ * `updateBookingPayment` stays the single write that always happens once
+ * the signature is verified. A payment that verified never fails because a
+ * secondary Razorpay lookup blipped.
  */
 export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
   .validator(
@@ -1241,15 +1214,84 @@ export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
       return { ok: false, error: "Payment could not be verified. Please contact the front desk." };
     }
 
+    const { method, paidAt } = await resolvePaymentMetadata(data.razorpayPaymentId);
+
     const settled: Booking[] = [];
     for (const id of data.bookingIds) {
       const current = await load();
-      const res = markBookingPaid(current, id, data.razorpayOrderId, data.razorpayPaymentId);
+      const res = markBookingPaid(
+        current,
+        id,
+        data.razorpayOrderId,
+        data.razorpayPaymentId,
+        method,
+        paidAt,
+      );
       if (!res.ok) return res;
       await updateBookingPayment(res.booking);
       settled.push(res.booking);
     }
     return { ok: true, bookings: settled };
+  });
+
+/**
+ * Front desk cash collection — the "Record payment" button on the Payments
+ * screen, and (unify slice) direct-row "Mark paid" on Bookings. Option A
+ * scope: settles against the outstanding balance only, no backfill of
+ * bookings already settled. Pending is re-read from the loaded booking (the
+ * same `collection.pending` `getPaymentsPageData` derives its own pending
+ * transactions from) rather than trusted from the client, so a stale amount
+ * on screen can't produce an over-payment. `paymentMethod` is only ever set
+ * here when it's still unset — a booking that already took an online advance
+ * keeps that method, since this write only ever adds the cash top-up, not
+ * the instrument that settled the rest.
+ *
+ * Status flip is partial-aware, unlike `setBookingPaymentStatusFn`'s
+ * all-or-nothing settlement: a `pending_payment` row only flips to
+ * `confirmed` once this payment clears its balance to zero. A partial
+ * payment leaves `pending_payment` in place (there's still money owed), and
+ * a booking that's already `confirmed` (or any other status) is never
+ * touched — this never moves a row backwards.
+ */
+export const recordCashPaymentFn = createServerFn({ method: "POST" })
+  .validator((data: { bookingId: string; amount: number }) => data)
+  .handler(async ({ data }): Promise<Result<{ booking: Booking }>> => {
+    const auth = await requireBookingWriter();
+    if (!auth.ok) return auth;
+    const member = await getSessionMember();
+    if (!member) return { ok: false, error: "Sign in to record a payment." };
+
+    const current = await load();
+    const booking = current.bookings.find((b) => b.id === data.bookingId);
+    if (!booking) return { ok: false, error: `Booking ${data.bookingId} does not exist.` };
+
+    if (!Number.isFinite(data.amount) || data.amount <= 0) {
+      return { ok: false, error: "Enter an amount greater than zero." };
+    }
+    const pending = booking.collection.pending;
+    if (data.amount > pending) {
+      return {
+        ok: false,
+        error: `Cannot collect more than the outstanding balance (₹${pending}).`,
+      };
+    }
+
+    const newPending = pending - data.amount;
+    const updated: Booking = {
+      ...booking,
+      status:
+        booking.status === "pending_payment" && newPending === 0 ? "confirmed" : booking.status,
+      collection: {
+        ...booking.collection,
+        paidToHotel: booking.collection.paidToHotel + data.amount,
+        pending: newPending,
+      },
+      paymentMethod: booking.paymentMethod ?? "cash",
+      paidAt: new Date().toISOString(),
+      recordedBy: member.email,
+    };
+    await updateBookingPayment(updated);
+    return { ok: true, booking: updated };
   });
 
 export const dashboardPage = createServerFn({ method: "GET" }).handler(
@@ -1286,6 +1328,35 @@ export const guestsPage = createServerFn({ method: "GET" }).handler(
 
 export const paymentsPage = createServerFn({ method: "GET" }).handler(
   async (): Promise<PaymentsPageData> => getPaymentsPageData(await load()),
+);
+
+/**
+ * `CashPaymentForm`'s own data source (both the Payments screen and, in a
+ * follow-up, the "+" menu) — every direct/walk-in/phone booking still owing
+ * a guest-paid balance. OTA rows are excluded: their `pending` is a channel
+ * receivable, not cash the front desk can collect. Same gate as
+ * `paymentsPage` (session-only, via the `/admin` route's `beforeLoad`) — this
+ * is a read the Payments screen already trusts at that level, not a write.
+ * Reads `collection.pending` straight off the loaded booking, the one place
+ * that number lives; no parallel formula. Same session-only gate as
+ * `notificationsFn` — an unauthenticated caller gets an empty list rather
+ * than a thrown error, since this is a read, not a write.
+ */
+export const getOpenBalanceDirectBookingsFn = createServerFn({ method: "GET" }).handler(
+  async (): Promise<{ bookingId: string; guestName: string; pending: number }[]> => {
+    const member = await getSessionMember();
+    if (!member) return [];
+
+    const current = await load();
+    const guestName = new Map(current.guests.map((g) => [g.id, g.name]));
+    return current.bookings
+      .filter((b) => DIRECT_SOURCES.has(b.source) && b.collection.pending > 0)
+      .map((b) => ({
+        bookingId: b.id,
+        guestName: guestName.get(b.guestId) ?? "—",
+        pending: b.collection.pending,
+      }));
+  },
 );
 
 export const reportsPage = createServerFn({ method: "GET" }).handler(

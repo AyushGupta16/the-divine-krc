@@ -112,13 +112,18 @@ export interface Booking {
   razorpayOrderId?: string;
   razorpayPaymentId?: string;
   /** How the payment actually moved — a `PaymentMethod` value, or `"online"`
-   *  when Razorpay's instrument isn't known. Undefined until a write path
-   *  sets it (none does yet); every existing row is undefined. */
+   *  when Razorpay's instrument isn't known (Fetch failed/timed out, or
+   *  returned an instrument outside the mapping). Set by `markBookingPaid`
+   *  on Razorpay verify (#16); undefined for pay-at-hotel and legacy rows. */
   paymentMethod?: PaymentMethod | "online";
   /** ISO timestamp of when the payment actually settled — not `createdAt`,
-   *  which is when the row was made. Undefined until a write path sets it
-   *  (none does yet); every existing row is undefined. */
+   *  which is when the row was made. Set by `markBookingPaid` on Razorpay
+   *  verify (#16); undefined for pay-at-hotel and legacy rows. */
   paidAt?: string;
+  /** Which admin/team member recorded the payment (email) — set for manual
+   *  entries (cash); undefined for Razorpay-verified payments and every row
+   *  that predates this column. */
+  recordedBy?: string;
   /** Shared by every room created in one guest-flow checkout (`Book.tsx`'s
    *  submit loop); undefined for legacy rows and admin manual entries. */
   batchId?: string;
@@ -677,8 +682,8 @@ export interface GuestsPageData {
 // moved (`method`) and when (`at`) are seeded: a booking records how much was
 // collected, but not by what instrument or at what time.
 
-/** Instrument the money moved by. The first three are Razorpay-processed. */
-export type PaymentMethod = "upi" | "card" | "net_banking" | "cash" | "ota";
+/** Instrument the money moved by. The first five are Razorpay-processed. */
+export type PaymentMethod = "upi" | "card" | "net_banking" | "wallet" | "paylater" | "cash" | "ota";
 
 /** Where a transaction stands: money in, money promised, money given back. */
 export type TransactionStatus = "success" | "pending" | "refunded";
@@ -689,9 +694,11 @@ export interface PaymentTransaction {
   id: string;
   bookingId: string;
   guestName: string;
-  method: PaymentMethod;
-  /** ISO timestamp the money moved (or is due, when pending). */
-  at: string;
+  /** `null` until a write path (b-ii/b-iii) records the instrument used. */
+  method: PaymentMethod | null;
+  /** ISO timestamp the payment settled, from `paidAt`. `null` until a write
+   *  path (b-ii/b-iii) records it — never backfilled from `createdAt`. */
+  at: string | null;
   /** Signed rupees: positive is money in, negative is a refund out. */
   amount: number;
   status: TransactionStatus;
@@ -704,14 +711,14 @@ export interface PaymentsTxnItem {
   methodLabel: string;
   /** Signed and formatted, e.g. "+₹5,040" / "−₹3,000". */
   amount: string;
-  /** Clock time today, else a short date — e.g. "9:42 am" / "Yesterday" / "20 Jul". */
+  /** Clock time today, else a short date, else "—" when `paidAt` isn't recorded. */
   time: string;
   /** e.g. "Success". */
   statusLabel: string;
 }
 
 export type PaymentsKpiKey =
-  "collectedToday" | "razorpaySettled" | "otaReceivables" | "pendingFromGuests";
+  "totalCollected" | "collectedToday" | "razorpaySettled" | "otaReceivables" | "pendingFromGuests";
 
 export interface PaymentsKpi {
   key: PaymentsKpiKey;
