@@ -11,6 +11,7 @@ import type {
   TransactionStatus,
 } from "@/types/booking";
 import { formatINR, formatINRCompact } from "@/lib/booking-math";
+import { downloadCsv, toCsv } from "@/lib/csv";
 import { adminIssueInvoiceFn } from "@/lib/invoices-data";
 import { CashPaymentForm } from "@/components/admin/CashPaymentForm";
 import {
@@ -180,6 +181,36 @@ export function Payments({ data }: { data: PaymentsPageData }) {
   const { rollup } = data;
   const [recordingPayment, setRecordingPayment] = useState(false);
 
+  function exportCsv() {
+    const csv = toCsv(
+      // No client-side filter on this page — the loaded list is the visible list.
+      data.transactions.map((item) => ({
+        id: item.txn.id,
+        bookingId: item.txn.bookingId,
+        guestName: item.txn.guestName,
+        // Human label the table renders (METHOD_LABEL), but "" — not "N/A" —
+        // for an unrecorded instrument.
+        method: item.txn.method ? item.methodLabel : "",
+        // ISO timestamp as-is; the helper renders null as "".
+        at: item.txn.at,
+        // Raw signed number; the helper stringifies it.
+        amount: item.txn.amount,
+        // Human label the table's status pill shows.
+        status: item.statusLabel,
+      })),
+      [
+        { key: "id", header: "Transaction ID" },
+        { key: "bookingId", header: "Booking ID" },
+        { key: "guestName", header: "Guest" },
+        { key: "method", header: "Method" },
+        { key: "at", header: "Date/Time" },
+        { key: "amount", header: "Amount" },
+        { key: "status", header: "Status" },
+      ],
+    );
+    downloadCsv(`payments-${data.today}.csv`, csv);
+  }
+
   return (
     <div className="flex flex-col gap-5 p-4 sm:p-6.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -196,6 +227,7 @@ export function Payments({ data }: { data: PaymentsPageData }) {
           <button
             type="button"
             title="Export"
+            onClick={exportCsv}
             className="flex size-10 items-center justify-center rounded-md border border-[#eae4d6] bg-white text-warm-gray transition-colors hover:bg-black/[0.03]"
           >
             <Download className="size-4.25" />
