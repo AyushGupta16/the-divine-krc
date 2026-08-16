@@ -167,7 +167,9 @@ export function toPartyHall(r: PartyHallRow, advancePct: number): PartyHallEnqui
     {
       id: r.id,
       title: r.title,
-      date: r.date,
+      // 5d cutover: read from the native date column, backfilled and dual-written
+      // alongside `date` (still present, not yet dropped).
+      date: r.enquiryDate!,
       slot: r.slot as PartyHallSlot,
       guests: r.guests,
       package: r.package,
