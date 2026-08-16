@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import {
+  ChevronDown,
+  ChevronUp,
   Download,
   FileText,
   LogIn,
@@ -36,6 +38,12 @@ import {
   updateBookingStatusFn,
 } from "@/lib/bookings-data";
 import { DIRECT_SOURCES } from "@/lib/bookings";
+import {
+  sortBookingRows,
+  STATUS_ORDER,
+  type SortableColumnKey,
+  type SortDir,
+} from "@/lib/bookings-sort";
 import { useEntryForms } from "@/components/admin/entry-forms-context";
 import { CashPaymentForm } from "@/components/admin/CashPaymentForm";
 import {
@@ -315,16 +323,6 @@ const STATUS_META: Record<BookingStatus, StatusMeta> = {
   no_show: { label: "No Show", color: "#3a3a3a", bg: "#ececec" },
 };
 
-/** Tab order (after the pinned "All" tab). */
-const STATUS_ORDER: BookingStatus[] = [
-  "confirmed",
-  "checked_in",
-  "checked_out",
-  "pending_payment",
-  "cancelled",
-  "no_show",
-];
-
 // ── Summary cards ─────────────────────────────────────────────────────────
 // "Unassigned rooms" is the hero — the check-in/assign screen's operational
 // figure, ahead of the finance-flavoured "Total collected".
@@ -435,6 +433,53 @@ const STICKY_CELL: Record<"sr" | "id" | "guest", string> = {
   id: "sm:sticky sm:left-[40px] sm:z-10 sm:bg-white sm:group-hover:bg-[#faf7ef] min-w-36",
   guest: "sticky left-0 sm:left-[184px] z-10 bg-white group-hover:bg-[#faf7ef] min-w-36",
 };
+
+interface SortState {
+  key: SortableColumnKey | null;
+  dir: SortDir;
+}
+
+/** Sortable column header — same colHead styling, plus a click target and an
+ *  asc/desc caret (lucide's ChevronUp/ChevronDown, matching `select.tsx`'s
+ *  existing indicator pattern) shown only on the active column. */
+function SortHead({
+  label,
+  columnKey,
+  sort,
+  onSort,
+  align = "left",
+  className,
+}: {
+  label: string;
+  columnKey: SortableColumnKey;
+  sort: SortState;
+  onSort: (key: SortableColumnKey) => void;
+  align?: "left" | "right";
+  className?: string;
+}) {
+  const active = sort.key === columnKey;
+  return (
+    <TableHead className={cn(colHead, align === "right" && "text-right", className)}>
+      <button
+        type="button"
+        onClick={() => onSort(columnKey)}
+        className={cn(
+          "inline-flex items-center gap-0.5 uppercase tracking-wider hover:text-[#7a746a]",
+          align === "right" && "flex-row-reverse",
+          active && "text-obsidian",
+        )}
+      >
+        {label}
+        {active &&
+          (sort.dir === "asc" ? (
+            <ChevronUp className="size-3" />
+          ) : (
+            <ChevronDown className="size-3" />
+          ))}
+      </button>
+    </TableHead>
+  );
+}
 
 function StatusSelect({
   status,
@@ -822,11 +867,15 @@ function BookingsTable({
   totals,
   rooms,
   onMarkPaidCash,
+  sort,
+  onSort,
 }: {
   rows: BookingListItem[];
   totals: BookingsTotals;
   rooms: RoomTile[];
   onMarkPaidCash: (bookingId: string) => void;
+  sort: SortState;
+  onSort: (key: SortableColumnKey) => void;
 }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-[#eae4d6] bg-white">
@@ -848,24 +897,78 @@ function BookingsTable({
           {/* column heads */}
           <TableRow className="border-b border-[#eae4d6] bg-[#faf7ef] hover:bg-[#faf7ef]">
             <TableHead className={cn(colHead, STICKY_HEAD.sr)}>Sr</TableHead>
-            <TableHead className={cn(colHead, STICKY_HEAD.id)}>Booking ID</TableHead>
-            <TableHead className={cn(colHead, STICKY_HEAD.guest)}>Guest</TableHead>
-            <TableHead className={colHead}>Room</TableHead>
-            <TableHead className={colHead}>Type</TableHead>
-            <TableHead className={colHead}>Check-in</TableHead>
-            <TableHead className={colHead}>Check-out</TableHead>
-            <TableHead className={colHead}>URN</TableHead>
-            <TableHead className={colHead}>Source</TableHead>
-            <TableHead className={colHead}>Meal</TableHead>
-            <TableHead className={cn(colHead, "text-right")}>Room Rev</TableHead>
-            <TableHead className={cn(colHead, "text-right")}>Early CI</TableHead>
-            <TableHead className={cn(colHead, "text-right")}>Late CO</TableHead>
-            <TableHead className={cn(colHead, "text-right")}>Other</TableHead>
-            <TableHead className={cn(colHead, "text-right")}>Total Bill</TableHead>
-            <TableHead className={cn(colHead, "text-right")}>Paid Hotel</TableHead>
-            <TableHead className={cn(colHead, "text-right")}>OTA Coll</TableHead>
-            <TableHead className={cn(colHead, "text-right")}>Pending</TableHead>
-            <TableHead className={colHead}>Status</TableHead>
+            <SortHead
+              label="Booking ID"
+              columnKey="id"
+              sort={sort}
+              onSort={onSort}
+              className={STICKY_HEAD.id}
+            />
+            <SortHead
+              label="Guest"
+              columnKey="guestName"
+              sort={sort}
+              onSort={onSort}
+              className={STICKY_HEAD.guest}
+            />
+            <SortHead label="Room" columnKey="roomNo" sort={sort} onSort={onSort} />
+            <SortHead label="Type" columnKey="roomType" sort={sort} onSort={onSort} />
+            <SortHead label="Check-in" columnKey="checkIn" sort={sort} onSort={onSort} />
+            <SortHead label="Check-out" columnKey="checkOut" sort={sort} onSort={onSort} />
+            <SortHead label="URN" columnKey="urn" sort={sort} onSort={onSort} />
+            <SortHead label="Source" columnKey="source" sort={sort} onSort={onSort} />
+            <SortHead label="Meal" columnKey="mealPlan" sort={sort} onSort={onSort} />
+            <SortHead
+              label="Room Rev"
+              columnKey="roomRev"
+              sort={sort}
+              onSort={onSort}
+              align="right"
+            />
+            <SortHead
+              label="Early CI"
+              columnKey="earlyCheckIn"
+              sort={sort}
+              onSort={onSort}
+              align="right"
+            />
+            <SortHead
+              label="Late CO"
+              columnKey="lateCheckOut"
+              sort={sort}
+              onSort={onSort}
+              align="right"
+            />
+            <SortHead label="Other" columnKey="other" sort={sort} onSort={onSort} align="right" />
+            <SortHead
+              label="Total Bill"
+              columnKey="totalBill"
+              sort={sort}
+              onSort={onSort}
+              align="right"
+            />
+            <SortHead
+              label="Paid Hotel"
+              columnKey="paidToHotel"
+              sort={sort}
+              onSort={onSort}
+              align="right"
+            />
+            <SortHead
+              label="OTA Coll"
+              columnKey="otaCollection"
+              sort={sort}
+              onSort={onSort}
+              align="right"
+            />
+            <SortHead
+              label="Pending"
+              columnKey="pending"
+              sort={sort}
+              onSort={onSort}
+              align="right"
+            />
+            <SortHead label="Status" columnKey="status" sort={sort} onSort={onSort} />
             <TableHead className={colHead}>Invoice</TableHead>
             <TableHead className={colHead}>Actions</TableHead>
           </TableRow>
@@ -922,6 +1025,15 @@ export function Bookings({
   const [active, setActive] = useState<TabKey>("all");
   const { openBooking } = useEntryForms();
   const [cashDrawerBookingId, setCashDrawerBookingId] = useState<string | null>(null);
+  const [sort, setSort] = useState<SortState>({ key: null, dir: "asc" });
+
+  function handleSort(key: SortableColumnKey) {
+    setSort((prev) => {
+      if (prev.key !== key) return { key, dir: "asc" };
+      if (prev.dir === "asc") return { key, dir: "desc" };
+      return { key: null, dir: "asc" };
+    });
+  }
 
   const byStatus = useMemo(
     () => (active === "all" ? data.rows : data.rows.filter((r) => r.booking.status === active)),
@@ -974,6 +1086,11 @@ export function Bookings({
     );
   }, [active, visible, data.totals]);
 
+  const sorted = useMemo(
+    () => sortBookingRows(visible, sort.key, sort.dir),
+    [visible, sort.key, sort.dir],
+  );
+
   const dateLine = new Date(data.today).toLocaleDateString("en-IN", {
     day: "numeric",
     month: "short",
@@ -1021,10 +1138,12 @@ export function Bookings({
       />
 
       <BookingsTable
-        rows={visible}
+        rows={sorted}
         totals={totals}
         rooms={data.rooms}
         onMarkPaidCash={setCashDrawerBookingId}
+        sort={sort}
+        onSort={handleSort}
       />
 
       <p className="text-[12px] text-[#7a746a]">
