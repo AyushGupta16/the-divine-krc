@@ -21,6 +21,7 @@ import type {
   BookingListItem,
   BookingSource,
   BookingsPageData,
+  BookingsSummaryKey,
   BookingStatus,
   BookingsTotals,
   GuestPreference,
@@ -328,9 +329,50 @@ const STATUS_META: Record<BookingStatus, StatusMeta> = {
 // "Unassigned rooms" is the hero — the check-in/assign screen's operational
 // figure, ahead of the finance-flavoured "Total collected".
 
-function SummaryCards({ summary }: { summary: BookingsPageData["summary"] }) {
+/** Cards whose figure maps to a row subset — clickable, filter-toggling.
+ *  Occupied/available (room-tonight counts) and URN/room revenue/total
+ *  collected (pure sums) have no such subset and stay display-only. */
+const CLICKABLE_SUMMARY_KEYS = new Set<BookingsSummaryKey>([
+  "unassignedRooms",
+  "checkInsToday",
+  "checkOutsToday",
+  "cancellations",
+  "pendingCollection",
+  "otaReceivables",
+]);
+
+function SummaryCards({
+  summary,
+  activeFilters,
+  onToggle,
+}: {
+  summary: BookingsPageData["summary"];
+  activeFilters: Partial<Record<BookingsSummaryKey, boolean>>;
+  onToggle: (key: BookingsSummaryKey) => void;
+}) {
   const hero = summary.find((s) => s.key === "unassignedRooms");
   const standard = summary.filter((s) => s.key !== "unassignedRooms");
+
+  function interactiveProps(key: BookingsSummaryKey) {
+    if (!CLICKABLE_SUMMARY_KEYS.has(key)) return {};
+    const on = activeFilters[key] ?? false;
+    return {
+      role: "button" as const,
+      tabIndex: 0,
+      "aria-pressed": on,
+      onClick: () => onToggle(key),
+      onKeyDown: (e: React.KeyboardEvent) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onToggle(key);
+        }
+      },
+      className: cn(
+        "cursor-pointer transition-shadow hover:ring-1 hover:ring-gold/50",
+        on && "ring-2 ring-gold",
+      ),
+    };
+  }
 
   return (
     // One block, not two stacked strips: the hero sits in its own column and
@@ -342,10 +384,23 @@ function SummaryCards({ summary }: { summary: BookingsPageData["summary"] }) {
     // standard-card grid instead of trying to preserve the side-by-side shape
     // at a width that can't fit it.
     <div className="grid grid-cols-1 gap-2 lg:grid-cols-[240px_1fr]">
-      {hero && <StatCard variant="hero" label={hero.label} value={hero.value} />}
+      {hero && (
+        <StatCard
+          variant="hero"
+          label={hero.label}
+          value={hero.value}
+          {...interactiveProps(hero.key)}
+        />
+      )}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         {standard.map((s) => (
-          <StatCard key={s.key} variant="compact" label={s.label} value={s.value} />
+          <StatCard
+            key={s.key}
+            variant="compact"
+            label={s.label}
+            value={s.value}
+            {...interactiveProps(s.key)}
+          />
         ))}
       </div>
     </div>
@@ -1054,6 +1109,11 @@ export function Bookings({
   const [cashDrawerBookingId, setCashDrawerBookingId] = useState<string | null>(null);
   const [sort, setSort] = useState<SortState>({ key: null, dir: "asc" });
   const [unassignedFilter, setUnassignedFilter] = useState(unassignedOnly);
+  const [checkInsTodayFilter, setCheckInsTodayFilter] = useState(false);
+  const [checkOutsTodayFilter, setCheckOutsTodayFilter] = useState(false);
+  const [cancellationsFilter, setCancellationsFilter] = useState(false);
+  const [pendingOnlyFilter, setPendingOnlyFilter] = useState(false);
+  const [otaReceivablesFilter, setOtaReceivablesFilter] = useState(false);
 
   function handleSort(key: SortableColumnKey) {
     setSort((prev) => {
@@ -1063,21 +1123,86 @@ export function Bookings({
     });
   }
 
-  // Status tab → unassigned pill (if on) → guest search — each stage
-  // narrows the previous one, so status + unassigned compose as AND, not OR.
+  // Toggles the boolean stat-card filter behind a given summary card. The
+  // unassigned card shares the pill's own state (one filter, two triggers);
+  // cards with no row-subset meaning (occupied/available/URN/revenue/
+  // total-collected) aren't wired to a summary key here, so they no-op.
+  function toggleCardFilter(key: BookingsSummaryKey) {
+    switch (key) {
+      case "unassignedRooms":
+        setUnassignedFilter((v) => !v);
+        return;
+      case "checkInsToday":
+        setCheckInsTodayFilter((v) => !v);
+        return;
+      case "checkOutsToday":
+        setCheckOutsTodayFilter((v) => !v);
+        return;
+      case "cancellations":
+        setCancellationsFilter((v) => !v);
+        return;
+      case "pendingCollection":
+        setPendingOnlyFilter((v) => !v);
+        return;
+      case "otaReceivables":
+        setOtaReceivablesFilter((v) => !v);
+        return;
+      default:
+        return;
+    }
+  }
+
+  const cardFiltersActive: Partial<Record<BookingsSummaryKey, boolean>> = {
+    unassignedRooms: unassignedFilter,
+    checkInsToday: checkInsTodayFilter,
+    checkOutsToday: checkOutsTodayFilter,
+    cancellations: cancellationsFilter,
+    pendingCollection: pendingOnlyFilter,
+    otaReceivables: otaReceivablesFilter,
+  };
+
+  // Status tab → unassigned pill → check-ins/check-outs today → cancellations
+  // → pending → OTA receivables (each only if on) → guest search. Each stage
+  // narrows the previous one, so any combination composes as AND, not OR.
   const visible = useMemo(
     () =>
       filterBookingRows(data.rows, {
         status: active,
         unassignedOnly: unassignedFilter,
+        checkInsToday: checkInsTodayFilter,
+        checkOutsToday: checkOutsTodayFilter,
+        cancellations: cancellationsFilter,
+        pendingOnly: pendingOnlyFilter,
+        otaReceivables: otaReceivablesFilter,
         guestFilter,
+        today: data.today,
       }),
-    [data.rows, active, unassignedFilter, guestFilter],
+    [
+      data.rows,
+      data.today,
+      active,
+      unassignedFilter,
+      checkInsTodayFilter,
+      checkOutsTodayFilter,
+      cancellationsFilter,
+      pendingOnlyFilter,
+      otaReceivablesFilter,
+      guestFilter,
+    ],
   );
+
+  const anyCardOrStatusFilterActive =
+    active !== "all" ||
+    unassignedFilter ||
+    checkInsTodayFilter ||
+    checkOutsTodayFilter ||
+    cancellationsFilter ||
+    pendingOnlyFilter ||
+    otaReceivablesFilter;
 
   // Footer totals track the visible rows so they stay honest as tabs filter.
   const totals = useMemo<BookingsTotals>(() => {
-    if (active === "all" && !unassignedFilter) return data.totals;
+    if (!anyCardOrStatusFilterActive) return data.totals;
     return visible.reduce<BookingsTotals>(
       (acc, { booking: b }) => {
         acc.roomRev += b.revenue.room;
@@ -1101,7 +1226,7 @@ export function Bookings({
         pending: 0,
       },
     );
-  }, [active, unassignedFilter, visible, data.totals]);
+  }, [anyCardOrStatusFilterActive, visible, data.totals]);
 
   const sorted = useMemo(
     () => sortBookingRows(visible, sort.key, sort.dir),
@@ -1145,7 +1270,11 @@ export function Bookings({
         </p>
       )}
 
-      <SummaryCards summary={data.summary} />
+      <SummaryCards
+        summary={data.summary}
+        activeFilters={cardFiltersActive}
+        onToggle={toggleCardFilter}
+      />
 
       <div className="flex flex-wrap items-center gap-2.5">
         <StatusTabs
