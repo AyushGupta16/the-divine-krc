@@ -31,6 +31,7 @@ import type {
   RoomType,
 } from "@/types/booking";
 import { formatINR } from "@/lib/booking-math";
+import { downloadCsv, toCsv } from "@/lib/csv";
 import { adminIssueInvoiceFn } from "@/lib/invoices-data";
 import {
   resolveRequestedServiceFn,
@@ -1233,6 +1234,50 @@ export function Bookings({
     [visible, sort.key, sort.dir],
   );
 
+  function exportCsv() {
+    const csv = toCsv(
+      sorted.map(({ booking: b, guestName: g }) => ({
+        bookingId: b.id,
+        guest: g,
+        room: b.roomNo ?? "Unassigned",
+        type: ROOM_TYPE_LABEL[b.roomType],
+        checkIn: b.checkIn,
+        checkOut: b.checkOut,
+        urn: b.urn,
+        source: SOURCE_LABEL[b.source],
+        mealPlan: b.mealPlan,
+        status: STATUS_META[b.status].label,
+        totalBill: b.totalBill,
+        paid: b.collection.paidToHotel,
+        pending: b.collection.pending,
+        paymentMethod: b.paymentMethod ?? "",
+        razorpayOrderId: b.razorpayOrderId ?? "",
+        razorpayPaymentId: b.razorpayPaymentId ?? "",
+        recordedBy: b.recordedBy ?? "",
+      })),
+      [
+        { key: "bookingId", header: "Booking ID" },
+        { key: "guest", header: "Guest" },
+        { key: "room", header: "Room" },
+        { key: "type", header: "Type" },
+        { key: "checkIn", header: "Check-in" },
+        { key: "checkOut", header: "Check-out" },
+        { key: "urn", header: "Nights (URN)" },
+        { key: "source", header: "Source" },
+        { key: "mealPlan", header: "Meal Plan" },
+        { key: "status", header: "Status" },
+        { key: "totalBill", header: "Total Bill" },
+        { key: "paid", header: "Paid" },
+        { key: "pending", header: "Pending" },
+        { key: "paymentMethod", header: "Payment Method" },
+        { key: "razorpayOrderId", header: "Razorpay Order ID" },
+        { key: "razorpayPaymentId", header: "Razorpay Payment ID" },
+        { key: "recordedBy", header: "Recorded By" },
+      ],
+    );
+    downloadCsv(`bookings-${data.today}.csv`, csv);
+  }
+
   const dateLine = new Date(data.today).toLocaleDateString("en-IN", {
     day: "numeric",
     month: "short",
@@ -1248,6 +1293,7 @@ export function Bookings({
         <div className="flex items-center gap-2">
           <button
             type="button"
+            onClick={exportCsv}
             className="inline-flex items-center gap-2 rounded-md border border-[#eae4d6] bg-white px-3 py-2 text-[12px] font-semibold text-warm-gray transition-colors hover:border-[#d8d0bf]"
           >
             <Download className="size-4" />
