@@ -241,6 +241,7 @@ describe("getPartyHallPageData", () => {
       contactPhone: null,
       contactEmail: null,
       source: null,
+      enquiryDate: null,
     };
     const hydrated = toPartyHall(row, 25);
     expect(hydrated.advancePaid).toBe(25000);
@@ -540,6 +541,7 @@ describe("quoteBreakdown persistence", () => {
       contactPhone: null,
       contactEmail: null,
       source: null,
+      enquiryDate: null,
     };
     expect(() => toPartyHall(row, 25)).not.toThrow();
     const hydrated = toPartyHall(row, 25);

@@ -17,7 +17,7 @@
 //    converts at the edge, and the two id columns below are the only trace of a
 //    gateway payment stored in `bookings`, both nullable (pay-at-hotel never sets them).
 
-import { integer, jsonb, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { date, integer, jsonb, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
 
 export const guests = pgTable("guests", {
   // "G-001" — the property's own ids, not surrogates. They appear in the design
@@ -46,6 +46,10 @@ export const bookings = pgTable("bookings", {
    *  change what those comparisons mean. */
   checkIn: text("check_in").notNull(),
   checkOut: text("check_out").notNull(),
+  /** Expand phase of the TEXT→DATE migration (5d). Dual-written alongside
+   *  checkIn/checkOut on insert; not yet read from. See schema.ts:44-46. */
+  checkInDate: date("check_in_date"),
+  checkOutDate: date("check_out_date"),
   urn: integer("urn").notNull(),
   source: text("source").notNull(),
   mealPlan: text("meal_plan").notNull(),
@@ -139,6 +143,9 @@ export const partyHallEnquiries = pgTable("party_hall_enquiries", {
   title: text("title").notNull(),
   /** ISO date — same string-comparison reason as bookings. */
   date: text("date").notNull(),
+  /** Expand phase of the TEXT→DATE migration (5d). Dual-written alongside
+   *  `date` on insert; not yet read from. */
+  enquiryDate: date("enquiry_date"),
   slot: text("slot").notNull(),
   guests: integer("guests").notNull(),
   /** Package tier name, matching a `PartyHallPackage` — e.g. "Platinum". */
