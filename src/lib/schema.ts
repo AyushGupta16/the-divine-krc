@@ -41,15 +41,13 @@ export const bookings = pgTable("bookings", {
   /** null until a physical room is assigned — the Bookings screen counts these. */
   roomNo: text("room_no"),
   roomType: text("room_type").notNull(),
-  /** ISO dates. `text`, not `date`: the derivation compares them as strings
-   *  (`b.checkIn <= onDate`), and a driver handing back a Date would silently
-   *  change what those comparisons mean. */
-  checkIn: text("check_in").notNull(),
-  checkOut: text("check_out").notNull(),
-  /** Expand phase of the TEXT→DATE migration (5d). Dual-written alongside
-   *  checkIn/checkOut on insert; not yet read from. See schema.ts:44-46. */
-  checkInDate: date("check_in_date"),
-  checkOutDate: date("check_out_date"),
+  /** ISO dates (`date`, mode:'string'). The derivation compares them as
+   *  strings (`b.checkIn <= onDate`); the driver hands ISO strings back, so
+   *  the comparison keeps its lexical meaning. NOT NULL restored in the 5d
+   *  contract phase (0020) after backfill — the old TEXT columns these
+   *  replaced were NOT NULL, and every row is populated. */
+  checkInDate: date("check_in_date").notNull(),
+  checkOutDate: date("check_out_date").notNull(),
   urn: integer("urn").notNull(),
   source: text("source").notNull(),
   mealPlan: text("meal_plan").notNull(),
@@ -141,11 +139,10 @@ export const bookings = pgTable("bookings", {
 export const partyHallEnquiries = pgTable("party_hall_enquiries", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
-  /** ISO date — same string-comparison reason as bookings. */
-  date: text("date").notNull(),
-  /** Expand phase of the TEXT→DATE migration (5d). Dual-written alongside
-   *  `date` on insert; not yet read from. */
-  enquiryDate: date("enquiry_date"),
+  /** ISO date (`date`, mode:'string') — same string-comparison reason as
+   *  bookings. NOT NULL restored in the 5d contract phase (0020) after
+   *  backfill; replaced the old TEXT `date` column, which was NOT NULL. */
+  enquiryDate: date("enquiry_date").notNull(),
   slot: text("slot").notNull(),
   guests: integer("guests").notNull(),
   /** Package tier name, matching a `PartyHallPackage` — e.g. "Platinum". */

@@ -167,9 +167,9 @@ export function toPartyHall(r: PartyHallRow, advancePct: number): PartyHallEnqui
     {
       id: r.id,
       title: r.title,
-      // 5d cutover: read from the native date column, backfilled and dual-written
-      // alongside `date` (still present, not yet dropped).
-      date: r.enquiryDate!,
+      // 5d contract (0020): the native date column is the sole source of
+      // record now — the old TEXT `date` column has been dropped.
+      date: r.enquiryDate,
       slot: r.slot as PartyHallSlot,
       guests: r.guests,
       package: r.package,
@@ -298,8 +298,6 @@ async function insertBooking(guest: Guest, booking: Booking): Promise<void> {
     guestId: booking.guestId,
     roomNo: booking.roomNo,
     roomType: booking.roomType,
-    checkIn: booking.checkIn,
-    checkOut: booking.checkOut,
     checkInDate: booking.checkIn,
     checkOutDate: booking.checkOut,
     urn: booking.urn,
@@ -508,7 +506,6 @@ async function insertPartyHallEnquiry(enquiry: PartyHallEnquiry): Promise<void> 
   await conn.insert(schema.partyHallEnquiries).values({
     id: enquiry.id,
     title: enquiry.title,
-    date: enquiry.date,
     enquiryDate: enquiry.date,
     slot: enquiry.slot,
     guests: enquiry.guests,

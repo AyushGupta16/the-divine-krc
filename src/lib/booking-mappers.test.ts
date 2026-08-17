@@ -13,8 +13,6 @@ const ROW: BookingRow = {
   guestId: "guest-1",
   roomNo: "101",
   roomType: "deluxe",
-  checkIn: "2026-08-01",
-  checkOut: "2026-08-03",
   checkInDate: "2026-08-01",
   checkOutDate: "2026-08-03",
   urn: 2,

@@ -141,6 +141,13 @@
       "when": 1786888321678,
       "tag": "0019_unique_steve_rogers",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786967662688,
+      "tag": "0020_glossy_captain_cross",
+      "breakpoints": true
     }
   ]
 }
