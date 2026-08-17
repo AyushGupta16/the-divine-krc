@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Pencil, Plus } from "lucide-react";
+import { Download, Pencil, Plus } from "lucide-react";
 
 import type { Guest, GuestListItem, GuestsPageData, GuestTier } from "@/types/booking";
 import { formatINR } from "@/lib/booking-math";
+import { downloadCsv, toCsv } from "@/lib/csv";
 import {
   Table,
   TableBody,
@@ -117,18 +118,64 @@ export function Guests({ data }: { data: GuestsPageData }) {
   const [editingGuest, setEditingGuest] = useState<Guest | null>(null);
   const { openGuest } = useEntryForms();
 
+  function exportCsv() {
+    const csv = toCsv(
+      // No client-side filter on this page — the loaded list is the visible
+      // list. Only fields already on screen; no new server call, no wider PII.
+      data.guests.map(({ guest: g, lastStay, inHouse }) => ({
+        name: g.name,
+        phone: g.phone,
+        email: g.email,
+        city: g.city,
+        stays: g.stays,
+        // Raw number; the helper stringifies it (screen formats via formatINR).
+        lifetimeValue: g.lifetimeValue,
+        // Human label the tier badge renders (TIER_TOKENS).
+        tier: TIER_TOKENS[g.tier].label,
+        lastStay,
+        inHouse: inHouse ? "Yes" : "No",
+      })),
+      [
+        { key: "name", header: "Name" },
+        { key: "phone", header: "Phone" },
+        { key: "email", header: "Email" },
+        { key: "city", header: "City" },
+        { key: "stays", header: "Stays" },
+        { key: "lifetimeValue", header: "Lifetime Value" },
+        { key: "tier", header: "Tier" },
+        { key: "lastStay", header: "Last Stay" },
+        { key: "inHouse", header: "In-House" },
+      ],
+    );
+    // GuestsPageData has no date anchor. This Date is filename-cosmetic only —
+    // a download label to avoid collisions, never written into the CSV content.
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadCsv(`guests-${stamp}.csv`, csv);
+  }
+
   return (
     <div className="flex flex-col gap-5 p-4 sm:p-6.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-[12px] tracking-[0.01em] text-[#7a746a]">{data.subtitle}</p>
-        <button
-          type="button"
-          onClick={openGuest}
-          className="inline-flex items-center gap-2 rounded-md bg-gold px-3 py-2 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
-        >
-          <Plus className="size-4" />
-          New guest
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            title="Export CSV"
+            onClick={exportCsv}
+            className="inline-flex items-center gap-2 rounded-md border border-[#eae4d6] bg-white px-3 py-2 text-[12px] font-semibold text-warm-gray transition-colors hover:border-[#d8d0bf]"
+          >
+            <Download className="size-4" />
+            Export
+          </button>
+          <button
+            type="button"
+            onClick={openGuest}
+            className="inline-flex items-center gap-2 rounded-md bg-gold px-3 py-2 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
+          >
+            <Plus className="size-4" />
+            New guest
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
