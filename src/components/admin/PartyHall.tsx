@@ -1,9 +1,18 @@
 import { useMemo, useState } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
-import { ChevronLeft, ChevronRight, FileText, Loader2, MessageCircle, Plus } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  FileText,
+  Loader2,
+  MessageCircle,
+  Plus,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { shiftCalendarMonth } from "@/lib/bookings";
+import { downloadCsv, toCsv } from "@/lib/csv";
 import {
   buildWhatsAppQuoteLink,
   composeWhatsAppQuoteMessage,
@@ -18,6 +27,7 @@ import type {
   PartyHallPageData,
   PartyHallPill,
   PartyHallPillKey,
+  PartyHallSlot,
   PartyHallStat,
   PartyHallStatus,
 } from "@/types/booking";
@@ -611,6 +621,15 @@ function matchesPill(item: PartyHallEventItem, key: PartyHallPillKey): boolean {
 
 // ── Page ────────────────────────────────────────────────────────────────────
 
+/** Slot → display label, mirroring `SLOT_LABEL` in bookings.ts (kept local so
+ *  the export doesn't reach into that module's un-exported table). */
+const SLOT_LABEL: Record<PartyHallSlot, string> = {
+  morning: "Morning",
+  afternoon: "Afternoon",
+  evening: "Evening",
+  full_day: "Full day",
+};
+
 export function PartyHall({
   data,
   year,
@@ -628,18 +647,73 @@ export function PartyHall({
     [data.events, pillFilter],
   );
 
+  function exportCsv() {
+    const csv = toCsv(
+      // Export what's on screen: the loader fetches one month at a time, and
+      // the pill filter narrows within it — so visibleEvents is current month +
+      // active pill. Only fields already on screen; no new server call, no
+      // wider PII.
+      visibleEvents.map(({ enquiry: e, statusLabel }) => ({
+        date: e.date,
+        event: e.title,
+        // Human label the card renders (matches bookings.ts SLOT_LABEL).
+        slot: SLOT_LABEL[e.slot],
+        guests: e.guests,
+        package: e.package,
+        // Package add-ons, as the card's tags show them.
+        addOns: e.addOns.join("; "),
+        // Human label matching the status pill.
+        status: statusLabel,
+        // Raw number; the helper stringifies it (the card shows a formatted
+        // "₹—"/"₹1.4L" — this is the underlying value).
+        amount: e.amount,
+        // Optional contact fields — empty when the enquiry never captured them.
+        contactName: e.contactName ?? "",
+        contactPhone: e.contactPhone ?? "",
+        contactEmail: e.contactEmail ?? "",
+      })),
+      [
+        { key: "date", header: "Date" },
+        { key: "event", header: "Event" },
+        { key: "slot", header: "Slot" },
+        { key: "guests", header: "Guests" },
+        { key: "package", header: "Package" },
+        { key: "addOns", header: "Add-ons" },
+        { key: "status", header: "Status" },
+        { key: "amount", header: "Amount" },
+        { key: "contactName", header: "Contact Name" },
+        { key: "contactPhone", header: "Contact Phone" },
+        { key: "contactEmail", header: "Contact Email" },
+      ],
+    );
+    // Month in the filename so exports from different months don't collide —
+    // the year/month the page is already on, no fresh Date().
+    downloadCsv(`party-hall-${year}-${String(month).padStart(2, "0")}.csv`, csv);
+  }
+
   return (
     <div className="flex flex-col gap-5 p-4 sm:p-6.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-[12px] tracking-[0.01em] text-[#7a746a]">{data.subtitle}</p>
-        <button
-          type="button"
-          onClick={openEvent}
-          className="inline-flex items-center gap-2 rounded-md bg-gold px-3 py-2 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
-        >
-          <Plus className="size-4" />
-          New event
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            title="Export CSV"
+            onClick={exportCsv}
+            className="inline-flex items-center gap-2 rounded-md border border-[#eae4d6] bg-white px-3 py-2 text-[12px] font-semibold text-warm-gray transition-colors hover:border-[#d8d0bf]"
+          >
+            <Download className="size-4" />
+            Export
+          </button>
+          <button
+            type="button"
+            onClick={openEvent}
+            className="inline-flex items-center gap-2 rounded-md bg-gold px-3 py-2 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
+          >
+            <Plus className="size-4" />
+            New event
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4.5 sm:grid-cols-2 lg:grid-cols-5">
