@@ -51,25 +51,34 @@ async function main() {
   }
 
   const guests = fixtures.guests.map(({ tier: _tier, ...g }) => g);
-  const bookings = fixtures.bookings.map(({ totalBill: _t, revenue, collection, ...b }) => ({
-    ...b,
-    createdAt: new Date(b.createdAt),
-    roomAssignedAt: b.roomAssignedAt ? new Date(b.roomAssignedAt) : null,
-    paidAt: b.paidAt ? new Date(b.paidAt) : null,
-    revenueRoom: revenue.room,
-    revenueEarlyCheckIn: revenue.earlyCheckIn,
-    revenueLateCheckOut: revenue.lateCheckOut,
-    revenueOther: revenue.other,
-    revenueDiscount: revenue.discount,
-    revenueTaxPct: revenue.taxPct,
-    collectionPaidToHotel: collection.paidToHotel,
-    collectionOtaCollection: collection.otaCollection,
-    collectionOtaCommission: collection.otaCommission,
-    collectionComplimentary: collection.complimentary,
-    collectionPending: collection.pending,
-  }));
-  const partyHall = fixtures.partyHall.map(({ advancePaid: _a, ...e }) => ({
+  const bookings = fixtures.bookings.map(
+    ({ totalBill: _t, revenue, collection, checkIn, checkOut, ...b }) => ({
+      ...b,
+      // 5d contract (0020): the TEXT check_in/check_out columns are gone; the
+      // domain checkIn/checkOut seed straight into the native date columns.
+      checkInDate: checkIn,
+      checkOutDate: checkOut,
+      createdAt: new Date(b.createdAt),
+      roomAssignedAt: b.roomAssignedAt ? new Date(b.roomAssignedAt) : null,
+      paidAt: b.paidAt ? new Date(b.paidAt) : null,
+      revenueRoom: revenue.room,
+      revenueEarlyCheckIn: revenue.earlyCheckIn,
+      revenueLateCheckOut: revenue.lateCheckOut,
+      revenueOther: revenue.other,
+      revenueDiscount: revenue.discount,
+      revenueTaxPct: revenue.taxPct,
+      collectionPaidToHotel: collection.paidToHotel,
+      collectionOtaCollection: collection.otaCollection,
+      collectionOtaCommission: collection.otaCommission,
+      collectionComplimentary: collection.complimentary,
+      collectionPending: collection.pending,
+    }),
+  );
+  const partyHall = fixtures.partyHall.map(({ advancePaid: _a, date, ...e }) => ({
     ...e,
+    // 5d contract (0020): the TEXT `date` column is gone; the domain `date`
+    // seeds straight into the native enquiry_date column.
+    enquiryDate: date,
     createdAt: e.createdAt ? new Date(e.createdAt) : null,
     quotedAt: e.quotedAt ? new Date(e.quotedAt) : null,
     refundedAt: e.refundedAt ? new Date(e.refundedAt) : null,
