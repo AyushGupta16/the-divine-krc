@@ -1422,8 +1422,40 @@ export function markBookingPaid(
 /** Statuses that hold a physical room off the market. */
 export const OCCUPYING_STATUSES = new Set(["confirmed", "checked_in", "pending_payment"]);
 
+/**
+ * A booking that still needs a room but doesn't have one — the shared
+ * predicate behind the dashboard/summary "Unassigned rooms" count, the
+ * `unassignedOnly` scoped view, and the Bookings screen's unassigned pill.
+ * `checked_out`/`cancelled`/`no_show` bookings never need a room, so they're
+ * excluded via `OCCUPYING_STATUSES` rather than checked separately.
+ */
+export function isUnassignedOccupyingBooking(b: Pick<Booking, "roomNo" | "status">): boolean {
+  return b.roomNo === null && OCCUPYING_STATUSES.has(b.status);
+}
+
 /** A stay the guest never took. Money held against one is owed back, not earned. */
 const VOID_STAY_STATUSES = new Set<BookingStatus>(["cancelled", "no_show"]);
+
+/**
+ * The Bookings screen's "Cancellations" figure — `cancelled` and `no_show`
+ * together, same set as `VOID_STAY_STATUSES` — as a row-level predicate for
+ * the Cancellations stat-card filter. Deliberately not exposing
+ * `VOID_STAY_STATUSES` itself; callers outside this module get the
+ * predicate, not the Set.
+ */
+export function isCancelledOrNoShow(b: Pick<Booking, "status">): boolean {
+  return VOID_STAY_STATUSES.has(b.status);
+}
+
+/** Row-level form of the Bookings summary's "Today's check-ins" count. */
+export function isCheckInOn(b: Pick<Booking, "checkIn">, date: string): boolean {
+  return b.checkIn === date;
+}
+
+/** Row-level form of the Bookings summary's "Today's check-outs" count. */
+export function isCheckOutOn(b: Pick<Booking, "checkOut">, date: string): boolean {
+  return b.checkOut === date;
+}
 
 /** A stay that has begun — the guest has arrived, whether in-house or gone. */
 const ARRIVED_STATUSES = new Set<BookingStatus>(["checked_in", "checked_out"]);
@@ -1850,9 +1882,7 @@ export async function getBookingsPageData(
     0,
   );
 
-  const unassignedRooms = data.bookings.filter(
-    (b) => b.roomNo === null && OCCUPYING_STATUSES.has(b.status),
-  ).length;
+  const unassignedRooms = data.bookings.filter(isUnassignedOccupyingBooking).length;
 
   const summary: BookingsPageData["summary"] = [
     {
@@ -1863,12 +1893,12 @@ export async function getBookingsPageData(
     {
       key: "checkInsToday",
       label: "Today's check-ins",
-      value: String(data.bookings.filter((b) => b.checkIn === today).length),
+      value: String(data.bookings.filter((b) => isCheckInOn(b, today)).length),
     },
     {
       key: "checkOutsToday",
       label: "Today's check-outs",
-      value: String(data.bookings.filter((b) => b.checkOut === today).length),
+      value: String(data.bookings.filter((b) => isCheckOutOn(b, today)).length),
     },
     {
       key: "occupied",
@@ -2817,7 +2847,7 @@ const OTA_CHANNELS: Record<
 };
 
 /** True for a booking sold through an OTA rather than direct/walk-in/phone. */
-function isOtaSource(source: BookingSource): boolean {
+export function isOtaSource(source: BookingSource): boolean {
   return source in OTA_CHANNELS;
 }
 

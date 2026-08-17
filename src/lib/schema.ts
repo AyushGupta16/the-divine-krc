@@ -17,7 +17,7 @@
 //    converts at the edge, and the two id columns below are the only trace of a
 //    gateway payment stored in `bookings`, both nullable (pay-at-hotel never sets them).
 
-import { integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { date, integer, jsonb, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
 
 export const guests = pgTable("guests", {
   // "G-001" — the property's own ids, not surrogates. They appear in the design
@@ -46,6 +46,10 @@ export const bookings = pgTable("bookings", {
    *  change what those comparisons mean. */
   checkIn: text("check_in").notNull(),
   checkOut: text("check_out").notNull(),
+  /** Expand phase of the TEXT→DATE migration (5d). Dual-written alongside
+   *  checkIn/checkOut on insert; not yet read from. See schema.ts:44-46. */
+  checkInDate: date("check_in_date"),
+  checkOutDate: date("check_out_date"),
   urn: integer("urn").notNull(),
   source: text("source").notNull(),
   mealPlan: text("meal_plan").notNull(),
@@ -139,6 +143,9 @@ export const partyHallEnquiries = pgTable("party_hall_enquiries", {
   title: text("title").notNull(),
   /** ISO date — same string-comparison reason as bookings. */
   date: text("date").notNull(),
+  /** Expand phase of the TEXT→DATE migration (5d). Dual-written alongside
+   *  `date` on insert; not yet read from. */
+  enquiryDate: date("enquiry_date"),
   slot: text("slot").notNull(),
   guests: integer("guests").notNull(),
   /** Package tier name, matching a `PartyHallPackage` — e.g. "Platinum". */
@@ -313,4 +320,32 @@ export const invoices = pgTable("invoices", {
   refId: text("ref_id").notNull(),
   bookingIds: jsonb("booking_ids").$type<string[]>().notNull().default([]),
   issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
+});
+
+/**
+ * Slice 3's status-change audit log — one row per `bookings.status`
+ * transition, written by the same writers that already update `bookings`
+ * (`updateBookingStatus` / `updateBookingPayment`), in a follow-up PR. Schema
+ * and migration only here: no write path inserts into this table yet.
+ *
+ * No existing table in this schema has a generated surrogate key — every
+ * other primary key is a natural/business-assigned id (`KRC-…`, `G-001`, an
+ * email, an invite token). A history row has no such candidate (many rows
+ * per booking, nothing unique to key on besides the pair), so this is the
+ * one table that uses a plain auto-increment `serial` id instead.
+ */
+export const bookingStatusHistory = pgTable("booking_status_history", {
+  id: serial("id").primaryKey(),
+  bookingId: text("booking_id")
+    .notNull()
+    .references(() => bookings.id),
+  /** Null only for a booking's first recorded transition — there is no prior
+   *  status to name. Never null after that. */
+  fromStatus: text("from_status"),
+  toStatus: text("to_status").notNull(),
+  /** The member who made the change, matching `bookings.recordedBy`'s
+   *  pattern; null reserved for a future system-initiated transition, since
+   *  every write path today requires a signed-in session. */
+  changedBy: text("changed_by"),
+  changedAt: timestamp("changed_at", { withTimezone: true }).notNull(),
 });

@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import {
+  ChevronDown,
+  ChevronUp,
   Download,
   FileText,
   LogIn,
@@ -19,6 +21,7 @@ import type {
   BookingListItem,
   BookingSource,
   BookingsPageData,
+  BookingsSummaryKey,
   BookingStatus,
   BookingsTotals,
   GuestPreference,
@@ -28,6 +31,7 @@ import type {
   RoomType,
 } from "@/types/booking";
 import { formatINR } from "@/lib/booking-math";
+import { downloadCsv, toCsv } from "@/lib/csv";
 import { adminIssueInvoiceFn } from "@/lib/invoices-data";
 import {
   resolveRequestedServiceFn,
@@ -36,6 +40,13 @@ import {
   updateBookingStatusFn,
 } from "@/lib/bookings-data";
 import { DIRECT_SOURCES } from "@/lib/bookings";
+import { filterBookingRows } from "@/lib/bookings-filter";
+import {
+  sortBookingRows,
+  STATUS_ORDER,
+  type SortableColumnKey,
+  type SortDir,
+} from "@/lib/bookings-sort";
 import { useEntryForms } from "@/components/admin/entry-forms-context";
 import { CashPaymentForm } from "@/components/admin/CashPaymentForm";
 import {
@@ -315,23 +326,54 @@ const STATUS_META: Record<BookingStatus, StatusMeta> = {
   no_show: { label: "No Show", color: "#3a3a3a", bg: "#ececec" },
 };
 
-/** Tab order (after the pinned "All" tab). */
-const STATUS_ORDER: BookingStatus[] = [
-  "confirmed",
-  "checked_in",
-  "checked_out",
-  "pending_payment",
-  "cancelled",
-  "no_show",
-];
-
 // ── Summary cards ─────────────────────────────────────────────────────────
 // "Unassigned rooms" is the hero — the check-in/assign screen's operational
 // figure, ahead of the finance-flavoured "Total collected".
 
-function SummaryCards({ summary }: { summary: BookingsPageData["summary"] }) {
+/** Cards whose figure maps to a row subset — clickable, filter-toggling.
+ *  Occupied/available (room-tonight counts) and URN/room revenue/total
+ *  collected (pure sums) have no such subset and stay display-only. */
+const CLICKABLE_SUMMARY_KEYS = new Set<BookingsSummaryKey>([
+  "unassignedRooms",
+  "checkInsToday",
+  "checkOutsToday",
+  "cancellations",
+  "pendingCollection",
+  "otaReceivables",
+]);
+
+function SummaryCards({
+  summary,
+  activeFilters,
+  onToggle,
+}: {
+  summary: BookingsPageData["summary"];
+  activeFilters: Partial<Record<BookingsSummaryKey, boolean>>;
+  onToggle: (key: BookingsSummaryKey) => void;
+}) {
   const hero = summary.find((s) => s.key === "unassignedRooms");
   const standard = summary.filter((s) => s.key !== "unassignedRooms");
+
+  function interactiveProps(key: BookingsSummaryKey) {
+    if (!CLICKABLE_SUMMARY_KEYS.has(key)) return {};
+    const on = activeFilters[key] ?? false;
+    return {
+      role: "button" as const,
+      tabIndex: 0,
+      "aria-pressed": on,
+      onClick: () => onToggle(key),
+      onKeyDown: (e: React.KeyboardEvent) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onToggle(key);
+        }
+      },
+      className: cn(
+        "cursor-pointer transition-shadow hover:ring-1 hover:ring-gold/50",
+        on && "ring-2 ring-gold",
+      ),
+    };
+  }
 
   return (
     // One block, not two stacked strips: the hero sits in its own column and
@@ -343,10 +385,23 @@ function SummaryCards({ summary }: { summary: BookingsPageData["summary"] }) {
     // standard-card grid instead of trying to preserve the side-by-side shape
     // at a width that can't fit it.
     <div className="grid grid-cols-1 gap-2 lg:grid-cols-[240px_1fr]">
-      {hero && <StatCard variant="hero" label={hero.label} value={hero.value} />}
+      {hero && (
+        <StatCard
+          variant="hero"
+          label={hero.label}
+          value={hero.value}
+          {...interactiveProps(hero.key)}
+        />
+      )}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         {standard.map((s) => (
-          <StatCard key={s.key} variant="compact" label={s.label} value={s.value} />
+          <StatCard
+            key={s.key}
+            variant="compact"
+            label={s.label}
+            value={s.value}
+            {...interactiveProps(s.key)}
+          />
         ))}
       </div>
     </div>
@@ -404,6 +459,38 @@ function StatusTabs({
   );
 }
 
+/**
+ * A toggle, not a status chip — dashed border + gold accent (vs. the status
+ * tabs' solid obsidian) so it reads as a second, independently-stackable
+ * filter dimension rather than another entry in the single-select row above.
+ */
+function UnassignedPill({
+  on,
+  count,
+  onToggle,
+}: {
+  on: boolean;
+  count: string;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={on}
+      className={cn(
+        "flex items-center gap-1.75 rounded-full border px-3.25 py-1.5 text-[12px] font-semibold transition-colors",
+        on
+          ? "border-solid border-gold bg-gold/15 text-obsidian"
+          : "border-dashed border-[#d8d0bf] bg-white text-warm-gray hover:border-[#c5b993]",
+      )}
+    >
+      Unassigned
+      <span className="text-[11px] font-bold opacity-75">{count}</span>
+    </button>
+  );
+}
+
 // ── Table ─────────────────────────────────────────────────────────────────
 
 const bandHead =
@@ -435,6 +522,53 @@ const STICKY_CELL: Record<"sr" | "id" | "guest", string> = {
   id: "sm:sticky sm:left-[40px] sm:z-10 sm:bg-white sm:group-hover:bg-[#faf7ef] min-w-36",
   guest: "sticky left-0 sm:left-[184px] z-10 bg-white group-hover:bg-[#faf7ef] min-w-36",
 };
+
+interface SortState {
+  key: SortableColumnKey | null;
+  dir: SortDir;
+}
+
+/** Sortable column header — same colHead styling, plus a click target and an
+ *  asc/desc caret (lucide's ChevronUp/ChevronDown, matching `select.tsx`'s
+ *  existing indicator pattern) shown only on the active column. */
+function SortHead({
+  label,
+  columnKey,
+  sort,
+  onSort,
+  align = "left",
+  className,
+}: {
+  label: string;
+  columnKey: SortableColumnKey;
+  sort: SortState;
+  onSort: (key: SortableColumnKey) => void;
+  align?: "left" | "right";
+  className?: string;
+}) {
+  const active = sort.key === columnKey;
+  return (
+    <TableHead className={cn(colHead, align === "right" && "text-right", className)}>
+      <button
+        type="button"
+        onClick={() => onSort(columnKey)}
+        className={cn(
+          "inline-flex items-center gap-0.5 uppercase tracking-wider hover:text-[#7a746a]",
+          align === "right" && "flex-row-reverse",
+          active && "text-obsidian",
+        )}
+      >
+        {label}
+        {active &&
+          (sort.dir === "asc" ? (
+            <ChevronUp className="size-3" />
+          ) : (
+            <ChevronDown className="size-3" />
+          ))}
+      </button>
+    </TableHead>
+  );
+}
 
 function StatusSelect({
   status,
@@ -822,11 +956,15 @@ function BookingsTable({
   totals,
   rooms,
   onMarkPaidCash,
+  sort,
+  onSort,
 }: {
   rows: BookingListItem[];
   totals: BookingsTotals;
   rooms: RoomTile[];
   onMarkPaidCash: (bookingId: string) => void;
+  sort: SortState;
+  onSort: (key: SortableColumnKey) => void;
 }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-[#eae4d6] bg-white">
@@ -848,24 +986,78 @@ function BookingsTable({
           {/* column heads */}
           <TableRow className="border-b border-[#eae4d6] bg-[#faf7ef] hover:bg-[#faf7ef]">
             <TableHead className={cn(colHead, STICKY_HEAD.sr)}>Sr</TableHead>
-            <TableHead className={cn(colHead, STICKY_HEAD.id)}>Booking ID</TableHead>
-            <TableHead className={cn(colHead, STICKY_HEAD.guest)}>Guest</TableHead>
-            <TableHead className={colHead}>Room</TableHead>
-            <TableHead className={colHead}>Type</TableHead>
-            <TableHead className={colHead}>Check-in</TableHead>
-            <TableHead className={colHead}>Check-out</TableHead>
-            <TableHead className={colHead}>URN</TableHead>
-            <TableHead className={colHead}>Source</TableHead>
-            <TableHead className={colHead}>Meal</TableHead>
-            <TableHead className={cn(colHead, "text-right")}>Room Rev</TableHead>
-            <TableHead className={cn(colHead, "text-right")}>Early CI</TableHead>
-            <TableHead className={cn(colHead, "text-right")}>Late CO</TableHead>
-            <TableHead className={cn(colHead, "text-right")}>Other</TableHead>
-            <TableHead className={cn(colHead, "text-right")}>Total Bill</TableHead>
-            <TableHead className={cn(colHead, "text-right")}>Paid Hotel</TableHead>
-            <TableHead className={cn(colHead, "text-right")}>OTA Coll</TableHead>
-            <TableHead className={cn(colHead, "text-right")}>Pending</TableHead>
-            <TableHead className={colHead}>Status</TableHead>
+            <SortHead
+              label="Booking ID"
+              columnKey="id"
+              sort={sort}
+              onSort={onSort}
+              className={STICKY_HEAD.id}
+            />
+            <SortHead
+              label="Guest"
+              columnKey="guestName"
+              sort={sort}
+              onSort={onSort}
+              className={STICKY_HEAD.guest}
+            />
+            <SortHead label="Room" columnKey="roomNo" sort={sort} onSort={onSort} />
+            <SortHead label="Type" columnKey="roomType" sort={sort} onSort={onSort} />
+            <SortHead label="Check-in" columnKey="checkIn" sort={sort} onSort={onSort} />
+            <SortHead label="Check-out" columnKey="checkOut" sort={sort} onSort={onSort} />
+            <SortHead label="URN" columnKey="urn" sort={sort} onSort={onSort} />
+            <SortHead label="Source" columnKey="source" sort={sort} onSort={onSort} />
+            <SortHead label="Meal" columnKey="mealPlan" sort={sort} onSort={onSort} />
+            <SortHead
+              label="Room Rev"
+              columnKey="roomRev"
+              sort={sort}
+              onSort={onSort}
+              align="right"
+            />
+            <SortHead
+              label="Early CI"
+              columnKey="earlyCheckIn"
+              sort={sort}
+              onSort={onSort}
+              align="right"
+            />
+            <SortHead
+              label="Late CO"
+              columnKey="lateCheckOut"
+              sort={sort}
+              onSort={onSort}
+              align="right"
+            />
+            <SortHead label="Other" columnKey="other" sort={sort} onSort={onSort} align="right" />
+            <SortHead
+              label="Total Bill"
+              columnKey="totalBill"
+              sort={sort}
+              onSort={onSort}
+              align="right"
+            />
+            <SortHead
+              label="Paid Hotel"
+              columnKey="paidToHotel"
+              sort={sort}
+              onSort={onSort}
+              align="right"
+            />
+            <SortHead
+              label="OTA Coll"
+              columnKey="otaCollection"
+              sort={sort}
+              onSort={onSort}
+              align="right"
+            />
+            <SortHead
+              label="Pending"
+              columnKey="pending"
+              sort={sort}
+              onSort={onSort}
+              align="right"
+            />
+            <SortHead label="Status" columnKey="status" sort={sort} onSort={onSort} />
             <TableHead className={colHead}>Invoice</TableHead>
             <TableHead className={colHead}>Actions</TableHead>
           </TableRow>
@@ -901,15 +1093,6 @@ function BookingsTable({
 
 // ── Page ──────────────────────────────────────────────────────────────────
 
-// Mirrors `OCCUPYING_STATUSES` in `lib/bookings.ts` — the dashboard's
-// "Unassigned rooms" stat counts exactly these, so the scoped view it links
-// to must filter the same set or the count and the rows it lands on disagree.
-const UNASSIGNED_SCOPE_STATUSES = new Set<BookingStatus>([
-  "confirmed",
-  "checked_in",
-  "pending_payment",
-]);
-
 export function Bookings({
   data,
   guestFilter,
@@ -917,38 +1100,110 @@ export function Bookings({
 }: {
   data: BookingsPageData;
   guestFilter?: string;
+  /** Route-level scoped view (e.g. the dashboard's "Unassigned rooms" link)
+   *  — seeds the pill's initial state; from then on the pill is a normal
+   *  toggle the admin can turn back off. */
   unassignedOnly?: boolean;
 }) {
   const [active, setActive] = useState<TabKey>("all");
   const { openBooking } = useEntryForms();
   const [cashDrawerBookingId, setCashDrawerBookingId] = useState<string | null>(null);
+  const [sort, setSort] = useState<SortState>({ key: null, dir: "asc" });
+  const [unassignedFilter, setUnassignedFilter] = useState(unassignedOnly);
+  const [checkInsTodayFilter, setCheckInsTodayFilter] = useState(false);
+  const [checkOutsTodayFilter, setCheckOutsTodayFilter] = useState(false);
+  const [cancellationsFilter, setCancellationsFilter] = useState(false);
+  const [pendingOnlyFilter, setPendingOnlyFilter] = useState(false);
+  const [otaReceivablesFilter, setOtaReceivablesFilter] = useState(false);
 
-  const byStatus = useMemo(
-    () => (active === "all" ? data.rows : data.rows.filter((r) => r.booking.status === active)),
-    [active, data.rows],
-  );
+  function handleSort(key: SortableColumnKey) {
+    setSort((prev) => {
+      if (prev.key !== key) return { key, dir: "asc" };
+      if (prev.dir === "asc") return { key, dir: "desc" };
+      return { key: null, dir: "asc" };
+    });
+  }
 
-  const byGuest = useMemo(
-    () =>
-      guestFilter
-        ? byStatus.filter((r) => r.guestName.toLowerCase() === guestFilter.toLowerCase())
-        : byStatus,
-    [byStatus, guestFilter],
-  );
+  // Toggles the boolean stat-card filter behind a given summary card. The
+  // unassigned card shares the pill's own state (one filter, two triggers);
+  // cards with no row-subset meaning (occupied/available/URN/revenue/
+  // total-collected) aren't wired to a summary key here, so they no-op.
+  function toggleCardFilter(key: BookingsSummaryKey) {
+    switch (key) {
+      case "unassignedRooms":
+        setUnassignedFilter((v) => !v);
+        return;
+      case "checkInsToday":
+        setCheckInsTodayFilter((v) => !v);
+        return;
+      case "checkOutsToday":
+        setCheckOutsTodayFilter((v) => !v);
+        return;
+      case "cancellations":
+        setCancellationsFilter((v) => !v);
+        return;
+      case "pendingCollection":
+        setPendingOnlyFilter((v) => !v);
+        return;
+      case "otaReceivables":
+        setOtaReceivablesFilter((v) => !v);
+        return;
+      default:
+        return;
+    }
+  }
 
+  const cardFiltersActive: Partial<Record<BookingsSummaryKey, boolean>> = {
+    unassignedRooms: unassignedFilter,
+    checkInsToday: checkInsTodayFilter,
+    checkOutsToday: checkOutsTodayFilter,
+    cancellations: cancellationsFilter,
+    pendingCollection: pendingOnlyFilter,
+    otaReceivables: otaReceivablesFilter,
+  };
+
+  // Status tab → unassigned pill → check-ins/check-outs today → cancellations
+  // → pending → OTA receivables (each only if on) → guest search. Each stage
+  // narrows the previous one, so any combination composes as AND, not OR.
   const visible = useMemo(
     () =>
-      unassignedOnly
-        ? byGuest.filter(
-            (r) => r.booking.roomNo === null && UNASSIGNED_SCOPE_STATUSES.has(r.booking.status),
-          )
-        : byGuest,
-    [byGuest, unassignedOnly],
+      filterBookingRows(data.rows, {
+        status: active,
+        unassignedOnly: unassignedFilter,
+        checkInsToday: checkInsTodayFilter,
+        checkOutsToday: checkOutsTodayFilter,
+        cancellations: cancellationsFilter,
+        pendingOnly: pendingOnlyFilter,
+        otaReceivables: otaReceivablesFilter,
+        guestFilter,
+        today: data.today,
+      }),
+    [
+      data.rows,
+      data.today,
+      active,
+      unassignedFilter,
+      checkInsTodayFilter,
+      checkOutsTodayFilter,
+      cancellationsFilter,
+      pendingOnlyFilter,
+      otaReceivablesFilter,
+      guestFilter,
+    ],
   );
+
+  const anyCardOrStatusFilterActive =
+    active !== "all" ||
+    unassignedFilter ||
+    checkInsTodayFilter ||
+    checkOutsTodayFilter ||
+    cancellationsFilter ||
+    pendingOnlyFilter ||
+    otaReceivablesFilter;
 
   // Footer totals track the visible rows so they stay honest as tabs filter.
   const totals = useMemo<BookingsTotals>(() => {
-    if (active === "all") return data.totals;
+    if (!anyCardOrStatusFilterActive) return data.totals;
     return visible.reduce<BookingsTotals>(
       (acc, { booking: b }) => {
         acc.roomRev += b.revenue.room;
@@ -972,7 +1227,56 @@ export function Bookings({
         pending: 0,
       },
     );
-  }, [active, visible, data.totals]);
+  }, [anyCardOrStatusFilterActive, visible, data.totals]);
+
+  const sorted = useMemo(
+    () => sortBookingRows(visible, sort.key, sort.dir),
+    [visible, sort.key, sort.dir],
+  );
+
+  function exportCsv() {
+    const csv = toCsv(
+      sorted.map(({ booking: b, guestName: g }) => ({
+        bookingId: b.id,
+        guest: g,
+        room: b.roomNo ?? "Unassigned",
+        type: ROOM_TYPE_LABEL[b.roomType],
+        checkIn: b.checkIn,
+        checkOut: b.checkOut,
+        urn: b.urn,
+        source: SOURCE_LABEL[b.source],
+        mealPlan: b.mealPlan,
+        status: STATUS_META[b.status].label,
+        totalBill: b.totalBill,
+        paid: b.collection.paidToHotel,
+        pending: b.collection.pending,
+        paymentMethod: b.paymentMethod ?? "",
+        razorpayOrderId: b.razorpayOrderId ?? "",
+        razorpayPaymentId: b.razorpayPaymentId ?? "",
+        recordedBy: b.recordedBy ?? "",
+      })),
+      [
+        { key: "bookingId", header: "Booking ID" },
+        { key: "guest", header: "Guest" },
+        { key: "room", header: "Room" },
+        { key: "type", header: "Type" },
+        { key: "checkIn", header: "Check-in" },
+        { key: "checkOut", header: "Check-out" },
+        { key: "urn", header: "Nights (URN)" },
+        { key: "source", header: "Source" },
+        { key: "mealPlan", header: "Meal Plan" },
+        { key: "status", header: "Status" },
+        { key: "totalBill", header: "Total Bill" },
+        { key: "paid", header: "Paid" },
+        { key: "pending", header: "Pending" },
+        { key: "paymentMethod", header: "Payment Method" },
+        { key: "razorpayOrderId", header: "Razorpay Order ID" },
+        { key: "razorpayPaymentId", header: "Razorpay Payment ID" },
+        { key: "recordedBy", header: "Recorded By" },
+      ],
+    );
+    downloadCsv(`bookings-${data.today}.csv`, csv);
+  }
 
   const dateLine = new Date(data.today).toLocaleDateString("en-IN", {
     day: "numeric",
@@ -989,6 +1293,7 @@ export function Bookings({
         <div className="flex items-center gap-2">
           <button
             type="button"
+            onClick={exportCsv}
             className="inline-flex items-center gap-2 rounded-md border border-[#eae4d6] bg-white px-3 py-2 text-[12px] font-semibold text-warm-gray transition-colors hover:border-[#d8d0bf]"
           >
             <Download className="size-4" />
@@ -1005,26 +1310,40 @@ export function Bookings({
         </div>
       </div>
 
-      {unassignedOnly && (
+      {unassignedFilter && (
         <p className="rounded-md border border-[#eae4d6] bg-[#faf7ef] px-3.5 py-2.5 text-[12px] font-semibold text-warm-gray">
           Showing only bookings without a room assigned.
         </p>
       )}
 
-      <SummaryCards summary={data.summary} />
-
-      <StatusTabs
-        counts={data.countsByStatus}
-        total={data.total}
-        active={active}
-        onSelect={setActive}
+      <SummaryCards
+        summary={data.summary}
+        activeFilters={cardFiltersActive}
+        onToggle={toggleCardFilter}
       />
 
+      <div className="flex flex-wrap items-center gap-2.5">
+        <StatusTabs
+          counts={data.countsByStatus}
+          total={data.total}
+          active={active}
+          onSelect={setActive}
+        />
+        <span className="hidden h-5 w-px bg-[#eae4d6] sm:block" />
+        <UnassignedPill
+          on={unassignedFilter}
+          count={data.summary.find((s) => s.key === "unassignedRooms")?.value ?? "0"}
+          onToggle={() => setUnassignedFilter((v) => !v)}
+        />
+      </div>
+
       <BookingsTable
-        rows={visible}
+        rows={sorted}
         totals={totals}
         rooms={data.rooms}
         onMarkPaidCash={setCashDrawerBookingId}
+        sort={sort}
+        onSort={handleSort}
       />
 
       <p className="text-[12px] text-[#7a746a]">

@@ -10,6 +10,7 @@ import type {
   RoomTypePerf,
   SourceSlice,
 } from "@/types/booking";
+import { downloadCsv, toCsv } from "@/lib/csv";
 import { StatCard } from "@/components/ui/stat-card";
 import { cn } from "@/lib/utils";
 
@@ -218,6 +219,89 @@ export function Reports({ data }: { data: ReportsPageData }) {
   const [activeKey, setActiveKey] = useState(data.ranges[1]?.key ?? data.ranges[0].key);
   const range: ReportsRange = data.ranges.find((r) => r.key === activeKey) ?? data.ranges[0];
 
+  function exportCsv() {
+    // Reports is a multi-section aggregate — export the selected range only, as
+    // five titled mini-tables in one file (each its own toCsv() call, joined by
+    // blank lines). csv.ts is imported unmodified.
+    const sections = [
+      "KPIs\r\n" +
+        toCsv(
+          range.kpis.map((k) => ({
+            metric: k.label,
+            // Pre-formatted display string, as-is.
+            value: k.value,
+            // "▲ 12.4%" etc.; empty when the window had nothing to compare.
+            delta: k.delta ?? "",
+          })),
+          [
+            { key: "metric", header: "Metric" },
+            { key: "value", header: "Value" },
+            { key: "delta", header: "Delta" },
+          ],
+        ),
+      "Revenue Trend\r\n" +
+        toCsv(
+          range.bars.map((b) => ({
+            bucket: b.label,
+            direct: b.direct,
+            ota: b.ota,
+            total: b.total,
+          })),
+          [
+            { key: "bucket", header: "Bucket" },
+            { key: "direct", header: "Direct" },
+            { key: "ota", header: "OTA" },
+            { key: "total", header: "Total" },
+          ],
+        ),
+      "Booking Sources\r\n" +
+        toCsv(
+          range.sources.map((s) => ({
+            source: s.label,
+            bookings: s.count,
+            share: s.pct,
+          })),
+          [
+            { key: "source", header: "Source" },
+            { key: "bookings", header: "Bookings" },
+            { key: "share", header: "Share %" },
+          ],
+        ),
+      "Room Type Performance\r\n" +
+        toCsv(
+          range.roomTypes.map((r) => ({
+            roomType: r.name,
+            // Raw number; the party hall has no nights → empty occupancy.
+            revenue: r.revenue,
+            occupancy: r.occPct ?? "",
+          })),
+          [
+            { key: "roomType", header: "Room Type" },
+            { key: "revenue", header: "Revenue" },
+            { key: "occupancy", header: "Occupancy %" },
+          ],
+        ),
+      "Meal Plan Mix\r\n" +
+        toCsv(
+          range.mealPlans.map((m) => ({
+            plan: m.plan,
+            note: m.note,
+            share: m.pct,
+          })),
+          [
+            { key: "plan", header: "Meal Plan" },
+            { key: "note", header: "Note" },
+            { key: "share", header: "Share %" },
+          ],
+        ),
+    ];
+
+    // One self-describing title line so the file identifies its range, then the
+    // section blocks separated by blank lines.
+    const csv = `Reports — ${range.rangeLabel} (${data.today})\r\n\r\n${sections.join("\r\n\r\n")}`;
+    downloadCsv(`reports-${range.key}-${data.today}.csv`, csv);
+  }
+
   return (
     <div className="flex flex-col gap-4.5 p-4 sm:p-6.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -242,11 +326,12 @@ export function Reports({ data }: { data: ReportsPageData }) {
           </div>
           <button
             type="button"
-            title="Export PDF"
+            title="Export CSV"
+            onClick={exportCsv}
             className="flex size-10 flex-none items-center justify-center rounded-md bg-gold text-obsidian transition-colors hover:bg-[#b8933f]"
           >
             <Download className="size-4.25" />
-            <span className="sr-only">Export PDF</span>
+            <span className="sr-only">Export CSV</span>
           </button>
         </div>
       </div>
