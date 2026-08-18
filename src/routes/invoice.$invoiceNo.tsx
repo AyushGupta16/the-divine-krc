@@ -4,6 +4,9 @@ import { InvoiceView } from "@/components/invoice/InvoiceView";
 import { getInvoiceFn } from "@/lib/invoices-data";
 
 export const Route = createFileRoute("/invoice/$invoiceNo")({
+  head: () => ({
+    meta: [{ name: "robots", content: "noindex, nofollow" }],
+  }),
   loader: async ({ params }) => getInvoiceFn({ data: params.invoiceNo }),
   component: InvoiceRoute,
 });
