@@ -136,7 +136,7 @@ export function Footer() {
             <Link to="/booking-lookup" className="hover:text-gold transition-colors">
               Manage Booking
             </Link>
-            <Link to="/admin/login" className="hover:text-gold transition-colors">
+            <Link to="/admin/login" rel="nofollow" className="hover:text-gold transition-colors">
               Staff Login
             </Link>
           </div>
