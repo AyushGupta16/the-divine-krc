@@ -1,4 +1,4 @@
-import partyHall from "@/assets/party-hall.jpg";
+import partyHall from "@/assets/party-hall.webp";
 import { Reveal } from "./Reveal";
 
 export function PartyHall() {
