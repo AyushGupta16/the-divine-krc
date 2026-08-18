@@ -208,6 +208,15 @@ function HotelNearIndiaExpoMart() {
               </li>
             </ul>
           </Reveal>
+          <Reveal delay={240}>
+            <p className="mt-8 text-sm text-ivory/60">
+              Staying closer to Pari Chowk instead? See our{" "}
+              <a href="/hotel-near-pari-chowk" className="text-gold underline">
+                page for Pari Chowk guests →
+              </a>
+              .
+            </p>
+          </Reveal>
         </div>
       </section>
 

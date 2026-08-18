@@ -27,7 +27,7 @@ export function Footer() {
             </p>
           </div>
 
-          <div className="md:col-span-3 space-y-4">
+          <div className="md:col-span-2 space-y-4">
             <div className="text-gold text-[10px] uppercase tracking-[0.3em] font-semibold">
               Visit
             </div>
@@ -41,7 +41,28 @@ export function Footer() {
             </p>
           </div>
 
-          <div className="md:col-span-3 space-y-4">
+          <div className="md:col-span-2 space-y-4">
+            <div className="text-gold text-[10px] uppercase tracking-[0.3em] font-semibold">
+              Nearby
+            </div>
+            <ul className="text-sm space-y-2 text-ivory/70">
+              <li>
+                <Link to="/hotel-near-pari-chowk" className="hover:text-gold transition-colors">
+                  Near Pari Chowk
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/hotel-near-india-expo-mart"
+                  className="hover:text-gold transition-colors"
+                >
+                  Near India Expo Mart
+                </Link>
+              </li>
+            </ul>
+          </div>
+
+          <div className="md:col-span-2 space-y-4">
             <div className="text-gold text-[10px] uppercase tracking-[0.3em] font-semibold">
               Reservations
             </div>

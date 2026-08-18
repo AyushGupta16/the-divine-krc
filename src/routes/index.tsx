@@ -20,7 +20,7 @@ export const Route = createFileRoute("/")({
   loader: () => getRoomTypesFn(),
   head: () => ({
     meta: [
-      { title: "The Divine KRC · Boutique Hotel & Restaurant near Pari Chowk, Greater Noida" },
+      { title: "The Divine KRC | Hotel Near Pari Chowk, Greater Noida" },
       {
         name: "description",
         content:

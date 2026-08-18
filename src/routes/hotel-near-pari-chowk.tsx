@@ -209,6 +209,15 @@ function HotelNearPariChowk() {
               </li>
             </ul>
           </Reveal>
+          <Reveal delay={240}>
+            <p className="mt-8 text-sm text-ivory/60">
+              Visiting for India Expo Mart instead? See our{" "}
+              <a href="/hotel-near-india-expo-mart" className="text-gold underline">
+                page for India Expo Mart guests →
+              </a>
+              .
+            </p>
+          </Reveal>
         </div>
       </section>
 
