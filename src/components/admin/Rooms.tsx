@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import roomDeluxe from "@/assets/room-deluxe.jpg";
 import roomBalcony from "@/assets/room-balcony.jpg";
-import partyHallImg from "@/assets/party-hall.jpg";
+import partyHallImg from "@/assets/party-hall.webp";
 
 // ── Tokens ──────────────────────────────────────────────────────────────────
 

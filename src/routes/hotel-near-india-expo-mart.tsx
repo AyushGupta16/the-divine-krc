@@ -11,7 +11,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import heroExterior from "@/assets/hero.jpg";
+import heroExterior from "@/assets/hero.webp";
 import { getRoomTypesFn } from "@/lib/bookings-data";
 import { DEFAULT_ROOM_IMAGE, ROOM_IMAGES } from "@/lib/room-images";
 import { SITE_URL, OG_IMAGE, hotelSchema, faqSchema, type FaqEntry } from "@/lib/seo";
