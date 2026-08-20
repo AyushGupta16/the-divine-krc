@@ -88,6 +88,18 @@ const FORBIDDEN = [
   { needle: "passwordHashFor", why: "the only read of a password hash (server-only)" },
   { needle: "hashPassword", why: "password hashing (server-only)" },
   { needle: "scrypt", why: "password hashing (server-only)" },
+
+  // Google OAuth (`lib/google-oauth.ts`). Same shape as the database driver
+  // above: these names surviving means the module got pulled into a client
+  // chunk, and the client secret is one careless line away behind it.
+  { needle: "GOOGLE_CLIENT_ID", why: "a server-only env read" },
+  { needle: "GOOGLE_CLIENT_SECRET", why: "a server-only env read" },
+  { needle: "googleClient", why: "the Google OAuth client factory (server-only)" },
+  { needle: "validateAuthorizationCode", why: "the OAuth code exchange (server-only)" },
+  {
+    needle: "openidconnect.googleapis.com",
+    why: "the Google userinfo endpoint — only fetched server-side",
+  },
 ];
 
 function jsFiles(dir) {
