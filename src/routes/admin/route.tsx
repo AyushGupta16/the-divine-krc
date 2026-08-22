@@ -13,6 +13,11 @@ const PUBLIC_ADMIN_PATHS = new Set<string>([
   // Accepting an invite is how you get an account; gating it would lock out
   // precisely the person it was sent to. The token does the authenticating.
   "/admin/accept-invite",
+  // Google OAuth's finish step: it's the thing that establishes the session,
+  // so it can't require one first. Gating it bounced every sign-in back to
+  // /admin/login with the handoff token stranded in the redirect param,
+  // instead of ever reaching googleFinishFn.
+  "/admin/login/finish",
 ]);
 
 function normalize(pathname: string): string {
