@@ -72,7 +72,7 @@ function LoginPage() {
   // start endpoint sets cookies and 302s to Google, which client-side
   // navigation can't do.
   function google() {
-    window.location.href = "/api/auth/google/start";
+    window.location.href = "/api/auth-google-start";
   }
 
   return (
