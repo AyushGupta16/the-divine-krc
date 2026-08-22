@@ -103,11 +103,17 @@ const FORBIDDEN = [
 
   // The OAuth handoff-token verifier (`auth.ts`'s `verifyOAuthToken`, PR 2 of
   // the Google OAuth work). Not `googleFinishFn` itself — that's a
-  // `createServerFn` the client legitimately calls by name, same as `loginFn`/
-  // `googleLoginFn` above, so it can't go on this list. `verifyOAuthToken` is
-  // never called from the client; it surviving means the HMAC verification
-  // logic reached the browser.
+  // `createServerFn` the client legitimately calls by name, same as `loginFn`
+  // above, so it can't go on this list. `verifyOAuthToken` is never called
+  // from the client; it surviving means the HMAC verification logic reached
+  // the browser.
   { needle: "verifyOAuthToken", why: "OAuth handoff token verification (server-only)" },
+
+  // The simulated Google sign-in stub (PR 3 of the Google OAuth work removed
+  // it in favor of a real redirect to `/api/auth-google-start`). This name
+  // surviving means the deleted stub — or a stale reference to it — is still
+  // being retained somewhere in a client chunk.
+  { needle: "googleLoginFn", why: "the removed simulated Google sign-in stub" },
 ];
 
 function jsFiles(dir) {
