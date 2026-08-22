@@ -65,6 +65,19 @@ function redirectTo(pathAndQuery, extraSetCookies = clearCookieHeaders()) {
   return new Response(null, { status: 302, headers });
 }
 
+// Must produce the identical origin `auth-google-start.mjs` used to build the
+// authorization URL — Google's token exchange requires `redirect_uri` to match
+// byte for byte. `DEPLOY_URL`/`URL` don't reliably reflect the actual deploy
+// context in a Function's runtime (see `auth-google-start.mjs`'s copy of this
+// comment for what that broke), so both functions derive it from the request
+// instead.
+function requestOrigin(request) {
+  const proto = request.headers.get("x-forwarded-proto") ?? "https";
+  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  if (host) return `${proto}://${host}`;
+  return process.env.DEPLOY_URL ?? process.env.URL ?? null;
+}
+
 export default async (request) => {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
@@ -78,7 +91,7 @@ export default async (request) => {
     return redirectTo("/admin/login?error=oauth_state_mismatch");
   }
 
-  const origin = process.env.DEPLOY_URL ?? process.env.URL;
+  const origin = requestOrigin(request);
   if (!origin) {
     return redirectTo("/admin/login?error=oauth_failed");
   }
