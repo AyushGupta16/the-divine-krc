@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router";
-import { Eye, EyeOff, AlertCircle, Check } from "lucide-react";
+import { Eye, EyeOff, AlertCircle, Check, Loader2 } from "lucide-react";
 import { z } from "zod";
 import { AuthLayout } from "@/components/admin/AuthLayout";
 import { GoogleIcon } from "@/components/admin/GoogleIcon";
@@ -46,6 +46,7 @@ function LoginPage() {
     oauthError ? (OAUTH_ERROR_MESSAGES[oauthError] ?? OAUTH_ERROR_MESSAGES.oauth_failed) : null,
   );
   const [busy, setBusy] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
 
   async function goToConsole() {
     await router.invalidate();
@@ -70,8 +71,11 @@ function LoginPage() {
 
   // Real OAuth needs a full browser redirect, not client-side routing — the
   // start endpoint sets cookies and 302s to Google, which client-side
-  // navigation can't do.
+  // navigation can't do. `googleBusy` only ever shows a spinner for the brief
+  // moment before the page unloads — nothing clears it, since the next thing
+  // that happens is leaving this page entirely.
   function google() {
+    setGoogleBusy(true);
     window.location.href = "/api/auth-google-start";
   }
 
@@ -198,11 +202,11 @@ function LoginPage() {
       <button
         type="button"
         onClick={google}
-        disabled={busy}
+        disabled={busy || googleBusy}
         className="flex w-full items-center justify-center gap-3 rounded-[5px] border border-[#e5ddcb] bg-white px-4 py-3 text-[13px] font-semibold text-[#2a2a2a] transition-colors hover:bg-ivory disabled:opacity-60"
       >
-        <GoogleIcon />
-        Continue with Google
+        {googleBusy ? <Loader2 className="size-4.25 animate-spin" /> : <GoogleIcon />}
+        {googleBusy ? "Redirecting…" : "Continue with Google"}
       </button>
 
       <div className="mt-6 flex items-center gap-2.5 text-[11px] text-[#a49d8d]">
