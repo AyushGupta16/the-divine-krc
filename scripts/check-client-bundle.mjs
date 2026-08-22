@@ -100,6 +100,14 @@ const FORBIDDEN = [
     needle: "openidconnect.googleapis.com",
     why: "the Google userinfo endpoint — only fetched server-side",
   },
+
+  // The OAuth handoff-token verifier (`auth.ts`'s `verifyOAuthToken`, PR 2 of
+  // the Google OAuth work). Not `googleFinishFn` itself — that's a
+  // `createServerFn` the client legitimately calls by name, same as `loginFn`/
+  // `googleLoginFn` above, so it can't go on this list. `verifyOAuthToken` is
+  // never called from the client; it surviving means the HMAC verification
+  // logic reached the browser.
+  { needle: "verifyOAuthToken", why: "OAuth handoff token verification (server-only)" },
 ];
 
 function jsFiles(dir) {

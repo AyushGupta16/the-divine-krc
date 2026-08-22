@@ -9,12 +9,23 @@ import { cn } from "@/lib/utils";
 
 const searchSchema = z.object({
   redirect: z.string().optional(),
+  error: z.string().optional(),
 });
 
 export const Route = createFileRoute("/admin/login")({
   validateSearch: searchSchema,
   component: LoginPage,
 });
+
+// Populated only via a redirect from the Google OAuth callback — never set by
+// anything the user typed, so unrecognized codes fall back to a generic
+// message rather than reflecting an arbitrary query param onto the page.
+const OAUTH_ERROR_MESSAGES: Record<string, string> = {
+  oauth_state_mismatch: "Sign-in link expired. Please try again.",
+  not_authorized: "This Google account isn't authorized.",
+  email_not_verified: "Your Google email isn't verified. Please verify it with Google first.",
+  oauth_failed: "Google sign-in failed. Please try again or use email and password.",
+};
 
 const inputClass =
   "w-full rounded-[5px] border border-[#e5ddcb] bg-white px-3.5 py-3 text-sm text-obsidian outline-none transition-colors placeholder:text-[#b3aa96] focus:border-gold";
@@ -23,7 +34,7 @@ const goldButtonClass =
   "w-full cursor-pointer rounded-[5px] bg-gold px-4 py-3.5 text-[11px] font-bold uppercase tracking-[0.2em] text-obsidian transition-opacity hover:opacity-90 disabled:opacity-60";
 
 function LoginPage() {
-  const { redirect } = Route.useSearch();
+  const { redirect, error: oauthError } = Route.useSearch();
   const navigate = useNavigate();
   const router = useRouter();
 
@@ -31,7 +42,9 @@ function LoginPage() {
   const [pw, setPw] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [remember, setRemember] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    oauthError ? (OAUTH_ERROR_MESSAGES[oauthError] ?? OAUTH_ERROR_MESSAGES.oauth_failed) : null,
+  );
   const [busy, setBusy] = useState(false);
 
   async function goToConsole() {
