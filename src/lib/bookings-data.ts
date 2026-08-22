@@ -101,7 +101,6 @@ import {
   resolvePaymentMetadata,
   verifyRazorpaySignature,
 } from "@/lib/razorpay";
-import { loadRoster } from "@/lib/roster";
 import * as schema from "@/lib/schema";
 import { can, type Result } from "@/lib/team";
 import { toBooking } from "@/lib/booking-mappers";
@@ -1440,7 +1439,16 @@ export const settingsPage = createServerFn({ method: "GET" }).handler(
     // The roster is a separate load, not part of `BookingData`: it is the one
     // screen that reads both, and folding people into "booking rows" would put
     // `lib/team.ts` back in reach of everything that reads a booking.
-    const [data, roster] = await Promise.all([load(), loadRoster()]);
+    //
+    // Dynamic, not a static top-of-file import: `bookings-data.ts` is
+    // client-reachable (route loaders import it directly), so a static
+    // `import { loadRoster } from "@/lib/roster"` is a module-level edge the
+    // bundler can retain even though this handler itself never runs in the
+    // browser — the same class of leak `auth.ts` avoids the same way for
+    // `requireAuth`. A dynamic `import()` runs only inside this handler, so
+    // nothing follows it into a client chunk.
+    const [data, { loadRoster }] = await Promise.all([load(), import("@/lib/roster")]);
+    const roster = await loadRoster();
     return getSettingsPageData(data, roster);
   },
 );
