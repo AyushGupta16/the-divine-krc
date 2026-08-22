@@ -34,6 +34,7 @@ import { Route as AdminCalendarRouteImport } from './routes/admin/calendar'
 import { Route as AdminBookingsRouteImport } from './routes/admin/bookings'
 import { Route as AdminAcceptInviteRouteImport } from './routes/admin/accept-invite'
 import { Route as AdminSettingsInviteRouteImport } from './routes/admin/settings_.invite'
+import { Route as AdminLoginFinishRouteImport } from './routes/admin/login_.finish'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -160,6 +161,11 @@ const AdminSettingsInviteRoute = AdminSettingsInviteRouteImport.update({
   path: '/settings/invite',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminLoginFinishRoute = AdminLoginFinishRouteImport.update({
+  id: '/login_/finish',
+  path: '/login/finish',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -186,6 +192,7 @@ export interface FileRoutesByFullPath {
   '/admin/settings': typeof AdminSettingsRoute
   '/invoice/$invoiceNo': typeof InvoiceInvoiceNoRoute
   '/admin/': typeof AdminIndexRoute
+  '/admin/login/finish': typeof AdminLoginFinishRoute
   '/admin/settings/invite': typeof AdminSettingsInviteRoute
 }
 export interface FileRoutesByTo {
@@ -212,6 +219,7 @@ export interface FileRoutesByTo {
   '/admin/settings': typeof AdminSettingsRoute
   '/invoice/$invoiceNo': typeof InvoiceInvoiceNoRoute
   '/admin': typeof AdminIndexRoute
+  '/admin/login/finish': typeof AdminLoginFinishRoute
   '/admin/settings/invite': typeof AdminSettingsInviteRoute
 }
 export interface FileRoutesById {
@@ -240,6 +248,7 @@ export interface FileRoutesById {
   '/admin/settings': typeof AdminSettingsRoute
   '/invoice/$invoiceNo': typeof InvoiceInvoiceNoRoute
   '/admin/': typeof AdminIndexRoute
+  '/admin/login_/finish': typeof AdminLoginFinishRoute
   '/admin/settings_/invite': typeof AdminSettingsInviteRoute
 }
 export interface FileRouteTypes {
@@ -269,6 +278,7 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/invoice/$invoiceNo'
     | '/admin/'
+    | '/admin/login/finish'
     | '/admin/settings/invite'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -295,6 +305,7 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/invoice/$invoiceNo'
     | '/admin'
+    | '/admin/login/finish'
     | '/admin/settings/invite'
   id:
     | '__root__'
@@ -322,6 +333,7 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/invoice/$invoiceNo'
     | '/admin/'
+    | '/admin/login_/finish'
     | '/admin/settings_/invite'
   fileRoutesById: FileRoutesById
 }
@@ -515,6 +527,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminSettingsInviteRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/login_/finish': {
+      id: '/admin/login_/finish'
+      path: '/login/finish'
+      fullPath: '/admin/login/finish'
+      preLoaderRoute: typeof AdminLoginFinishRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
   }
 }
 
@@ -533,6 +552,7 @@ interface AdminRouteRouteChildren {
   AdminRoomsRoute: typeof AdminRoomsRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminIndexRoute: typeof AdminIndexRoute
+  AdminLoginFinishRoute: typeof AdminLoginFinishRoute
   AdminSettingsInviteRoute: typeof AdminSettingsInviteRoute
 }
 
@@ -551,6 +571,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminRoomsRoute: AdminRoomsRoute,
   AdminSettingsRoute: AdminSettingsRoute,
   AdminIndexRoute: AdminIndexRoute,
+  AdminLoginFinishRoute: AdminLoginFinishRoute,
   AdminSettingsInviteRoute: AdminSettingsInviteRoute,
 }
 

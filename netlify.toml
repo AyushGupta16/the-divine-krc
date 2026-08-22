@@ -1,3 +1,20 @@
 [build]
   command = "npm run build"
   publish = "dist/client"
+
+# `src/lib/google-oauth.ts`'s `getRedirectUri` hardcodes `/api/auth-google-callback`
+# (the Google Cloud OAuth client's registered redirect URIs use this exact,
+# hyphenated path — Google rejects the callback with redirect_uri_mismatch if
+# it doesn't match verbatim), but the function handling it lives at Netlify's
+# default /.netlify/functions/<name> path. These redirects keep the URL the
+# rest of the app expects stable regardless of where the function physically
+# lives.
+[[redirects]]
+  from = "/api/auth-google-start"
+  to = "/.netlify/functions/auth-google-start"
+  status = 200
+
+[[redirects]]
+  from = "/api/auth-google-callback"
+  to = "/.netlify/functions/auth-google-callback"
+  status = 200

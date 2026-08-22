@@ -218,6 +218,84 @@ export const googleLoginFn = createServerFn({ method: "POST" }).handler(
   },
 );
 
+// --- Real Google sign-in, PR 2 of 3 --------------------------------------
+//
+// `netlify/functions/auth-google-start.mjs` and `auth-google-callback.mjs`
+// run the actual OAuth exchange, but they are separate Netlify Functions with
+// no h3 event — they can't call `useSession()`/`establishSession()` directly.
+// The callback instead hands off a short-lived HMAC-signed token to
+// `/admin/login/finish`, which calls `googleFinishFn` here — running inside
+// this app, with a real request context — to verify the token and finish the
+// sign-in exactly like `loginFn`/`googleLoginFn` do above.
+//
+// The signing (in the Netlify callback) and the verification (`verifyOAuthToken`
+// below) are two independent implementations of the same format, not a shared
+// module: the callback function and this app have no shared runtime, so a
+// shared module would only be a shared source file. `sessionPassword()` is
+// reused as the HMAC key rather than inventing a second secret — same env var
+// (`SESSION_SECRET`) `netlify/functions/auth-google-callback.mjs` reads
+// directly (it can't import this module either), so it must already be
+// configured wherever session cookies already work — no new env var.
+//
+// This module is client-reachable (`login.tsx` imports `loginFn`), so
+// `node:crypto` is loaded lazily rather than imported at module scope — a
+// static top-level import would be a module-level edge the client bundle has
+// to resolve too, the same class of leak this file's own header describes for
+// `roster.ts`/`password.ts`.
+const nodeCrypto = () => import("node:crypto");
+
+/**
+ * Verifies a token minted by `auth-google-callback.mjs`'s `signOAuthToken`:
+ * `base64url(JSON.stringify({ email, exp })) + "." + hex(hmacSha256(payload))`.
+ * Returns the email on success, `null` on any failure (bad shape, bad
+ * signature, expired) — never partial trust.
+ */
+async function verifyOAuthToken(token: string): Promise<string | null> {
+  const dot = token.lastIndexOf(".");
+  if (dot === -1) return null;
+  const b64 = token.slice(0, dot);
+  const sig = token.slice(dot + 1);
+
+  const { createHmac, timingSafeEqual } = await nodeCrypto();
+  const payload = Buffer.from(b64, "base64url").toString("utf8");
+  const expectedSig = createHmac("sha256", sessionPassword()).update(payload).digest("hex");
+
+  const expected = Buffer.from(expectedSig, "utf8");
+  const actual = Buffer.from(sig, "utf8");
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return null;
+
+  let parsed: { email?: unknown; exp?: unknown };
+  try {
+    parsed = JSON.parse(payload);
+  } catch {
+    return null;
+  }
+  if (typeof parsed.email !== "string" || typeof parsed.exp !== "number") return null;
+  if (parsed.exp < Date.now()) return null;
+  return parsed.email;
+}
+
+/**
+ * Called by `/admin/login/finish` once the Netlify OAuth callback has
+ * redirected there with a token. Re-checks the roster rather than trusting
+ * the token's email blindly — the callback already checked it once, but the
+ * roster can change in the ~30 seconds a token is valid for, and this is the
+ * one place with a real database connection to check again.
+ */
+export const googleFinishFn = createServerFn({ method: "GET" })
+  .validator((data: { token: string }) => data)
+  .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const email = await verifyOAuthToken(data.token);
+    if (!email) return { ok: false, error: "oauth_failed" };
+
+    const { loadRoster } = await rosterStore();
+    const member = findMember(await loadRoster(), email);
+    if (!member || !isActive(member)) return { ok: false, error: "not_authorized" };
+
+    await establishSession({ email: member.email, name: member.name });
+    return { ok: true };
+  });
+
 export const logoutFn = createServerFn({ method: "POST" }).handler(
   async (): Promise<{ ok: true }> => {
     const session = await getSession();
