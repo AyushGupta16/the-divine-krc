@@ -221,8 +221,8 @@ export const acceptInviteFn = createServerFn({ method: "POST" })
   });
 
 /**
- * Simulated Google sign-up, mirroring `googleLoginFn` in `auth.ts`: real OAuth
- * needs a Google client id/secret + redirect flow, so this accepts the invite
+ * Simulated Google sign-up: real OAuth needs a Google client id/secret +
+ * redirect flow, so this accepts the invite
  * on the invited person's own email — the token already proved it's theirs —
  * mints a password nobody will ever type, and signs them straight into the
  * console. Same token-is-the-proof stance as `acceptInviteFn`, deliberately

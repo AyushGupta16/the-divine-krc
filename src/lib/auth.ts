@@ -106,8 +106,8 @@ function getSession() {
 /**
  * Sign the given member into the session directly. Exported so the invite
  * flow's simulated Google sign-up (`googleAcceptInviteFn` in `invites.ts`)
- * can land someone in the console the same way `loginFn`/`googleLoginFn` do,
- * without duplicating `getSession`'s h3 wiring outside this module.
+ * can land someone in the console the same way `loginFn` does, without
+ * duplicating `getSession`'s h3 wiring outside this module.
  */
 export const establishSession = createServerOnlyFn(async (user: SessionUser) => {
   const session = await getSession();
@@ -197,26 +197,6 @@ export const loginFn = createServerFn({ method: "POST" })
     await session.update({ user: { email: admin.email, name: admin.name } });
     return { ok: true };
   });
-
-// Simulated Google sign-in: real OAuth needs a Google client id/secret +
-// redirect flow. Here we sign the demo admin in so the UX is exercisable.
-// Gated on the owner having a password at all, so it cannot become a way past
-// the login on a production deploy that never set ADMIN_PASSWORD.
-export const googleLoginFn = createServerFn({ method: "POST" }).handler(
-  async (): Promise<{ ok: true } | { ok: false; error: string }> => {
-    const { loadRoster } = await rosterStore();
-    const admin = findMember(await loadRoster(), "admin@thedivinekrc.in");
-    // Still gated on the owner having a credential at all — which, now that the
-    // Owner's lives in the env rather than the table, means ADMIN_PASSWORD is
-    // set. A production deploy that never set one must not gain a way past the
-    // login here.
-    if (!admin || !ownerPassword()) {
-      return { ok: false, error: "Google sign-in is unavailable." };
-    }
-    await establishSession({ email: admin.email, name: admin.name });
-    return { ok: true };
-  },
-);
 
 // --- Real Google sign-in, PR 2 of 3 --------------------------------------
 //

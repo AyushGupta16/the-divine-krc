@@ -4,7 +4,7 @@ import { Eye, EyeOff, AlertCircle, Check } from "lucide-react";
 import { z } from "zod";
 import { AuthLayout } from "@/components/admin/AuthLayout";
 import { GoogleIcon } from "@/components/admin/GoogleIcon";
-import { googleLoginFn, loginFn } from "@/lib/auth";
+import { loginFn } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 const searchSchema = z.object({
@@ -68,12 +68,11 @@ function LoginPage() {
     }
   }
 
-  async function google() {
-    setBusy(true);
-    setError(null);
-    await googleLoginFn();
-    setBusy(false);
-    await goToConsole();
+  // Real OAuth needs a full browser redirect, not client-side routing — the
+  // start endpoint sets cookies and 302s to Google, which client-side
+  // navigation can't do.
+  function google() {
+    window.location.href = "/api/auth-google-start";
   }
 
   return (
@@ -198,7 +197,7 @@ function LoginPage() {
 
       <button
         type="button"
-        onClick={() => void google()}
+        onClick={google}
         disabled={busy}
         className="flex w-full items-center justify-center gap-3 rounded-[5px] border border-[#e5ddcb] bg-white px-4 py-3 text-[13px] font-semibold text-[#2a2a2a] transition-colors hover:bg-ivory disabled:opacity-60"
       >
