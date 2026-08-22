@@ -18,7 +18,7 @@
 
 import { Google, type OAuth2Tokens } from "arctic";
 
-const CALLBACK_PATH = "/api/auth/google/callback";
+const CALLBACK_PATH = "/api/auth-google-callback";
 const SCOPES = ["openid", "email", "profile"];
 
 /** Appends the (not-yet-existing, PR 2) callback route to a request's origin. */

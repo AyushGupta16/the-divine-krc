@@ -1,5 +1,5 @@
 // Google OAuth callback: separate Netlify Function, mapped to
-// /api/auth/google/callback via a netlify.toml redirect (see
+// /api/auth-google-callback via a netlify.toml redirect (see
 // auth-google-start.mjs for why the path must stay fixed).
 //
 // This function verifies the Google identity and checks the roster, but it

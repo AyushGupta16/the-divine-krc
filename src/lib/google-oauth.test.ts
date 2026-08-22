@@ -35,7 +35,7 @@ describe("buildAuthUrl", () => {
 describe("getRedirectUri", () => {
   it("appends the callback path to the given origin", () => {
     expect(getRedirectUri("http://localhost:3000")).toBe(
-      "http://localhost:3000/api/auth/google/callback",
+      "http://localhost:3000/api/auth-google-callback",
     );
   });
 });

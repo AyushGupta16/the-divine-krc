@@ -1,8 +1,9 @@
 // Google OAuth start: separate Netlify Function, not a TanStack Start route
 // (see feat/google-oauth-routes PR body for why). Mapped to
-// /api/auth/google/start via a netlify.toml redirect — `getRedirectUri` in
-// `src/lib/google-oauth.ts` hardcodes the callback path, so the URLs the rest
-// of the app expects must stay stable regardless of where the function
+// /api/auth-google-start via a netlify.toml redirect — `getRedirectUri` in
+// `src/lib/google-oauth.ts` hardcodes the (hyphenated) callback path to match
+// the Google Cloud OAuth client's registered redirect URIs, so the URLs the
+// rest of the app expects must stay stable regardless of where the function
 // physically lives.
 //
 // Dynamic imports only: this file's own module scope must not statically
