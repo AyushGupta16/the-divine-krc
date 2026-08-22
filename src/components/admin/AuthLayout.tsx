@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Link } from "@tanstack/react-router";
 import krcLogo from "@/assets/krc-logo.jpg";
 
 interface AuthLayoutProps {
@@ -33,12 +34,12 @@ export function AuthLayout({
     <div className="flex min-h-screen flex-col bg-ivory font-sans text-obsidian md:flex-row">
       {/* Brand panel */}
       <div className="relative flex flex-col overflow-hidden bg-obsidian px-7 py-8 text-ivory md:w-130 md:flex-none md:px-13 md:py-12">
-        <div className="flex items-center gap-3">
+        <Link to="/" className="flex items-center gap-3">
           <img src={krcLogo} alt="The Divine KRC crest" className="h-11 w-11 object-contain" />
           <span className="whitespace-pre-line font-display text-[12px] italic uppercase leading-tight tracking-[0.25em] text-gold-soft">
             {"THE\nDIVINE\nKRC"}
           </span>
-        </div>
+        </Link>
 
         <div className="mt-10 md:mt-auto">
           <div className="mb-5 flex items-center gap-3">
