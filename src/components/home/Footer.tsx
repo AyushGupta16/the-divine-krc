@@ -31,14 +31,19 @@ export function Footer() {
             <div className="text-gold text-[10px] uppercase tracking-[0.3em] font-semibold">
               Visit
             </div>
-            <p className="text-sm leading-relaxed text-ivory/70">
+            <a
+              href="https://www.google.com/maps?q=28.463844253163877,77.5664181629228"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block text-sm leading-relaxed text-ivory/70 hover:text-gold transition-colors"
+            >
               A 023, Kyampur,
               <br />
               {/* Sector Omicron I<br /> */}
               Sector Omicron I, Near Pari Chowk,
               <br />
               Greater Noida, UP 201310
-            </p>
+            </a>
           </div>
 
           <div className="md:col-span-2 space-y-4">
