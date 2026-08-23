@@ -59,6 +59,51 @@ export function Footer() {
                   Near India Expo Mart
                 </Link>
               </li>
+              <li>
+                <Link
+                  to="/hotel-near-gautam-buddha-university"
+                  className="hover:text-gold transition-colors"
+                >
+                  Near Gautam Buddha University
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/hotel-near-sharda-university"
+                  className="hover:text-gold transition-colors"
+                >
+                  Near Sharda University
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/hotel-near-galgotias-university"
+                  className="hover:text-gold transition-colors"
+                >
+                  Near Galgotias University
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/hotel-near-bennett-university"
+                  className="hover:text-gold transition-colors"
+                >
+                  Near Bennett University
+                </Link>
+              </li>
+              <li>
+                <Link to="/hotel-near-jewar-airport" className="hover:text-gold transition-colors">
+                  Near Jewar Airport
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/hotel-near-buddh-international-circuit"
+                  className="hover:text-gold transition-colors"
+                >
+                  Near Buddh Int'l Circuit
+                </Link>
+              </li>
             </ul>
           </div>
 
