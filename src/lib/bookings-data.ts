@@ -93,7 +93,7 @@ import {
   type RoomTypeInfo,
 } from "@/lib/bookings";
 import { fixtures } from "@/lib/__fixtures__/bookings";
-import { getSessionMember } from "@/lib/auth";
+import { getSessionMember, requireServerPermission } from "@/lib/auth";
 import { db, missingDbInProduction } from "@/lib/db";
 import {
   createRazorpayOrder,
@@ -1366,7 +1366,17 @@ export const recordCashPaymentFn = createServerFn({ method: "POST" })
   });
 
 export const dashboardPage = createServerFn({ method: "GET" }).handler(
-  async (): Promise<DashboardData> => getDashboardData(await load()),
+  async (): Promise<DashboardData> => {
+    const data = await getDashboardData(await load());
+    const member = await getSessionMember();
+    if (!member || !can(member.role, "reports:read")) {
+      return {
+        ...data,
+        revenue: [],
+      };
+    }
+    return data;
+  },
 );
 
 export const bookingsPage = createServerFn({ method: "GET" }).handler(
@@ -1398,7 +1408,10 @@ export const guestsPage = createServerFn({ method: "GET" }).handler(
 );
 
 export const paymentsPage = createServerFn({ method: "GET" }).handler(
-  async (): Promise<PaymentsPageData> => getPaymentsPageData(await load()),
+  async (): Promise<PaymentsPageData> => {
+    await requireServerPermission("payments:read");
+    return getPaymentsPageData(await load());
+  },
 );
 
 /**
@@ -1431,11 +1444,18 @@ export const getOpenBalanceDirectBookingsFn = createServerFn({ method: "GET" }).
 );
 
 export const reportsPage = createServerFn({ method: "GET" }).handler(
-  async (): Promise<ReportsPageData> => getReportsPageData(await load()),
+  async (): Promise<ReportsPageData> => {
+    await requireServerPermission("reports:read");
+    return getReportsPageData(await load());
+  },
 );
 
 export const settingsPage = createServerFn({ method: "GET" }).handler(
   async (): Promise<SettingsPageData> => {
+    const member = await getSessionMember();
+    if (!member || (!can(member.role, "settings:write") && !can(member.role, "team:manage"))) {
+      await requireServerPermission("settings:write");
+    }
     // The roster is a separate load, not part of `BookingData`: it is the one
     // screen that reads both, and folding people into "booking rows" would put
     // `lib/team.ts` back in reach of everything that reads a booking.
