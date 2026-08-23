@@ -31,14 +31,19 @@ export function Footer() {
             <div className="text-gold text-[10px] uppercase tracking-[0.3em] font-semibold">
               Visit
             </div>
-            <p className="text-sm leading-relaxed text-ivory/70">
+            <a
+              href="https://www.google.com/maps?q=28.463844253163877,77.5664181629228"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block text-sm leading-relaxed text-ivory/70 hover:text-gold transition-colors"
+            >
               A 023, Kyampur,
               <br />
               {/* Sector Omicron I<br /> */}
               Sector Omicron I, Near Pari Chowk,
               <br />
               Greater Noida, UP 201310
-            </p>
+            </a>
           </div>
 
           <div className="md:col-span-2 space-y-4">
@@ -57,6 +62,59 @@ export function Footer() {
                   className="hover:text-gold transition-colors"
                 >
                   Near India Expo Mart
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/hotel-near-gautam-buddha-university"
+                  className="hover:text-gold transition-colors"
+                >
+                  Near Gautam Buddha University
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/hotel-near-sharda-university"
+                  className="hover:text-gold transition-colors"
+                >
+                  Near Sharda University
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/hotel-near-galgotias-university"
+                  className="hover:text-gold transition-colors"
+                >
+                  Near Galgotias University
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/hotel-near-bennett-university"
+                  className="hover:text-gold transition-colors"
+                >
+                  Near Bennett University
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/hotel-near-grand-venice-mall"
+                  className="hover:text-gold transition-colors"
+                >
+                  Near Grand Venice Mall
+                </Link>
+              </li>
+              <li>
+                <Link to="/hotel-near-jewar-airport" className="hover:text-gold transition-colors">
+                  Near Jewar Airport
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/hotel-near-buddh-international-circuit"
+                  className="hover:text-gold transition-colors"
+                >
+                  Near Buddh Int'l Circuit
                 </Link>
               </li>
             </ul>
