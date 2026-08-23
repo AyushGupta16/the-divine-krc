@@ -93,7 +93,7 @@ import {
   type RoomTypeInfo,
 } from "@/lib/bookings";
 import { fixtures } from "@/lib/__fixtures__/bookings";
-import { getSessionMember } from "@/lib/auth";
+import { getSessionMember, requireServerPermission } from "@/lib/auth";
 import { db, missingDbInProduction } from "@/lib/db";
 import {
   createRazorpayOrder,
@@ -101,7 +101,6 @@ import {
   resolvePaymentMetadata,
   verifyRazorpaySignature,
 } from "@/lib/razorpay";
-import { loadRoster } from "@/lib/roster";
 import * as schema from "@/lib/schema";
 import { can, type Result } from "@/lib/team";
 import { toBooking } from "@/lib/booking-mappers";
@@ -167,9 +166,9 @@ export function toPartyHall(r: PartyHallRow, advancePct: number): PartyHallEnqui
     {
       id: r.id,
       title: r.title,
-      // 5d cutover: read from the native date column, backfilled and dual-written
-      // alongside `date` (still present, not yet dropped).
-      date: r.enquiryDate!,
+      // 5d contract (0020): the native date column is the sole source of
+      // record now — the old TEXT `date` column has been dropped.
+      date: r.enquiryDate,
       slot: r.slot as PartyHallSlot,
       guests: r.guests,
       package: r.package,
@@ -298,8 +297,6 @@ async function insertBooking(guest: Guest, booking: Booking): Promise<void> {
     guestId: booking.guestId,
     roomNo: booking.roomNo,
     roomType: booking.roomType,
-    checkIn: booking.checkIn,
-    checkOut: booking.checkOut,
     checkInDate: booking.checkIn,
     checkOutDate: booking.checkOut,
     urn: booking.urn,
@@ -508,7 +505,6 @@ async function insertPartyHallEnquiry(enquiry: PartyHallEnquiry): Promise<void> 
   await conn.insert(schema.partyHallEnquiries).values({
     id: enquiry.id,
     title: enquiry.title,
-    date: enquiry.date,
     enquiryDate: enquiry.date,
     slot: enquiry.slot,
     guests: enquiry.guests,
@@ -1370,7 +1366,17 @@ export const recordCashPaymentFn = createServerFn({ method: "POST" })
   });
 
 export const dashboardPage = createServerFn({ method: "GET" }).handler(
-  async (): Promise<DashboardData> => getDashboardData(await load()),
+  async (): Promise<DashboardData> => {
+    const data = await getDashboardData(await load());
+    const member = await getSessionMember();
+    if (!member || !can(member.role, "reports:read")) {
+      return {
+        ...data,
+        revenue: [],
+      };
+    }
+    return data;
+  },
 );
 
 export const bookingsPage = createServerFn({ method: "GET" }).handler(
@@ -1402,7 +1408,10 @@ export const guestsPage = createServerFn({ method: "GET" }).handler(
 );
 
 export const paymentsPage = createServerFn({ method: "GET" }).handler(
-  async (): Promise<PaymentsPageData> => getPaymentsPageData(await load()),
+  async (): Promise<PaymentsPageData> => {
+    await requireServerPermission("payments:read");
+    return getPaymentsPageData(await load());
+  },
 );
 
 /**
@@ -1435,15 +1444,31 @@ export const getOpenBalanceDirectBookingsFn = createServerFn({ method: "GET" }).
 );
 
 export const reportsPage = createServerFn({ method: "GET" }).handler(
-  async (): Promise<ReportsPageData> => getReportsPageData(await load()),
+  async (): Promise<ReportsPageData> => {
+    await requireServerPermission("reports:read");
+    return getReportsPageData(await load());
+  },
 );
 
 export const settingsPage = createServerFn({ method: "GET" }).handler(
   async (): Promise<SettingsPageData> => {
+    const member = await getSessionMember();
+    if (!member || (!can(member.role, "settings:write") && !can(member.role, "team:manage"))) {
+      await requireServerPermission("settings:write");
+    }
     // The roster is a separate load, not part of `BookingData`: it is the one
     // screen that reads both, and folding people into "booking rows" would put
     // `lib/team.ts` back in reach of everything that reads a booking.
-    const [data, roster] = await Promise.all([load(), loadRoster()]);
+    //
+    // Dynamic, not a static top-of-file import: `bookings-data.ts` is
+    // client-reachable (route loaders import it directly), so a static
+    // `import { loadRoster } from "@/lib/roster"` is a module-level edge the
+    // bundler can retain even though this handler itself never runs in the
+    // browser — the same class of leak `auth.ts` avoids the same way for
+    // `requireAuth`. A dynamic `import()` runs only inside this handler, so
+    // nothing follows it into a client chunk.
+    const [data, { loadRoster }] = await Promise.all([load(), import("@/lib/roster")]);
+    const roster = await loadRoster();
     return getSettingsPageData(data, roster);
   },
 );

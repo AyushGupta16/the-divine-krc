@@ -16,44 +16,44 @@ import { getRoomTypesFn } from "@/lib/bookings-data";
 import { DEFAULT_ROOM_IMAGE, ROOM_IMAGES } from "@/lib/room-images";
 import { SITE_URL, OG_IMAGE, hotelSchema, faqSchema, type FaqEntry } from "@/lib/seo";
 
-const PAGE_URL = `${SITE_URL}/hotel-near-pari-chowk`;
+const PAGE_URL = `${SITE_URL}/hotel-near-galgotias-university`;
+const WHATSAPP_URL =
+  "https://wa.me/918707368307?text=Hi%2C%20I%27m%20visiting%20Galgotias%20University%20and%20would%20like%20to%20enquire%20about%20a%20stay.";
 
 const FAQS: FaqEntry[] = [
   {
-    question: "How far is The Divine KRC from Pari Chowk?",
-    answer: "The Divine KRC is a 10 minute drive from Pari Chowk, Greater Noida.",
+    question: "How far is The Divine KRC from Galgotias University?",
+    answer: "Approximately 15–20 minutes by car.",
   },
   {
-    question: "Is the hotel close to Pari Chowk Metro station?",
+    question: "Is the hotel good for parents visiting during orientation or admissions?",
+    answer: "Yes — comfortable rooms, a full restaurant, and on-site parking make it an easy base.",
+  },
+  {
+    question: "Do you have a party hall for post-convocation celebrations?",
     answer:
-      "Yes — Pari Chowk Metro (Aqua Line) is a 10 minute drive from the property, giving you onward connectivity to Noida and Delhi.",
+      "Yes — our party hall fits up to 150 guests. WhatsApp us to discuss availability and catering.",
   },
   {
-    question: "Is parking available at the hotel?",
-    answer: "Yes, on-site parking is available for all resident guests.",
-  },
-  {
-    question: "Can I book directly for the best rate?",
-    answer:
-      "Yes — book direct with The Divine KRC for the best rate, plus a complimentary breakfast.",
+    question: "Is parking available?",
+    answer: "Yes, complimentary on-site parking for all hotel guests.",
   },
 ];
 
-export const Route = createFileRoute("/hotel-near-pari-chowk")({
+export const Route = createFileRoute("/hotel-near-galgotias-university")({
   loader: () => getRoomTypesFn(),
   head: () => ({
     meta: [
-      { title: "Hotel Near Pari Chowk, Greater Noida | The Divine KRC" },
+      { title: "Hotel Near Galgotias University, Greater Noida | The Divine KRC" },
       {
         name: "description",
         content:
-          "Boutique rooms near Pari Chowk, Greater Noida, with easy Aqua Line metro access to Noida and Delhi. Book direct with The Divine KRC for the best rate.",
+          "Boutique hotel near Galgotias University, Greater Noida. Ideal for student families, parents on admission visits, and university events. Book direct with The Divine KRC.",
       },
-      { property: "og:title", content: "Hotel Near Pari Chowk | The Divine KRC" },
+      { property: "og:title", content: "Hotel Near Galgotias University | The Divine KRC" },
       {
         property: "og:description",
-        content:
-          "A comfortable base near Pari Chowk, Greater Noida, minutes from the Aqua Line metro. Book direct.",
+        content: "A comfortable base near Galgotias University, Greater Noida. Book direct.",
       },
       { property: "og:type", content: "website" },
       { property: "og:url", content: PAGE_URL },
@@ -67,7 +67,7 @@ export const Route = createFileRoute("/hotel-near-pari-chowk")({
       { type: "application/ld+json", children: JSON.stringify(faqSchema(FAQS)) },
     ],
   }),
-  component: HotelNearPariChowk,
+  component: HotelNearGalgotias,
 });
 
 function Eyebrow({ children }: { children: string }) {
@@ -81,7 +81,7 @@ function Eyebrow({ children }: { children: string }) {
   );
 }
 
-function HotelNearPariChowk() {
+function HotelNearGalgotias() {
   const roomTypes = Route.useLoaderData();
   return (
     <main className="bg-ivory text-obsidian font-sans antialiased selection:bg-gold/30 selection:text-obsidian">
@@ -94,7 +94,7 @@ function HotelNearPariChowk() {
       >
         <img
           src={heroExterior}
-          alt="The Divine KRC — minutes from Pari Chowk, Greater Noida"
+          alt="The Divine KRC boutique hotel — near Galgotias University, Greater Noida"
           width={1536}
           height={1920}
           className="absolute inset-0 size-full object-cover opacity-65 scale-[1.04] motion-safe:animate-[kenburns_18s_ease-in-out_infinite_alternate]"
@@ -105,18 +105,18 @@ function HotelNearPariChowk() {
         <div className="relative z-10 mx-auto max-w-7xl w-full px-6 md:px-10 pb-20 md:pb-28 pt-32">
           <div className="max-w-2xl space-y-6">
             <Reveal>
-              <Eyebrow>Near Pari Chowk</Eyebrow>
+              <Eyebrow>Near Galgotias University</Eyebrow>
             </Reveal>
             <Reveal delay={80}>
               <h1 className="font-display text-ivory text-4xl md:text-5xl lg:text-6xl leading-[1.05] text-balance">
-                Your stay near <span className="italic text-gold">Pari Chowk,</span> Greater Noida.
+                Your hotel near <span className="italic text-gold">Galgotias University,</span>{" "}
+                Greater Noida.
               </h1>
             </Reveal>
             <Reveal delay={160}>
               <p className="text-ivory/75 text-base md:text-lg font-light leading-relaxed max-w-xl">
-                Minutes from Pari Chowk and its metro connectivity, The Divine KRC is a quiet,
-                well-located base for NCR commuters, business travellers, and anyone passing through
-                Greater Noida's commercial hub.
+                A comfortable, well-located stay for families visiting Galgotias University —
+                admissions, orientation, convocation, or any occasion.
               </p>
             </Reveal>
             <Reveal delay={240}>
@@ -128,7 +128,7 @@ function HotelNearPariChowk() {
                   Reserve Your Stay
                 </a>
                 <a
-                  href="https://wa.me/918707368307?text=Hi%2C%20I%27m%20visiting%20Pari%20Chowk%20and%20would%20like%20to%20enquire%20about%20a%20stay."
+                  href={WHATSAPP_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 border border-gold/50 text-gold text-[11px] uppercase tracking-[0.25em] font-semibold px-7 py-4 hover:bg-gold/10 hover:border-gold transition-colors"
@@ -154,22 +154,22 @@ function HotelNearPariChowk() {
           <Reveal>
             <Eyebrow>Why The Divine KRC</Eyebrow>
             <h2 className="font-display text-3xl md:text-4xl text-obsidian leading-[1.1] text-balance mb-10">
-              Why stay near Pari Chowk <span className="italic text-gold">with us.</span>
+              Why stay with us for your <span className="italic text-gold">Galgotias visit.</span>
             </h2>
           </Reveal>
           <div className="grid sm:grid-cols-3 gap-8">
             {[
               {
-                t: "Metro-connected, without the metro-area noise",
-                d: "Close enough to Pari Chowk Metro for easy Aqua Line access to Noida and Delhi, but set back enough for a genuinely quiet night's stay.",
+                t: "Convenient base in Greater Noida",
+                d: "Well-placed near Sector Omicron I, with easy road access to Galgotias University. Close enough for a short drive, far enough for a quiet stay.",
               },
               {
-                t: "A convenient stop for NCR commuters",
-                d: "Travelling through Greater Noida's commercial hub for work? Base yourself minutes from Pari Chowk instead of commuting in from further out.",
+                t: "Familiar, reliable rooms",
+                d: "Clean AC rooms with king beds, 24-hour front desk, and on-site parking. Right for parents making an admission or orientation trip.",
               },
               {
-                t: "Breakfast on us",
-                d: "Book direct and breakfast is complimentary — one less thing to plan around a busy day.",
+                t: "Celebrate milestones with us",
+                d: "Convocation weekend or a family celebration? Our party hall accommodates up to 150 guests, and our restaurant handles private dining up to 14.",
               },
             ].map((item, i) => (
               <Reveal key={item.t} delay={i * 80}>
@@ -187,36 +187,29 @@ function HotelNearPariChowk() {
           <Reveal>
             <Eyebrow>Getting Here</Eyebrow>
             <h2 className="font-display text-3xl md:text-4xl leading-[1.1] text-balance mb-4">
-              Getting to Pari Chowk Metro Station from{" "}
+              Getting to Galgotias University from{" "}
               <span className="italic text-gold">The Divine KRC.</span>
             </h2>
           </Reveal>
           <Reveal delay={80}>
             <p className="text-ivory/70 text-base leading-relaxed max-w-xl mb-8">
-              Pari Chowk Metro (Aqua Line) is a 10 minute drive from the hotel, connecting you
-              onward to Noida and Delhi. Cabs and autos are readily available from the property.
+              Head via Yamuna Expressway service road toward Knowledge Park / Galgotias campus.
+              Signage is clear from the expressway. Cabs and auto-rickshaws are available from the
+              hotel. During orientation and convocation seasons, we recommend booking your room in
+              advance.
             </p>
           </Reveal>
           <Reveal delay={160}>
             <ul className="space-y-3">
               <li className="flex items-start gap-3 text-sm text-ivory/80">
                 <span className="text-gold mt-1.5 size-1 rounded-full bg-gold shrink-0" />
-                By car or cab — 10 minutes to Pari Chowk
+                By car or cab — approximately 15–20 minutes to campus
               </li>
               <li className="flex items-start gap-3 text-sm text-ivory/80">
                 <span className="text-gold mt-1.5 size-1 rounded-full bg-gold shrink-0" />
-                By metro — Aqua Line from Pari Chowk Metro station onward to Noida and Delhi
+                Via the Yamuna Expressway service road
               </li>
             </ul>
-          </Reveal>
-          <Reveal delay={240}>
-            <p className="mt-8 text-sm text-ivory/60">
-              Visiting for India Expo Mart instead? See our{" "}
-              <a href="/hotel-near-india-expo-mart" className="text-gold underline">
-                page for India Expo Mart guests →
-              </a>
-              .
-            </p>
           </Reveal>
         </div>
       </section>
@@ -235,7 +228,7 @@ function HotelNearPariChowk() {
               <p className="text-center text-warm-gray text-sm mb-8">
                 Current rates are momentarily unavailable —{" "}
                 <a
-                  href="https://wa.me/918707368307?text=Hi%2C%20I%27m%20visiting%20Pari%20Chowk%20and%20would%20like%20to%20enquire%20about%20a%20stay."
+                  href={WHATSAPP_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-gold underline"

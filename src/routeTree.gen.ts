@@ -12,8 +12,15 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as PartyHallEnquiryRouteImport } from './routes/party-hall-enquiry'
+import { Route as HotelNearShardaUniversityRouteImport } from './routes/hotel-near-sharda-university'
 import { Route as HotelNearPariChowkRouteImport } from './routes/hotel-near-pari-chowk'
+import { Route as HotelNearJewarAirportRouteImport } from './routes/hotel-near-jewar-airport'
 import { Route as HotelNearIndiaExpoMartRouteImport } from './routes/hotel-near-india-expo-mart'
+import { Route as HotelNearGrandVeniceMallRouteImport } from './routes/hotel-near-grand-venice-mall'
+import { Route as HotelNearGautamBuddhaUniversityRouteImport } from './routes/hotel-near-gautam-buddha-university'
+import { Route as HotelNearGalgotiasUniversityRouteImport } from './routes/hotel-near-galgotias-university'
+import { Route as HotelNearBuddhInternationalCircuitRouteImport } from './routes/hotel-near-buddh-international-circuit'
+import { Route as HotelNearBennettUniversityRouteImport } from './routes/hotel-near-bennett-university'
 import { Route as BookingLookupRouteImport } from './routes/booking-lookup'
 import { Route as BookRouteImport } from './routes/book'
 import { Route as AdminRouteRouteImport } from './routes/admin/route'
@@ -34,6 +41,7 @@ import { Route as AdminCalendarRouteImport } from './routes/admin/calendar'
 import { Route as AdminBookingsRouteImport } from './routes/admin/bookings'
 import { Route as AdminAcceptInviteRouteImport } from './routes/admin/accept-invite'
 import { Route as AdminSettingsInviteRouteImport } from './routes/admin/settings_.invite'
+import { Route as AdminLoginFinishRouteImport } from './routes/admin/login_.finish'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -50,9 +58,20 @@ const PartyHallEnquiryRoute = PartyHallEnquiryRouteImport.update({
   path: '/party-hall-enquiry',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HotelNearShardaUniversityRoute =
+  HotelNearShardaUniversityRouteImport.update({
+    id: '/hotel-near-sharda-university',
+    path: '/hotel-near-sharda-university',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const HotelNearPariChowkRoute = HotelNearPariChowkRouteImport.update({
   id: '/hotel-near-pari-chowk',
   path: '/hotel-near-pari-chowk',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HotelNearJewarAirportRoute = HotelNearJewarAirportRouteImport.update({
+  id: '/hotel-near-jewar-airport',
+  path: '/hotel-near-jewar-airport',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HotelNearIndiaExpoMartRoute = HotelNearIndiaExpoMartRouteImport.update({
@@ -60,6 +79,36 @@ const HotelNearIndiaExpoMartRoute = HotelNearIndiaExpoMartRouteImport.update({
   path: '/hotel-near-india-expo-mart',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HotelNearGrandVeniceMallRoute =
+  HotelNearGrandVeniceMallRouteImport.update({
+    id: '/hotel-near-grand-venice-mall',
+    path: '/hotel-near-grand-venice-mall',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const HotelNearGautamBuddhaUniversityRoute =
+  HotelNearGautamBuddhaUniversityRouteImport.update({
+    id: '/hotel-near-gautam-buddha-university',
+    path: '/hotel-near-gautam-buddha-university',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const HotelNearGalgotiasUniversityRoute =
+  HotelNearGalgotiasUniversityRouteImport.update({
+    id: '/hotel-near-galgotias-university',
+    path: '/hotel-near-galgotias-university',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const HotelNearBuddhInternationalCircuitRoute =
+  HotelNearBuddhInternationalCircuitRouteImport.update({
+    id: '/hotel-near-buddh-international-circuit',
+    path: '/hotel-near-buddh-international-circuit',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const HotelNearBennettUniversityRoute =
+  HotelNearBennettUniversityRouteImport.update({
+    id: '/hotel-near-bennett-university',
+    path: '/hotel-near-bennett-university',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const BookingLookupRoute = BookingLookupRouteImport.update({
   id: '/booking-lookup',
   path: '/booking-lookup',
@@ -160,14 +209,26 @@ const AdminSettingsInviteRoute = AdminSettingsInviteRouteImport.update({
   path: '/settings/invite',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminLoginFinishRoute = AdminLoginFinishRouteImport.update({
+  id: '/login_/finish',
+  path: '/login/finish',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteRouteWithChildren
   '/book': typeof BookRoute
   '/booking-lookup': typeof BookingLookupRoute
+  '/hotel-near-bennett-university': typeof HotelNearBennettUniversityRoute
+  '/hotel-near-buddh-international-circuit': typeof HotelNearBuddhInternationalCircuitRoute
+  '/hotel-near-galgotias-university': typeof HotelNearGalgotiasUniversityRoute
+  '/hotel-near-gautam-buddha-university': typeof HotelNearGautamBuddhaUniversityRoute
+  '/hotel-near-grand-venice-mall': typeof HotelNearGrandVeniceMallRoute
   '/hotel-near-india-expo-mart': typeof HotelNearIndiaExpoMartRoute
+  '/hotel-near-jewar-airport': typeof HotelNearJewarAirportRoute
   '/hotel-near-pari-chowk': typeof HotelNearPariChowkRoute
+  '/hotel-near-sharda-university': typeof HotelNearShardaUniversityRoute
   '/party-hall-enquiry': typeof PartyHallEnquiryRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
@@ -186,14 +247,22 @@ export interface FileRoutesByFullPath {
   '/admin/settings': typeof AdminSettingsRoute
   '/invoice/$invoiceNo': typeof InvoiceInvoiceNoRoute
   '/admin/': typeof AdminIndexRoute
+  '/admin/login/finish': typeof AdminLoginFinishRoute
   '/admin/settings/invite': typeof AdminSettingsInviteRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/book': typeof BookRoute
   '/booking-lookup': typeof BookingLookupRoute
+  '/hotel-near-bennett-university': typeof HotelNearBennettUniversityRoute
+  '/hotel-near-buddh-international-circuit': typeof HotelNearBuddhInternationalCircuitRoute
+  '/hotel-near-galgotias-university': typeof HotelNearGalgotiasUniversityRoute
+  '/hotel-near-gautam-buddha-university': typeof HotelNearGautamBuddhaUniversityRoute
+  '/hotel-near-grand-venice-mall': typeof HotelNearGrandVeniceMallRoute
   '/hotel-near-india-expo-mart': typeof HotelNearIndiaExpoMartRoute
+  '/hotel-near-jewar-airport': typeof HotelNearJewarAirportRoute
   '/hotel-near-pari-chowk': typeof HotelNearPariChowkRoute
+  '/hotel-near-sharda-university': typeof HotelNearShardaUniversityRoute
   '/party-hall-enquiry': typeof PartyHallEnquiryRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
@@ -212,6 +281,7 @@ export interface FileRoutesByTo {
   '/admin/settings': typeof AdminSettingsRoute
   '/invoice/$invoiceNo': typeof InvoiceInvoiceNoRoute
   '/admin': typeof AdminIndexRoute
+  '/admin/login/finish': typeof AdminLoginFinishRoute
   '/admin/settings/invite': typeof AdminSettingsInviteRoute
 }
 export interface FileRoutesById {
@@ -220,8 +290,15 @@ export interface FileRoutesById {
   '/admin': typeof AdminRouteRouteWithChildren
   '/book': typeof BookRoute
   '/booking-lookup': typeof BookingLookupRoute
+  '/hotel-near-bennett-university': typeof HotelNearBennettUniversityRoute
+  '/hotel-near-buddh-international-circuit': typeof HotelNearBuddhInternationalCircuitRoute
+  '/hotel-near-galgotias-university': typeof HotelNearGalgotiasUniversityRoute
+  '/hotel-near-gautam-buddha-university': typeof HotelNearGautamBuddhaUniversityRoute
+  '/hotel-near-grand-venice-mall': typeof HotelNearGrandVeniceMallRoute
   '/hotel-near-india-expo-mart': typeof HotelNearIndiaExpoMartRoute
+  '/hotel-near-jewar-airport': typeof HotelNearJewarAirportRoute
   '/hotel-near-pari-chowk': typeof HotelNearPariChowkRoute
+  '/hotel-near-sharda-university': typeof HotelNearShardaUniversityRoute
   '/party-hall-enquiry': typeof PartyHallEnquiryRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
@@ -240,6 +317,7 @@ export interface FileRoutesById {
   '/admin/settings': typeof AdminSettingsRoute
   '/invoice/$invoiceNo': typeof InvoiceInvoiceNoRoute
   '/admin/': typeof AdminIndexRoute
+  '/admin/login_/finish': typeof AdminLoginFinishRoute
   '/admin/settings_/invite': typeof AdminSettingsInviteRoute
 }
 export interface FileRouteTypes {
@@ -249,8 +327,15 @@ export interface FileRouteTypes {
     | '/admin'
     | '/book'
     | '/booking-lookup'
+    | '/hotel-near-bennett-university'
+    | '/hotel-near-buddh-international-circuit'
+    | '/hotel-near-galgotias-university'
+    | '/hotel-near-gautam-buddha-university'
+    | '/hotel-near-grand-venice-mall'
     | '/hotel-near-india-expo-mart'
+    | '/hotel-near-jewar-airport'
     | '/hotel-near-pari-chowk'
+    | '/hotel-near-sharda-university'
     | '/party-hall-enquiry'
     | '/privacy'
     | '/terms'
@@ -269,14 +354,22 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/invoice/$invoiceNo'
     | '/admin/'
+    | '/admin/login/finish'
     | '/admin/settings/invite'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/book'
     | '/booking-lookup'
+    | '/hotel-near-bennett-university'
+    | '/hotel-near-buddh-international-circuit'
+    | '/hotel-near-galgotias-university'
+    | '/hotel-near-gautam-buddha-university'
+    | '/hotel-near-grand-venice-mall'
     | '/hotel-near-india-expo-mart'
+    | '/hotel-near-jewar-airport'
     | '/hotel-near-pari-chowk'
+    | '/hotel-near-sharda-university'
     | '/party-hall-enquiry'
     | '/privacy'
     | '/terms'
@@ -295,6 +388,7 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/invoice/$invoiceNo'
     | '/admin'
+    | '/admin/login/finish'
     | '/admin/settings/invite'
   id:
     | '__root__'
@@ -302,8 +396,15 @@ export interface FileRouteTypes {
     | '/admin'
     | '/book'
     | '/booking-lookup'
+    | '/hotel-near-bennett-university'
+    | '/hotel-near-buddh-international-circuit'
+    | '/hotel-near-galgotias-university'
+    | '/hotel-near-gautam-buddha-university'
+    | '/hotel-near-grand-venice-mall'
     | '/hotel-near-india-expo-mart'
+    | '/hotel-near-jewar-airport'
     | '/hotel-near-pari-chowk'
+    | '/hotel-near-sharda-university'
     | '/party-hall-enquiry'
     | '/privacy'
     | '/terms'
@@ -322,6 +423,7 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/invoice/$invoiceNo'
     | '/admin/'
+    | '/admin/login_/finish'
     | '/admin/settings_/invite'
   fileRoutesById: FileRoutesById
 }
@@ -330,8 +432,15 @@ export interface RootRouteChildren {
   AdminRouteRoute: typeof AdminRouteRouteWithChildren
   BookRoute: typeof BookRoute
   BookingLookupRoute: typeof BookingLookupRoute
+  HotelNearBennettUniversityRoute: typeof HotelNearBennettUniversityRoute
+  HotelNearBuddhInternationalCircuitRoute: typeof HotelNearBuddhInternationalCircuitRoute
+  HotelNearGalgotiasUniversityRoute: typeof HotelNearGalgotiasUniversityRoute
+  HotelNearGautamBuddhaUniversityRoute: typeof HotelNearGautamBuddhaUniversityRoute
+  HotelNearGrandVeniceMallRoute: typeof HotelNearGrandVeniceMallRoute
   HotelNearIndiaExpoMartRoute: typeof HotelNearIndiaExpoMartRoute
+  HotelNearJewarAirportRoute: typeof HotelNearJewarAirportRoute
   HotelNearPariChowkRoute: typeof HotelNearPariChowkRoute
+  HotelNearShardaUniversityRoute: typeof HotelNearShardaUniversityRoute
   PartyHallEnquiryRoute: typeof PartyHallEnquiryRoute
   PrivacyRoute: typeof PrivacyRoute
   TermsRoute: typeof TermsRoute
@@ -361,6 +470,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PartyHallEnquiryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/hotel-near-sharda-university': {
+      id: '/hotel-near-sharda-university'
+      path: '/hotel-near-sharda-university'
+      fullPath: '/hotel-near-sharda-university'
+      preLoaderRoute: typeof HotelNearShardaUniversityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/hotel-near-pari-chowk': {
       id: '/hotel-near-pari-chowk'
       path: '/hotel-near-pari-chowk'
@@ -368,11 +484,53 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HotelNearPariChowkRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/hotel-near-jewar-airport': {
+      id: '/hotel-near-jewar-airport'
+      path: '/hotel-near-jewar-airport'
+      fullPath: '/hotel-near-jewar-airport'
+      preLoaderRoute: typeof HotelNearJewarAirportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/hotel-near-india-expo-mart': {
       id: '/hotel-near-india-expo-mart'
       path: '/hotel-near-india-expo-mart'
       fullPath: '/hotel-near-india-expo-mart'
       preLoaderRoute: typeof HotelNearIndiaExpoMartRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/hotel-near-grand-venice-mall': {
+      id: '/hotel-near-grand-venice-mall'
+      path: '/hotel-near-grand-venice-mall'
+      fullPath: '/hotel-near-grand-venice-mall'
+      preLoaderRoute: typeof HotelNearGrandVeniceMallRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/hotel-near-gautam-buddha-university': {
+      id: '/hotel-near-gautam-buddha-university'
+      path: '/hotel-near-gautam-buddha-university'
+      fullPath: '/hotel-near-gautam-buddha-university'
+      preLoaderRoute: typeof HotelNearGautamBuddhaUniversityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/hotel-near-galgotias-university': {
+      id: '/hotel-near-galgotias-university'
+      path: '/hotel-near-galgotias-university'
+      fullPath: '/hotel-near-galgotias-university'
+      preLoaderRoute: typeof HotelNearGalgotiasUniversityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/hotel-near-buddh-international-circuit': {
+      id: '/hotel-near-buddh-international-circuit'
+      path: '/hotel-near-buddh-international-circuit'
+      fullPath: '/hotel-near-buddh-international-circuit'
+      preLoaderRoute: typeof HotelNearBuddhInternationalCircuitRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/hotel-near-bennett-university': {
+      id: '/hotel-near-bennett-university'
+      path: '/hotel-near-bennett-university'
+      fullPath: '/hotel-near-bennett-university'
+      preLoaderRoute: typeof HotelNearBennettUniversityRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/booking-lookup': {
@@ -515,6 +673,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminSettingsInviteRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/login_/finish': {
+      id: '/admin/login_/finish'
+      path: '/login/finish'
+      fullPath: '/admin/login/finish'
+      preLoaderRoute: typeof AdminLoginFinishRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
   }
 }
 
@@ -533,6 +698,7 @@ interface AdminRouteRouteChildren {
   AdminRoomsRoute: typeof AdminRoomsRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminIndexRoute: typeof AdminIndexRoute
+  AdminLoginFinishRoute: typeof AdminLoginFinishRoute
   AdminSettingsInviteRoute: typeof AdminSettingsInviteRoute
 }
 
@@ -551,6 +717,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminRoomsRoute: AdminRoomsRoute,
   AdminSettingsRoute: AdminSettingsRoute,
   AdminIndexRoute: AdminIndexRoute,
+  AdminLoginFinishRoute: AdminLoginFinishRoute,
   AdminSettingsInviteRoute: AdminSettingsInviteRoute,
 }
 
@@ -563,8 +730,16 @@ const rootRouteChildren: RootRouteChildren = {
   AdminRouteRoute: AdminRouteRouteWithChildren,
   BookRoute: BookRoute,
   BookingLookupRoute: BookingLookupRoute,
+  HotelNearBennettUniversityRoute: HotelNearBennettUniversityRoute,
+  HotelNearBuddhInternationalCircuitRoute:
+    HotelNearBuddhInternationalCircuitRoute,
+  HotelNearGalgotiasUniversityRoute: HotelNearGalgotiasUniversityRoute,
+  HotelNearGautamBuddhaUniversityRoute: HotelNearGautamBuddhaUniversityRoute,
+  HotelNearGrandVeniceMallRoute: HotelNearGrandVeniceMallRoute,
   HotelNearIndiaExpoMartRoute: HotelNearIndiaExpoMartRoute,
+  HotelNearJewarAirportRoute: HotelNearJewarAirportRoute,
   HotelNearPariChowkRoute: HotelNearPariChowkRoute,
+  HotelNearShardaUniversityRoute: HotelNearShardaUniversityRoute,
   PartyHallEnquiryRoute: PartyHallEnquiryRoute,
   PrivacyRoute: PrivacyRoute,
   TermsRoute: TermsRoute,

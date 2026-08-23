@@ -13,10 +13,42 @@ const places = [
     dist: "10 min drive",
     href: "/hotel-near-pari-chowk",
   },
-  { t: "Gautam Buddha University", d: "Knowledge Park III", dist: "15 min drive" },
-  { t: "Sharda University", d: "Knowledge Park II", dist: "15 min drive" },
-  { t: "Grand Venice Mall", d: "Shopping & leisure", dist: "5 min drive" },
-  { t: "Jewar Airport (NIA)", d: "International Airport and Hub", dist: "45 min drive" },
+  {
+    t: "Gautam Buddha University",
+    d: "Knowledge Park III",
+    dist: "15 min drive",
+    href: "/hotel-near-gautam-buddha-university",
+  },
+  {
+    t: "Sharda University",
+    d: "Knowledge Park II",
+    dist: "15 min drive",
+    href: "/hotel-near-sharda-university",
+  },
+  {
+    t: "Grand Venice Mall",
+    d: "Shopping & leisure",
+    dist: "5 min drive",
+    href: "/hotel-near-grand-venice-mall",
+  },
+  {
+    t: "Jewar Airport (NIA)",
+    d: "International Airport and Hub",
+    dist: "40 min drive",
+    href: "/hotel-near-jewar-airport",
+  },
+  {
+    t: "Bennett University",
+    d: "Omicron III",
+    dist: "5 min drive",
+    href: "/hotel-near-bennett-university",
+  },
+  {
+    t: "Galgotias University",
+    d: "Yamuna Expressway",
+    dist: "15 min drive",
+    href: "/hotel-near-galgotias-university",
+  },
 ];
 
 export function Landmarks() {
@@ -45,7 +77,7 @@ export function Landmarks() {
           </Reveal>
         </div>
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-px bg-stone-200">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-px bg-stone-200">
           {places.map((p, i) => {
             const cardClassName =
               "p-8 h-full hover:bg-white transition-colors flex flex-col justify-between gap-8 group";

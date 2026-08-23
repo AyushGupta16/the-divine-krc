@@ -1,5 +1,5 @@
 import { createFileRoute, Outlet, useRouterState } from "@tanstack/react-router";
-import { requireAuth } from "@/lib/auth";
+import { getSessionAccountsFn, getSessionMemberFn, requireAuth } from "@/lib/auth";
 import { sidebarCounts } from "@/lib/bookings-data";
 import { notificationsFn } from "@/lib/notifications-data";
 import { AdminShell } from "@/components/admin/AdminShell";
@@ -13,6 +13,11 @@ const PUBLIC_ADMIN_PATHS = new Set<string>([
   // Accepting an invite is how you get an account; gating it would lock out
   // precisely the person it was sent to. The token does the authenticating.
   "/admin/accept-invite",
+  // Google OAuth's finish step: it's the thing that establishes the session,
+  // so it can't require one first. Gating it bounced every sign-in back to
+  // /admin/login with the handoff token stranded in the redirect param,
+  // instead of ever reaching googleFinishFn.
+  "/admin/login/finish",
 ]);
 
 function normalize(pathname: string): string {
@@ -22,10 +27,14 @@ function normalize(pathname: string): string {
 export const Route = createFileRoute("/admin")({
   beforeLoad: async ({ location }) => {
     if (PUBLIC_ADMIN_PATHS.has(normalize(location.pathname))) {
-      return { adminUser: null };
+      return { adminUser: null, member: null, allAccounts: [] };
     }
     const adminUser = await requireAuth(location.href);
-    return { adminUser };
+    const [{ accounts }, member] = await Promise.all([
+      getSessionAccountsFn(),
+      getSessionMemberFn(),
+    ]);
+    return { adminUser, member, allAccounts: accounts };
   },
   loader: async ({ context }) => {
     // Only the gated console needs the sidebar badge counts or notifications.
@@ -43,7 +52,7 @@ export const Route = createFileRoute("/admin")({
 
 function AdminLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { adminUser } = Route.useRouteContext();
+  const { adminUser, member, allAccounts } = Route.useRouteContext();
   const { counts, notifications } = Route.useLoaderData();
 
   // Auth pages bring their own full-screen chrome (AuthLayout).
@@ -51,5 +60,13 @@ function AdminLayout() {
     return <Outlet />;
   }
 
-  return <AdminShell user={adminUser} counts={counts} notifications={notifications} />;
+  return (
+    <AdminShell
+      user={adminUser}
+      member={member}
+      allAccounts={allAccounts}
+      counts={counts}
+      notifications={notifications}
+    />
+  );
 }

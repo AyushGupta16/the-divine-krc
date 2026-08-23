@@ -16,44 +16,49 @@ import { getRoomTypesFn } from "@/lib/bookings-data";
 import { DEFAULT_ROOM_IMAGE, ROOM_IMAGES } from "@/lib/room-images";
 import { SITE_URL, OG_IMAGE, hotelSchema, faqSchema, type FaqEntry } from "@/lib/seo";
 
-const PAGE_URL = `${SITE_URL}/hotel-near-pari-chowk`;
+const PAGE_URL = `${SITE_URL}/hotel-near-jewar-airport`;
+const WHATSAPP_URL =
+  "https://wa.me/918707368307?text=Hi%2C%20I%27m%20flying%20via%20Noida%20International%20Airport%20and%20would%20like%20to%20enquire%20about%20a%20stay.";
 
 const FAQS: FaqEntry[] = [
   {
-    question: "How far is The Divine KRC from Pari Chowk?",
-    answer: "The Divine KRC is a 10 minute drive from Pari Chowk, Greater Noida.",
+    question: "How far is The Divine KRC from Noida International Airport (Jewar)?",
+    answer: "Approximately 40 minutes by car via the Yamuna Expressway — a signal-free route.",
   },
   {
-    question: "Is the hotel close to Pari Chowk Metro station?",
+    question: "Can I arrange a cab to the airport from the hotel?",
     answer:
-      "Yes — Pari Chowk Metro (Aqua Line) is a 10 minute drive from the property, giving you onward connectivity to Noida and Delhi.",
+      "Yes — our front desk can help arrange a cab. We recommend confirming the night before for early morning flights.",
   },
   {
-    question: "Is parking available at the hotel?",
-    answer: "Yes, on-site parking is available for all resident guests.",
+    question: "Is early checkout available for morning flights?",
+    answer: "Yes — our 24-hour front desk accommodates any departure time. Inform us at check-in.",
   },
   {
-    question: "Can I book directly for the best rate?",
+    question: "Is the hotel good for international layovers?",
     answer:
-      "Yes — book direct with The Divine KRC for the best rate, plus a complimentary breakfast.",
+      "Yes — comfortable rooms, full restaurant, and parking. Practical for both domestic and international travellers transiting through DXN.",
   },
 ];
 
-export const Route = createFileRoute("/hotel-near-pari-chowk")({
+export const Route = createFileRoute("/hotel-near-jewar-airport")({
   loader: () => getRoomTypesFn(),
   head: () => ({
     meta: [
-      { title: "Hotel Near Pari Chowk, Greater Noida | The Divine KRC" },
+      { title: "Hotel Near Jewar Airport (Noida International Airport) | The Divine KRC" },
       {
         name: "description",
         content:
-          "Boutique rooms near Pari Chowk, Greater Noida, with easy Aqua Line metro access to Noida and Delhi. Book direct with The Divine KRC for the best rate.",
+          "Stay at The Divine KRC, Greater Noida — 40 minutes from Noida International Airport (Jewar, DXN) via Yamuna Expressway. An ideal base for early flights and airport layovers.",
       },
-      { property: "og:title", content: "Hotel Near Pari Chowk | The Divine KRC" },
+      {
+        property: "og:title",
+        content: "Hotel Near Noida International Airport (Jewar) | The Divine KRC",
+      },
       {
         property: "og:description",
         content:
-          "A comfortable base near Pari Chowk, Greater Noida, minutes from the Aqua Line metro. Book direct.",
+          "40 minutes from Noida International Airport via the Yamuna Expressway. Book direct.",
       },
       { property: "og:type", content: "website" },
       { property: "og:url", content: PAGE_URL },
@@ -67,7 +72,7 @@ export const Route = createFileRoute("/hotel-near-pari-chowk")({
       { type: "application/ld+json", children: JSON.stringify(faqSchema(FAQS)) },
     ],
   }),
-  component: HotelNearPariChowk,
+  component: HotelNearJewarAirport,
 });
 
 function Eyebrow({ children }: { children: string }) {
@@ -81,7 +86,7 @@ function Eyebrow({ children }: { children: string }) {
   );
 }
 
-function HotelNearPariChowk() {
+function HotelNearJewarAirport() {
   const roomTypes = Route.useLoaderData();
   return (
     <main className="bg-ivory text-obsidian font-sans antialiased selection:bg-gold/30 selection:text-obsidian">
@@ -94,7 +99,7 @@ function HotelNearPariChowk() {
       >
         <img
           src={heroExterior}
-          alt="The Divine KRC — minutes from Pari Chowk, Greater Noida"
+          alt="The Divine KRC boutique hotel, Greater Noida — 40 minutes from Noida International Airport (Jewar)"
           width={1536}
           height={1920}
           className="absolute inset-0 size-full object-cover opacity-65 scale-[1.04] motion-safe:animate-[kenburns_18s_ease-in-out_infinite_alternate]"
@@ -105,18 +110,20 @@ function HotelNearPariChowk() {
         <div className="relative z-10 mx-auto max-w-7xl w-full px-6 md:px-10 pb-20 md:pb-28 pt-32">
           <div className="max-w-2xl space-y-6">
             <Reveal>
-              <Eyebrow>Near Pari Chowk</Eyebrow>
+              <Eyebrow>Near Noida International Airport</Eyebrow>
             </Reveal>
             <Reveal delay={80}>
               <h1 className="font-display text-ivory text-4xl md:text-5xl lg:text-6xl leading-[1.05] text-balance">
-                Your stay near <span className="italic text-gold">Pari Chowk,</span> Greater Noida.
+                Staying near Noida International Airport, Jewar?{" "}
+                <span className="italic text-gold">Base yourself in Greater Noida.</span>
               </h1>
             </Reveal>
             <Reveal delay={160}>
               <p className="text-ivory/75 text-base md:text-lg font-light leading-relaxed max-w-xl">
-                Minutes from Pari Chowk and its metro connectivity, The Divine KRC is a quiet,
-                well-located base for NCR commuters, business travellers, and anyone passing through
-                Greater Noida's commercial hub.
+                The Divine KRC is not the nearest hotel to Jewar Airport — it's a better-value,
+                boutique alternative in Greater Noida, 40 minutes via the signal-free Yamuna
+                Expressway. Ideal for travellers who want comfort and good dining before or after a
+                flight, without paying airport-zone prices.
               </p>
             </Reveal>
             <Reveal delay={240}>
@@ -128,7 +135,7 @@ function HotelNearPariChowk() {
                   Reserve Your Stay
                 </a>
                 <a
-                  href="https://wa.me/918707368307?text=Hi%2C%20I%27m%20visiting%20Pari%20Chowk%20and%20would%20like%20to%20enquire%20about%20a%20stay."
+                  href={WHATSAPP_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 border border-gold/50 text-gold text-[11px] uppercase tracking-[0.25em] font-semibold px-7 py-4 hover:bg-gold/10 hover:border-gold transition-colors"
@@ -154,22 +161,23 @@ function HotelNearPariChowk() {
           <Reveal>
             <Eyebrow>Why The Divine KRC</Eyebrow>
             <h2 className="font-display text-3xl md:text-4xl text-obsidian leading-[1.1] text-balance mb-10">
-              Why stay near Pari Chowk <span className="italic text-gold">with us.</span>
+              Why The Divine KRC for your{" "}
+              <span className="italic text-gold">Noida Airport trip.</span>
             </h2>
           </Reveal>
           <div className="grid sm:grid-cols-3 gap-8">
             {[
               {
-                t: "Metro-connected, without the metro-area noise",
-                d: "Close enough to Pari Chowk Metro for easy Aqua Line access to Noida and Delhi, but set back enough for a genuinely quiet night's stay.",
+                t: "40 minutes via Yamuna Expressway",
+                d: "Noida International Airport (DXN, Jewar) is approximately 40 minutes from the hotel on the signal-free Yamuna Expressway. A smooth drive — far better than crossing the city from Delhi.",
               },
               {
-                t: "A convenient stop for NCR commuters",
-                d: "Travelling through Greater Noida's commercial hub for work? Base yourself minutes from Pari Chowk instead of commuting in from further out.",
+                t: "Early flight? Stay the night before",
+                d: "Check in the evening, have dinner at our restaurant, and leave fresh in the morning. Our 24-hour front desk handles any hour checkout.",
               },
               {
-                t: "Breakfast on us",
-                d: "Book direct and breakfast is complimentary — one less thing to plan around a busy day.",
+                t: "Better value than airport-adjacent hotels",
+                d: "Airport-area properties charge a premium. The Divine KRC gives you the same convenience corridor at boutique rates, with breakfast on us when you book direct.",
               },
             ].map((item, i) => (
               <Reveal key={item.t} delay={i * 80}>
@@ -187,36 +195,30 @@ function HotelNearPariChowk() {
           <Reveal>
             <Eyebrow>Getting Here</Eyebrow>
             <h2 className="font-display text-3xl md:text-4xl leading-[1.1] text-balance mb-4">
-              Getting to Pari Chowk Metro Station from{" "}
+              Getting to Noida International Airport from{" "}
               <span className="italic text-gold">The Divine KRC.</span>
             </h2>
           </Reveal>
           <Reveal delay={80}>
             <p className="text-ivory/70 text-base leading-relaxed max-w-xl mb-8">
-              Pari Chowk Metro (Aqua Line) is a 10 minute drive from the hotel, connecting you
-              onward to Noida and Delhi. Cabs and autos are readily available from the property.
+              From the hotel (Sector Omicron I), take the Yamuna Expressway southward toward Jewar.
+              The airport is clearly signed from the expressway. No toll expected on this stretch —
+              confirm locally. Cabs and prepaid taxis can be arranged by our front desk. We
+              recommend booking the night before an early morning departure (before 8am) to avoid
+              any last-minute rush.
             </p>
           </Reveal>
           <Reveal delay={160}>
             <ul className="space-y-3">
               <li className="flex items-start gap-3 text-sm text-ivory/80">
                 <span className="text-gold mt-1.5 size-1 rounded-full bg-gold shrink-0" />
-                By car or cab — 10 minutes to Pari Chowk
+                By car or cab — approximately 40 minutes via the Yamuna Expressway
               </li>
               <li className="flex items-start gap-3 text-sm text-ivory/80">
                 <span className="text-gold mt-1.5 size-1 rounded-full bg-gold shrink-0" />
-                By metro — Aqua Line from Pari Chowk Metro station onward to Noida and Delhi
+                Signal-free route, well-signed from the expressway
               </li>
             </ul>
-          </Reveal>
-          <Reveal delay={240}>
-            <p className="mt-8 text-sm text-ivory/60">
-              Visiting for India Expo Mart instead? See our{" "}
-              <a href="/hotel-near-india-expo-mart" className="text-gold underline">
-                page for India Expo Mart guests →
-              </a>
-              .
-            </p>
           </Reveal>
         </div>
       </section>
@@ -235,7 +237,7 @@ function HotelNearPariChowk() {
               <p className="text-center text-warm-gray text-sm mb-8">
                 Current rates are momentarily unavailable —{" "}
                 <a
-                  href="https://wa.me/918707368307?text=Hi%2C%20I%27m%20visiting%20Pari%20Chowk%20and%20would%20like%20to%20enquire%20about%20a%20stay."
+                  href={WHATSAPP_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-gold underline"

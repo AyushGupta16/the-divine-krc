@@ -224,7 +224,6 @@ describe("getPartyHallPageData", () => {
     const row = {
       id: "PH-NULL-SNAPSHOT",
       title: "Test event",
-      date: "2027-01-01",
       slot: "evening",
       guests: 100,
       package: "Gold",
@@ -241,7 +240,7 @@ describe("getPartyHallPageData", () => {
       contactPhone: null,
       contactEmail: null,
       source: null,
-      enquiryDate: null,
+      enquiryDate: "2027-01-01",
     };
     const hydrated = toPartyHall(row, 25);
     expect(hydrated.advancePaid).toBe(25000);
@@ -524,7 +523,6 @@ describe("quoteBreakdown persistence", () => {
     const row = {
       id: "PH-NO-BREAKDOWN",
       title: "Test event",
-      date: "2027-01-01",
       slot: "evening",
       guests: 100,
       package: "Gold",
@@ -541,7 +539,7 @@ describe("quoteBreakdown persistence", () => {
       contactPhone: null,
       contactEmail: null,
       source: null,
-      enquiryDate: null,
+      enquiryDate: "2027-01-01",
     };
     expect(() => toPartyHall(row, 25)).not.toThrow();
     const hydrated = toPartyHall(row, 25);

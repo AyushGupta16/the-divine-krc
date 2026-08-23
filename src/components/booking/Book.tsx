@@ -539,6 +539,12 @@ function RoomsStep({
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
+      <div className="mb-6">
+        <h1 className="font-display text-2xl text-obsidian md:text-3xl">
+          Book Your Stay at The Divine KRC
+        </h1>
+        <p className="mt-1 text-sm text-warm-gray">Direct rates, no booking fees.</p>
+      </div>
       <div className="mb-8 rounded-sm border border-gold/20 bg-ivory shadow-[0_30px_60px_-25px_rgba(10,10,10,0.25)]">
         <div className="grid grid-cols-2 divide-y divide-stone-200 md:grid-cols-4 md:divide-x md:divide-y-0">
           <div className="px-5 py-5 md:px-7 md:py-6">

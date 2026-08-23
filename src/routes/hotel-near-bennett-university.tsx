@@ -16,44 +16,43 @@ import { getRoomTypesFn } from "@/lib/bookings-data";
 import { DEFAULT_ROOM_IMAGE, ROOM_IMAGES } from "@/lib/room-images";
 import { SITE_URL, OG_IMAGE, hotelSchema, faqSchema, type FaqEntry } from "@/lib/seo";
 
-const PAGE_URL = `${SITE_URL}/hotel-near-pari-chowk`;
+const PAGE_URL = `${SITE_URL}/hotel-near-bennett-university`;
+const WHATSAPP_URL =
+  "https://wa.me/918707368307?text=Hi%2C%20I%27m%20visiting%20Bennett%20University%20and%20would%20like%20to%20enquire%20about%20a%20stay.";
 
 const FAQS: FaqEntry[] = [
   {
-    question: "How far is The Divine KRC from Pari Chowk?",
-    answer: "The Divine KRC is a 10 minute drive from Pari Chowk, Greater Noida.",
+    question: "How far is The Divine KRC from Bennett University?",
+    answer: "Approximately 3 km — about 5–7 minutes by car.",
   },
   {
-    question: "Is the hotel close to Pari Chowk Metro station?",
-    answer:
-      "Yes — Pari Chowk Metro (Aqua Line) is a 10 minute drive from the property, giving you onward connectivity to Noida and Delhi.",
+    question: "Is the hotel suitable for parents visiting for semester start or campus events?",
+    answer: "Yes — comfortable rooms, on-site parking, restaurant, and 24-hour front desk.",
   },
   {
-    question: "Is parking available at the hotel?",
-    answer: "Yes, on-site parking is available for all resident guests.",
+    question: "Is parking available?",
+    answer: "Yes, complimentary on-site parking for all hotel guests.",
   },
   {
-    question: "Can I book directly for the best rate?",
-    answer:
-      "Yes — book direct with The Divine KRC for the best rate, plus a complimentary breakfast.",
+    question: "What is included when I book direct?",
+    answer: "Complimentary breakfast and our best rate guarantee.",
   },
 ];
 
-export const Route = createFileRoute("/hotel-near-pari-chowk")({
+export const Route = createFileRoute("/hotel-near-bennett-university")({
   loader: () => getRoomTypesFn(),
   head: () => ({
     meta: [
-      { title: "Hotel Near Pari Chowk, Greater Noida | The Divine KRC" },
+      { title: "Hotel Near Bennett University, Greater Noida | The Divine KRC" },
       {
         name: "description",
         content:
-          "Boutique rooms near Pari Chowk, Greater Noida, with easy Aqua Line metro access to Noida and Delhi. Book direct with The Divine KRC for the best rate.",
+          "Boutique hotel 3 km from Bennett University, Greater Noida. Ideal for parents, visiting faculty, and students' families. Book direct with The Divine KRC.",
       },
-      { property: "og:title", content: "Hotel Near Pari Chowk | The Divine KRC" },
+      { property: "og:title", content: "Hotel Near Bennett University | The Divine KRC" },
       {
         property: "og:description",
-        content:
-          "A comfortable base near Pari Chowk, Greater Noida, minutes from the Aqua Line metro. Book direct.",
+        content: "A comfortable base 3 km from Bennett University, Greater Noida. Book direct.",
       },
       { property: "og:type", content: "website" },
       { property: "og:url", content: PAGE_URL },
@@ -67,7 +66,7 @@ export const Route = createFileRoute("/hotel-near-pari-chowk")({
       { type: "application/ld+json", children: JSON.stringify(faqSchema(FAQS)) },
     ],
   }),
-  component: HotelNearPariChowk,
+  component: HotelNearBennett,
 });
 
 function Eyebrow({ children }: { children: string }) {
@@ -81,7 +80,7 @@ function Eyebrow({ children }: { children: string }) {
   );
 }
 
-function HotelNearPariChowk() {
+function HotelNearBennett() {
   const roomTypes = Route.useLoaderData();
   return (
     <main className="bg-ivory text-obsidian font-sans antialiased selection:bg-gold/30 selection:text-obsidian">
@@ -94,7 +93,7 @@ function HotelNearPariChowk() {
       >
         <img
           src={heroExterior}
-          alt="The Divine KRC — minutes from Pari Chowk, Greater Noida"
+          alt="The Divine KRC boutique hotel — 3 km from Bennett University, Greater Noida"
           width={1536}
           height={1920}
           className="absolute inset-0 size-full object-cover opacity-65 scale-[1.04] motion-safe:animate-[kenburns_18s_ease-in-out_infinite_alternate]"
@@ -105,18 +104,18 @@ function HotelNearPariChowk() {
         <div className="relative z-10 mx-auto max-w-7xl w-full px-6 md:px-10 pb-20 md:pb-28 pt-32">
           <div className="max-w-2xl space-y-6">
             <Reveal>
-              <Eyebrow>Near Pari Chowk</Eyebrow>
+              <Eyebrow>Near Bennett University</Eyebrow>
             </Reveal>
             <Reveal delay={80}>
               <h1 className="font-display text-ivory text-4xl md:text-5xl lg:text-6xl leading-[1.05] text-balance">
-                Your stay near <span className="italic text-gold">Pari Chowk,</span> Greater Noida.
+                Your hotel near <span className="italic text-gold">Bennett University,</span>{" "}
+                Greater Noida.
               </h1>
             </Reveal>
             <Reveal delay={160}>
               <p className="text-ivory/75 text-base md:text-lg font-light leading-relaxed max-w-xl">
-                Minutes from Pari Chowk and its metro connectivity, The Divine KRC is a quiet,
-                well-located base for NCR commuters, business travellers, and anyone passing through
-                Greater Noida's commercial hub.
+                One of the closest hotels to Bennett University — a convenient, comfortable choice
+                for parents, visiting faculty, and families.
               </p>
             </Reveal>
             <Reveal delay={240}>
@@ -128,7 +127,7 @@ function HotelNearPariChowk() {
                   Reserve Your Stay
                 </a>
                 <a
-                  href="https://wa.me/918707368307?text=Hi%2C%20I%27m%20visiting%20Pari%20Chowk%20and%20would%20like%20to%20enquire%20about%20a%20stay."
+                  href={WHATSAPP_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 border border-gold/50 text-gold text-[11px] uppercase tracking-[0.25em] font-semibold px-7 py-4 hover:bg-gold/10 hover:border-gold transition-colors"
@@ -154,22 +153,22 @@ function HotelNearPariChowk() {
           <Reveal>
             <Eyebrow>Why The Divine KRC</Eyebrow>
             <h2 className="font-display text-3xl md:text-4xl text-obsidian leading-[1.1] text-balance mb-10">
-              Why stay near Pari Chowk <span className="italic text-gold">with us.</span>
+              Why stay with us near <span className="italic text-gold">Bennett University.</span>
             </h2>
           </Reveal>
           <div className="grid sm:grid-cols-3 gap-8">
             {[
               {
-                t: "Metro-connected, without the metro-area noise",
-                d: "Close enough to Pari Chowk Metro for easy Aqua Line access to Noida and Delhi, but set back enough for a genuinely quiet night's stay.",
+                t: "3 km from campus",
+                d: "Bennett University is one of the closest major landmarks to the hotel. A 5–7 minute drive via Omicron I road.",
               },
               {
-                t: "A convenient stop for NCR commuters",
-                d: "Travelling through Greater Noida's commercial hub for work? Base yourself minutes from Pari Chowk instead of commuting in from further out.",
+                t: "Comfortable stay for visiting families",
+                d: "Spacious rooms, clean bathrooms, and all-day dining. Right for parents making the trip for semester start, events, or a quick visit.",
               },
               {
-                t: "Breakfast on us",
-                d: "Book direct and breakfast is complimentary — one less thing to plan around a busy day.",
+                t: "Book direct for the best rate",
+                d: "Always cheaper than OTAs when you book via our website or WhatsApp. Complimentary breakfast included.",
               },
             ].map((item, i) => (
               <Reveal key={item.t} delay={i * 80}>
@@ -187,36 +186,28 @@ function HotelNearPariChowk() {
           <Reveal>
             <Eyebrow>Getting Here</Eyebrow>
             <h2 className="font-display text-3xl md:text-4xl leading-[1.1] text-balance mb-4">
-              Getting to Pari Chowk Metro Station from{" "}
+              Getting to Bennett University from{" "}
               <span className="italic text-gold">The Divine KRC.</span>
             </h2>
           </Reveal>
           <Reveal delay={80}>
             <p className="text-ivory/70 text-base leading-relaxed max-w-xl mb-8">
-              Pari Chowk Metro (Aqua Line) is a 10 minute drive from the hotel, connecting you
-              onward to Noida and Delhi. Cabs and autos are readily available from the property.
+              From Sector Omicron I, head toward Omicron III / Bennett University campus. The campus
+              is well-signed from the main road. One of our closest university neighbours — cabs and
+              autos can reach the campus in under 10 minutes.
             </p>
           </Reveal>
           <Reveal delay={160}>
             <ul className="space-y-3">
               <li className="flex items-start gap-3 text-sm text-ivory/80">
                 <span className="text-gold mt-1.5 size-1 rounded-full bg-gold shrink-0" />
-                By car or cab — 10 minutes to Pari Chowk
+                By car or cab — approximately 3 km, 5–7 minutes
               </li>
               <li className="flex items-start gap-3 text-sm text-ivory/80">
                 <span className="text-gold mt-1.5 size-1 rounded-full bg-gold shrink-0" />
-                By metro — Aqua Line from Pari Chowk Metro station onward to Noida and Delhi
+                Via Omicron I road toward Omicron III
               </li>
             </ul>
-          </Reveal>
-          <Reveal delay={240}>
-            <p className="mt-8 text-sm text-ivory/60">
-              Visiting for India Expo Mart instead? See our{" "}
-              <a href="/hotel-near-india-expo-mart" className="text-gold underline">
-                page for India Expo Mart guests →
-              </a>
-              .
-            </p>
           </Reveal>
         </div>
       </section>
@@ -235,7 +226,7 @@ function HotelNearPariChowk() {
               <p className="text-center text-warm-gray text-sm mb-8">
                 Current rates are momentarily unavailable —{" "}
                 <a
-                  href="https://wa.me/918707368307?text=Hi%2C%20I%27m%20visiting%20Pari%20Chowk%20and%20would%20like%20to%20enquire%20about%20a%20stay."
+                  href={WHATSAPP_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-gold underline"

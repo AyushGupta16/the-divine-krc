@@ -81,7 +81,8 @@ async function loadInvoiceParty(): Promise<{
       withAdvance({
         id: r.id,
         title: r.title,
-        date: r.date,
+        // 5d contract (0020): native date column is the sole source now.
+        date: r.enquiryDate,
         slot: r.slot as PartyHallSlot,
         guests: r.guests,
         package: r.package,

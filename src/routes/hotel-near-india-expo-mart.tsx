@@ -11,7 +11,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import heroExterior from "@/assets/hero.jpg";
+import heroExterior from "@/assets/hero.webp";
 import { getRoomTypesFn } from "@/lib/bookings-data";
 import { DEFAULT_ROOM_IMAGE, ROOM_IMAGES } from "@/lib/room-images";
 import { SITE_URL, OG_IMAGE, hotelSchema, faqSchema, type FaqEntry } from "@/lib/seo";
@@ -207,6 +207,15 @@ function HotelNearIndiaExpoMart() {
                 By metro — 10 minutes to Pari Chowk Metro (Aqua Line), then onward by cab
               </li>
             </ul>
+          </Reveal>
+          <Reveal delay={240}>
+            <p className="mt-8 text-sm text-ivory/60">
+              Staying closer to Pari Chowk instead? See our{" "}
+              <a href="/hotel-near-pari-chowk" className="text-gold underline">
+                page for Pari Chowk guests →
+              </a>
+              .
+            </p>
           </Reveal>
         </div>
       </section>

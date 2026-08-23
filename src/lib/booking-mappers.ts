@@ -31,10 +31,8 @@ export interface BookingRow {
   guestId: string;
   roomNo: string | null;
   roomType: string;
-  checkIn: string;
-  checkOut: string;
-  checkInDate: string | null;
-  checkOutDate: string | null;
+  checkInDate: string;
+  checkOutDate: string;
   urn: number;
   source: string;
   mealPlan: string;
@@ -92,10 +90,10 @@ export function toBooking(r: BookingRow): Booking {
     guestId: r.guestId,
     roomNo: r.roomNo,
     roomType: r.roomType as RoomType,
-    // 5d cutover: read from the native date columns, backfilled and dual-written
-    // alongside check_in/check_out (still present, not yet dropped).
-    checkIn: r.checkInDate!,
-    checkOut: r.checkOutDate!,
+    // 5d contract (0020): the native date columns are the sole source of
+    // record now — the old TEXT check_in/check_out have been dropped.
+    checkIn: r.checkInDate,
+    checkOut: r.checkOutDate,
     urn: r.urn,
     source: r.source as BookingSource,
     mealPlan: r.mealPlan as MealPlan,

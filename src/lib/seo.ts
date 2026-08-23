@@ -35,6 +35,13 @@ export const hotelSchema = {
     latitude: "28.463844253163877",
     longitude: "77.5664181629228",
   },
+  aggregateRating: {
+    "@type": "AggregateRating",
+    ratingValue: "4.6",
+    bestRating: "5",
+    worstRating: "1",
+    ratingCount: "14",
+  },
 };
 
 export interface FaqEntry {

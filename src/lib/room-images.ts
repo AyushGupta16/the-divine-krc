@@ -2,7 +2,7 @@
 // show the same picture for the same room type instead of each hand-copying
 // its own — same single-source-of-truth reasoning as `seo.ts`'s NAP facts.
 
-import hero from "@/assets/hero.jpg";
+import hero from "@/assets/hero.webp";
 import roomBalcony from "@/assets/room-balcony.jpg";
 import roomDeluxe from "@/assets/room-deluxe.jpg";
 import type { RoomType } from "@/types/booking";

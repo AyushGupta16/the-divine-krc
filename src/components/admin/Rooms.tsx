@@ -14,11 +14,12 @@ import type {
 } from "@/types/booking";
 import { formatINR } from "@/lib/booking-math";
 import { updateRoomStatusFn } from "@/lib/bookings-data";
+import { can, type TeamAccount } from "@/lib/team";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import roomDeluxe from "@/assets/room-deluxe.jpg";
 import roomBalcony from "@/assets/room-balcony.jpg";
-import partyHallImg from "@/assets/party-hall.jpg";
+import partyHallImg from "@/assets/party-hall.webp";
 
 // ── Tokens ──────────────────────────────────────────────────────────────────
 
@@ -58,7 +59,7 @@ function availabilityLine(card: RoomTypeCard): { text: string; color: string } {
   };
 }
 
-function TypeCard({ card }: { card: RoomTypeCard }) {
+function TypeCard({ card, canManageRooms }: { card: RoomTypeCard; canManageRooms: boolean }) {
   const avail = availabilityLine(card);
   return (
     <div className="flex items-center gap-3 rounded-lg border border-[#eae4d6] bg-white p-3.5 sm:gap-4.5 sm:px-5 sm:py-4.5">
@@ -81,13 +82,15 @@ function TypeCard({ card }: { card: RoomTypeCard }) {
         <div className="font-display text-[17px] text-[#a8863f] sm:text-[21px]">
           {formatINR(card.pricePerNight)}
         </div>
-        <Link
-          to="/admin/settings"
-          hash="pricing"
-          className="text-[11px] font-semibold text-gold transition-colors hover:text-[#a8863f]"
-        >
-          Edit
-        </Link>
+        {canManageRooms && (
+          <Link
+            to="/admin/settings"
+            hash="pricing"
+            className="text-[11px] font-semibold text-gold transition-colors hover:text-[#a8863f]"
+          >
+            Edit
+          </Link>
+        )}
       </div>
     </div>
   );
@@ -254,24 +257,27 @@ function PartyHallCard({ hall }: { hall: RoomsPartyHall }) {
 
 // ── Page ────────────────────────────────────────────────────────────────────
 
-export function Rooms({ data }: { data: RoomsPageData }) {
+export function Rooms({ data, member }: { data: RoomsPageData; member: TeamAccount | null }) {
+  const canManageRooms = !!member && can(member.role, "rooms:write");
   return (
     <div className="flex flex-col gap-5.5 p-4 sm:p-6.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-[12px] tracking-[0.01em] text-[#7a746a]">{data.summaryLine}</p>
-        <Link
-          to="/admin/settings"
-          hash="pricing"
-          className="inline-flex items-center gap-2 rounded-md bg-gold px-3 py-2 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
-        >
-          <Plus className="size-4" />
-          Add room
-        </Link>
+        {canManageRooms && (
+          <Link
+            to="/admin/settings"
+            hash="pricing"
+            className="inline-flex items-center gap-2 rounded-md bg-gold px-3 py-2 text-[12px] font-semibold text-obsidian transition-colors hover:bg-[#b8933f]"
+          >
+            <Plus className="size-4" />
+            Add room
+          </Link>
+        )}
       </div>
 
       <div className="grid gap-4.5 lg:grid-cols-2">
         {data.typeCards.map((card) => (
-          <TypeCard key={card.type} card={card} />
+          <TypeCard key={card.type} card={card} canManageRooms={canManageRooms} />
         ))}
       </div>
 
