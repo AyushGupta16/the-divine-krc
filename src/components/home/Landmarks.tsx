@@ -77,7 +77,7 @@ export function Landmarks() {
           </Reveal>
         </div>
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-px bg-stone-200">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-px bg-stone-200">
           {places.map((p, i) => {
             const cardClassName =
               "p-8 h-full hover:bg-white transition-colors flex flex-col justify-between gap-8 group";
