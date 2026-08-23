@@ -25,12 +25,29 @@ const places = [
     dist: "15 min drive",
     href: "/hotel-near-sharda-university",
   },
-  { t: "Grand Venice Mall", d: "Shopping & leisure", dist: "5 min drive" },
+  {
+    t: "Grand Venice Mall",
+    d: "Shopping & leisure",
+    dist: "5 min drive",
+    href: "/hotel-near-grand-venice-mall",
+  },
   {
     t: "Jewar Airport (NIA)",
     d: "International Airport and Hub",
-    dist: "45 min drive",
+    dist: "40 min drive",
     href: "/hotel-near-jewar-airport",
+  },
+  {
+    t: "Bennett University",
+    d: "Omicron III",
+    dist: "5 min drive",
+    href: "/hotel-near-bennett-university",
+  },
+  {
+    t: "Galgotias University",
+    d: "Yamuna Expressway",
+    dist: "15 min drive",
+    href: "/hotel-near-galgotias-university",
   },
 ];
 

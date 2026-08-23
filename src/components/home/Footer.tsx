@@ -92,6 +92,14 @@ export function Footer() {
                 </Link>
               </li>
               <li>
+                <Link
+                  to="/hotel-near-grand-venice-mall"
+                  className="hover:text-gold transition-colors"
+                >
+                  Near Grand Venice Mall
+                </Link>
+              </li>
+              <li>
                 <Link to="/hotel-near-jewar-airport" className="hover:text-gold transition-colors">
                   Near Jewar Airport
                 </Link>

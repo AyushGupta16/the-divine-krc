@@ -16,6 +16,7 @@ import { Route as HotelNearShardaUniversityRouteImport } from './routes/hotel-ne
 import { Route as HotelNearPariChowkRouteImport } from './routes/hotel-near-pari-chowk'
 import { Route as HotelNearJewarAirportRouteImport } from './routes/hotel-near-jewar-airport'
 import { Route as HotelNearIndiaExpoMartRouteImport } from './routes/hotel-near-india-expo-mart'
+import { Route as HotelNearGrandVeniceMallRouteImport } from './routes/hotel-near-grand-venice-mall'
 import { Route as HotelNearGautamBuddhaUniversityRouteImport } from './routes/hotel-near-gautam-buddha-university'
 import { Route as HotelNearGalgotiasUniversityRouteImport } from './routes/hotel-near-galgotias-university'
 import { Route as HotelNearBuddhInternationalCircuitRouteImport } from './routes/hotel-near-buddh-international-circuit'
@@ -78,6 +79,12 @@ const HotelNearIndiaExpoMartRoute = HotelNearIndiaExpoMartRouteImport.update({
   path: '/hotel-near-india-expo-mart',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HotelNearGrandVeniceMallRoute =
+  HotelNearGrandVeniceMallRouteImport.update({
+    id: '/hotel-near-grand-venice-mall',
+    path: '/hotel-near-grand-venice-mall',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const HotelNearGautamBuddhaUniversityRoute =
   HotelNearGautamBuddhaUniversityRouteImport.update({
     id: '/hotel-near-gautam-buddha-university',
@@ -217,6 +224,7 @@ export interface FileRoutesByFullPath {
   '/hotel-near-buddh-international-circuit': typeof HotelNearBuddhInternationalCircuitRoute
   '/hotel-near-galgotias-university': typeof HotelNearGalgotiasUniversityRoute
   '/hotel-near-gautam-buddha-university': typeof HotelNearGautamBuddhaUniversityRoute
+  '/hotel-near-grand-venice-mall': typeof HotelNearGrandVeniceMallRoute
   '/hotel-near-india-expo-mart': typeof HotelNearIndiaExpoMartRoute
   '/hotel-near-jewar-airport': typeof HotelNearJewarAirportRoute
   '/hotel-near-pari-chowk': typeof HotelNearPariChowkRoute
@@ -250,6 +258,7 @@ export interface FileRoutesByTo {
   '/hotel-near-buddh-international-circuit': typeof HotelNearBuddhInternationalCircuitRoute
   '/hotel-near-galgotias-university': typeof HotelNearGalgotiasUniversityRoute
   '/hotel-near-gautam-buddha-university': typeof HotelNearGautamBuddhaUniversityRoute
+  '/hotel-near-grand-venice-mall': typeof HotelNearGrandVeniceMallRoute
   '/hotel-near-india-expo-mart': typeof HotelNearIndiaExpoMartRoute
   '/hotel-near-jewar-airport': typeof HotelNearJewarAirportRoute
   '/hotel-near-pari-chowk': typeof HotelNearPariChowkRoute
@@ -285,6 +294,7 @@ export interface FileRoutesById {
   '/hotel-near-buddh-international-circuit': typeof HotelNearBuddhInternationalCircuitRoute
   '/hotel-near-galgotias-university': typeof HotelNearGalgotiasUniversityRoute
   '/hotel-near-gautam-buddha-university': typeof HotelNearGautamBuddhaUniversityRoute
+  '/hotel-near-grand-venice-mall': typeof HotelNearGrandVeniceMallRoute
   '/hotel-near-india-expo-mart': typeof HotelNearIndiaExpoMartRoute
   '/hotel-near-jewar-airport': typeof HotelNearJewarAirportRoute
   '/hotel-near-pari-chowk': typeof HotelNearPariChowkRoute
@@ -321,6 +331,7 @@ export interface FileRouteTypes {
     | '/hotel-near-buddh-international-circuit'
     | '/hotel-near-galgotias-university'
     | '/hotel-near-gautam-buddha-university'
+    | '/hotel-near-grand-venice-mall'
     | '/hotel-near-india-expo-mart'
     | '/hotel-near-jewar-airport'
     | '/hotel-near-pari-chowk'
@@ -354,6 +365,7 @@ export interface FileRouteTypes {
     | '/hotel-near-buddh-international-circuit'
     | '/hotel-near-galgotias-university'
     | '/hotel-near-gautam-buddha-university'
+    | '/hotel-near-grand-venice-mall'
     | '/hotel-near-india-expo-mart'
     | '/hotel-near-jewar-airport'
     | '/hotel-near-pari-chowk'
@@ -388,6 +400,7 @@ export interface FileRouteTypes {
     | '/hotel-near-buddh-international-circuit'
     | '/hotel-near-galgotias-university'
     | '/hotel-near-gautam-buddha-university'
+    | '/hotel-near-grand-venice-mall'
     | '/hotel-near-india-expo-mart'
     | '/hotel-near-jewar-airport'
     | '/hotel-near-pari-chowk'
@@ -423,6 +436,7 @@ export interface RootRouteChildren {
   HotelNearBuddhInternationalCircuitRoute: typeof HotelNearBuddhInternationalCircuitRoute
   HotelNearGalgotiasUniversityRoute: typeof HotelNearGalgotiasUniversityRoute
   HotelNearGautamBuddhaUniversityRoute: typeof HotelNearGautamBuddhaUniversityRoute
+  HotelNearGrandVeniceMallRoute: typeof HotelNearGrandVeniceMallRoute
   HotelNearIndiaExpoMartRoute: typeof HotelNearIndiaExpoMartRoute
   HotelNearJewarAirportRoute: typeof HotelNearJewarAirportRoute
   HotelNearPariChowkRoute: typeof HotelNearPariChowkRoute
@@ -482,6 +496,13 @@ declare module '@tanstack/react-router' {
       path: '/hotel-near-india-expo-mart'
       fullPath: '/hotel-near-india-expo-mart'
       preLoaderRoute: typeof HotelNearIndiaExpoMartRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/hotel-near-grand-venice-mall': {
+      id: '/hotel-near-grand-venice-mall'
+      path: '/hotel-near-grand-venice-mall'
+      fullPath: '/hotel-near-grand-venice-mall'
+      preLoaderRoute: typeof HotelNearGrandVeniceMallRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/hotel-near-gautam-buddha-university': {
@@ -714,6 +735,7 @@ const rootRouteChildren: RootRouteChildren = {
     HotelNearBuddhInternationalCircuitRoute,
   HotelNearGalgotiasUniversityRoute: HotelNearGalgotiasUniversityRoute,
   HotelNearGautamBuddhaUniversityRoute: HotelNearGautamBuddhaUniversityRoute,
+  HotelNearGrandVeniceMallRoute: HotelNearGrandVeniceMallRoute,
   HotelNearIndiaExpoMartRoute: HotelNearIndiaExpoMartRoute,
   HotelNearJewarAirportRoute: HotelNearJewarAirportRoute,
   HotelNearPariChowkRoute: HotelNearPariChowkRoute,
