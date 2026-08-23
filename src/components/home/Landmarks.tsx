@@ -13,10 +13,25 @@ const places = [
     dist: "10 min drive",
     href: "/hotel-near-pari-chowk",
   },
-  { t: "Gautam Buddha University", d: "Knowledge Park III", dist: "15 min drive" },
-  { t: "Sharda University", d: "Knowledge Park II", dist: "15 min drive" },
+  {
+    t: "Gautam Buddha University",
+    d: "Knowledge Park III",
+    dist: "15 min drive",
+    href: "/hotel-near-gautam-buddha-university",
+  },
+  {
+    t: "Sharda University",
+    d: "Knowledge Park II",
+    dist: "15 min drive",
+    href: "/hotel-near-sharda-university",
+  },
   { t: "Grand Venice Mall", d: "Shopping & leisure", dist: "5 min drive" },
-  { t: "Jewar Airport (NIA)", d: "International Airport and Hub", dist: "45 min drive" },
+  {
+    t: "Jewar Airport (NIA)",
+    d: "International Airport and Hub",
+    dist: "45 min drive",
+    href: "/hotel-near-jewar-airport",
+  },
 ];
 
 export function Landmarks() {
