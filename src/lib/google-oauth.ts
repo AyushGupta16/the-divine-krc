@@ -50,7 +50,9 @@ export function googleClient(redirectUri: string): Google {
  * and embeds that, not the verifier itself, in the URL.
  */
 export function buildAuthUrl(redirectUri: string, state: string, codeVerifier: string): URL {
-  return googleClient(redirectUri).createAuthorizationURL(state, codeVerifier, SCOPES);
+  const authUrl = googleClient(redirectUri).createAuthorizationURL(state, codeVerifier, SCOPES);
+  authUrl.searchParams.set("prompt", "select_account");
+  return authUrl;
 }
 
 /**
