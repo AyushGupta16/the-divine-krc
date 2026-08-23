@@ -41,6 +41,7 @@ export const INVITABLE_ROLES: Role[] = ["Manager", "Front desk", "Accounts"];
 export type Permission =
   | "bookings:read"
   | "bookings:write"
+  | "rooms:read"
   | "rooms:write"
   | "guests:read"
   | "payments:read"
@@ -52,6 +53,7 @@ export type Permission =
 const ALL: Permission[] = [
   "bookings:read",
   "bookings:write",
+  "rooms:read",
   "rooms:write",
   "guests:read",
   "payments:read",
@@ -71,7 +73,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   Owner: ALL,
   Manager: ALL,
   "Front desk": ["bookings:read", "bookings:write", "rooms:write", "guests:read"],
-  Accounts: ["bookings:read", "payments:read", "payments:write", "reports:read"],
+  Accounts: ["bookings:read", "rooms:read", "payments:read", "payments:write", "reports:read"],
 };
 
 /** The prose beside the role picker. Kept next to the grants it describes. */

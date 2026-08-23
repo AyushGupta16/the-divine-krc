@@ -9,5 +9,6 @@ export const Route = createFileRoute("/admin/rooms")({
 
 function AdminRooms() {
   const { rooms } = Route.useLoaderData();
-  return <Rooms data={rooms} />;
+  const { member } = Route.useRouteContext();
+  return <Rooms data={rooms} member={member} />;
 }
