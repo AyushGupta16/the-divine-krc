@@ -1,20 +1,30 @@
 // Admin authentication for the booking console.
 //
-// PR #1 scope: a REAL sealed-cookie session + route guard, backed by a
-// mock in-memory admin user. Google sign-in and reset-password email delivery
-// are simulated (UI-complete) — see the clearly marked stubs below. Swap the
-// mock store for a DB and the stubs for real OAuth / an email provider later.
+// Multi-account session support: the sealed cookie carries a dictionary of
+// authenticated accounts keyed by email, alongside an `activeEmail` pointer.
+// This lets a property owner sign in as themselves, then add the front-desk
+// account in the same tab without losing the first session. Switching is a
+// pointer update; adding is a map insert; logging out is a map delete.
+//
+// The cookie budget is ~4KB (browser limit). Each account entry is ~60 bytes
+// of JSON before sealing, so a hard cap of 5 concurrent accounts keeps the
+// payload well within budget even after h3's encryption overhead.
+//
+// Google sign-in and reset-password email delivery are simulated (UI-complete)
+// — see the clearly marked stubs below.
 
 import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { useSession } from "@tanstack/react-start/server";
 import { redirect } from "@tanstack/react-router";
 
 import {
+  can,
   findMember,
   isActive,
   makeToken,
   normalizeEmail,
   passwordProblem,
+  type Permission,
   type TeamAccount,
 } from "@/lib/team";
 
@@ -45,6 +55,30 @@ export interface SessionUser {
 }
 
 /**
+ * The sealed-cookie payload. Stores up to `MAX_ACCOUNTS` authenticated
+ * accounts keyed by email, with `activeEmail` pointing at the one whose
+ * perspective the console currently shows.
+ *
+ * Layout:
+ * ```json
+ * {
+ *   "activeEmail": "admin@thedivinekrc.in",
+ *   "accounts": {
+ *     "admin@thedivinekrc.in": { "email": "...", "name": "..." },
+ *     "sneha@thedivinekrc.in": { "email": "...", "name": "..." }
+ *   }
+ * }
+ * ```
+ */
+interface SessionData {
+  activeEmail?: string;
+  accounts?: Record<string, SessionUser>;
+}
+
+/** Browser cookie budget is ~4KB; each account is ~60B of JSON before sealing. */
+const MAX_ACCOUNTS = 5;
+
+/**
  * The signed-in member, or null. Permission checks go through this rather than
  * through anything stored on the cookie: a role sealed at login would keep
  * working after it was taken away, and would be missing entirely from a session
@@ -57,10 +91,6 @@ export async function getSessionMember() {
   const { loadRoster } = await rosterStore();
   const member = findMember(await loadRoster(), user.email);
   return member && isActive(member) ? member : null;
-}
-
-interface SessionData {
-  user?: SessionUser;
 }
 
 // h3 sealed-cookie session. The password seals/verifies the cookie; it must be
@@ -104,14 +134,43 @@ function getSession() {
 }
 
 /**
+ * Add (or re-activate) `user` in the multi-account session and make them the
+ * active account. Returns `{ ok: false, error }` if the 5-account cap would
+ * be exceeded; otherwise updates the cookie and returns `{ ok: true }`.
+ *
+ * Every login path funnels through this, so the cap is enforced once.
+ */
+async function addAccountToSession(
+  user: SessionUser,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await getSession();
+  const accounts = { ...(session.data.accounts ?? {}) };
+
+  // The cap only matters when inserting a genuinely new account; re-logging
+  // into an address already in the map just refreshes the name and moves the
+  // pointer, which cannot grow the map.
+  if (!accounts[user.email] && Object.keys(accounts).length >= MAX_ACCOUNTS) {
+    return {
+      ok: false,
+      error:
+        "Maximum limit of 5 active accounts reached. " +
+        "Please sign out of an account before adding a new one.",
+    };
+  }
+
+  accounts[user.email] = user;
+  await session.update({ activeEmail: user.email, accounts });
+  return { ok: true };
+}
+
+/**
  * Sign the given member into the session directly. Exported so the invite
  * flow's simulated Google sign-up (`googleAcceptInviteFn` in `invites.ts`)
  * can land someone in the console the same way `loginFn` does, without
  * duplicating `getSession`'s h3 wiring outside this module.
  */
 export const establishSession = createServerOnlyFn(async (user: SessionUser) => {
-  const session = await getSession();
-  await session.update({ user });
+  await addAccountToSession(user);
 });
 
 // --- Credentials --------------------------------------------------------
@@ -182,7 +241,9 @@ const RESET_TTL_MS = 30 * 60 * 1000; // 30 minutes, per design copy.
 export const getSessionUser = createServerFn({ method: "GET" }).handler(
   async (): Promise<SessionUser | null> => {
     const session = await getSession();
-    return session.data.user ?? null;
+    const { activeEmail, accounts } = session.data;
+    if (!activeEmail || !accounts?.[activeEmail]) return null;
+    return accounts[activeEmail];
   },
 );
 
@@ -193,9 +254,7 @@ export const loginFn = createServerFn({ method: "POST" })
     if (!admin) {
       return { ok: false, error: "Incorrect email or password." };
     }
-    const session = await getSession();
-    await session.update({ user: { email: admin.email, name: admin.name } });
-    return { ok: true };
+    return addAccountToSession({ email: admin.email, name: admin.name });
   });
 
 // --- Real Google sign-in, PR 2 of 3 --------------------------------------
@@ -206,7 +265,7 @@ export const loginFn = createServerFn({ method: "POST" })
 // The callback instead hands off a short-lived HMAC-signed token to
 // `/admin/login/finish`, which calls `googleFinishFn` here — running inside
 // this app, with a real request context — to verify the token and finish the
-// sign-in exactly like `loginFn`/`googleLoginFn` do above.
+// sign-in exactly like `loginFn` does above.
 //
 // The signing (in the Netlify callback) and the verification (`verifyOAuthToken`
 // below) are two independent implementations of the same format, not a shared
@@ -276,11 +335,113 @@ export const googleFinishFn = createServerFn({ method: "GET" })
     return { ok: true };
   });
 
+/**
+ * Sign out of all accounts. Clears the entire session cookie.
+ * This is the original `logoutFn` — kept as-is so the sidebar's "Sign out"
+ * button works without changes to `AdminShell.tsx`.
+ */
 export const logoutFn = createServerFn({ method: "POST" }).handler(
   async (): Promise<{ ok: true }> => {
     const session = await getSession();
     await session.clear();
     return { ok: true };
+  },
+);
+
+// --- Multi-account server functions -------------------------------------
+
+/**
+ * Switch the active account pointer to a different already-authenticated
+ * account in the session. Does not re-verify credentials — the user proved
+ * who they were when they originally logged in, and the sealed cookie has
+ * been carrying that proof since.
+ */
+export const switchAccountFn = createServerFn({ method: "POST" })
+  .validator((data: { email: string }) => data)
+  .handler(
+    async ({
+      data,
+    }): Promise<{ ok: true; activeUser: SessionUser } | { ok: false; error: string }> => {
+      const session = await getSession();
+      const accounts = session.data.accounts ?? {};
+      const target = accounts[data.email];
+      if (!target) {
+        return { ok: false, error: "That account is not signed in." };
+      }
+      await session.update({ ...session.data, activeEmail: data.email });
+      return { ok: true, activeUser: target };
+    },
+  );
+
+/**
+ * Sign out of a single account. If omitted, signs out the currently active
+ * account. If other accounts remain, the pointer moves to the first
+ * remaining one; if none remain, the session is cleared entirely.
+ */
+export const logoutAccountFn = createServerFn({ method: "POST" })
+  .validator((data: { email?: string }) => data)
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const session = await getSession();
+    const accounts = { ...(session.data.accounts ?? {}) };
+    const targetEmail = data.email ?? session.data.activeEmail;
+
+    if (!targetEmail || !accounts[targetEmail]) {
+      // Nothing to sign out — clear defensively.
+      await session.clear();
+      return { ok: true };
+    }
+
+    delete accounts[targetEmail];
+    const remaining = Object.keys(accounts);
+
+    if (remaining.length === 0) {
+      await session.clear();
+    } else {
+      // If we just removed the active account, fall back to the first remaining.
+      const nextActive =
+        session.data.activeEmail === targetEmail
+          ? remaining[0]
+          : (session.data.activeEmail ?? remaining[0]);
+      await session.update({ activeEmail: nextActive, accounts });
+    }
+    return { ok: true };
+  });
+
+/**
+ * Sign out of every account at once. Identical to `logoutFn` but named
+ * explicitly so the multi-account switcher UI can offer both options.
+ */
+export const logoutAllFn = createServerFn({ method: "POST" }).handler(
+  async (): Promise<{ ok: true }> => {
+    const session = await getSession();
+    await session.clear();
+    return { ok: true };
+  },
+);
+
+/**
+ * Return the full set of accounts in the session, plus which one is active.
+ * Used by the sidebar account switcher to render the account list.
+ */
+export const getSessionAccountsFn = createServerFn({ method: "GET" }).handler(
+  async (): Promise<{ activeUser: SessionUser | null; accounts: SessionUser[] }> => {
+    const session = await getSession();
+    const { activeEmail, accounts } = session.data;
+    const all = Object.values(accounts ?? {});
+    const active = activeEmail && accounts?.[activeEmail] ? accounts[activeEmail] : null;
+    return { activeUser: active, accounts: all };
+  },
+);
+
+/**
+ * `getSessionMember` wrapped as a server function. `beforeLoad` runs on the
+ * client too, so calling the bare function directly from a route would pull
+ * its `rosterStore()` dynamic import — and `password_hash`/`DATABASE_URL`
+ * behind it — into a chunk the browser actually executes, not just retains.
+ */
+export const getSessionMemberFn = createServerFn({ method: "GET" }).handler(
+  async (): Promise<TeamAccount | null> => {
+    return getSessionMember();
   },
 );
 
@@ -341,4 +502,23 @@ export async function requireAuth(redirectHref: string) {
     });
   }
   return user;
+}
+
+/**
+ * Server function permission-guard helper. Call inside server functions.
+ * Throws redirect to /admin/login if signed out, or redirect to /admin if lacking permission.
+ */
+export async function requireServerPermission(permission: Permission) {
+  const member = await getSessionMember();
+  if (!member) {
+    throw redirect({
+      to: "/admin/login",
+    });
+  }
+  if (!can(member.role, permission)) {
+    throw redirect({
+      to: "/admin",
+    });
+  }
+  return member;
 }

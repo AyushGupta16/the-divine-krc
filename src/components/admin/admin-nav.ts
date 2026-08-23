@@ -12,6 +12,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import type { Permission } from "@/lib/team";
+
 /** Keys for dynamic count badges resolved by the shell. */
 export type CountKey = "bookings" | "partyHall" | "rooms" | "guests";
 
@@ -28,6 +30,8 @@ export interface NavItem {
    * "muted" is informational status only — no action implied.
    */
   badgeTone?: "gold" | "muted";
+  /** Required permission to view this item. Undefined means accessible to any logged-in user. */
+  permission?: Permission;
 }
 
 export interface NavGroup {
@@ -44,29 +48,48 @@ export const ADMIN_NAV: NavGroup[] = [
     label: "Overview",
     items: [
       { label: "Dashboard", to: "/admin", icon: LayoutDashboard, exact: true },
-      { label: "Calendar", to: "/admin/calendar", icon: CalendarDays },
+      { label: "Calendar", to: "/admin/calendar", icon: CalendarDays, permission: "bookings:read" },
     ],
   },
   {
     label: "Operations",
     items: [
-      { label: "Bookings", to: "/admin/bookings", icon: BookMarked, countKey: "bookings" },
-      { label: "Guests", to: "/admin/guests", icon: Users, countKey: "guests" },
+      {
+        label: "Bookings",
+        to: "/admin/bookings",
+        icon: BookMarked,
+        countKey: "bookings",
+        permission: "bookings:read",
+      },
+      {
+        label: "Guests",
+        to: "/admin/guests",
+        icon: Users,
+        countKey: "guests",
+        permission: "guests:read",
+      },
       {
         label: "Rooms",
         to: "/admin/rooms",
         icon: BedDouble,
         countKey: "rooms",
         badgeTone: "muted",
+        permission: "bookings:read",
       },
-      { label: "Party Hall", to: "/admin/party-hall", icon: PartyPopper, countKey: "partyHall" },
+      {
+        label: "Party Hall",
+        to: "/admin/party-hall",
+        icon: PartyPopper,
+        countKey: "partyHall",
+        permission: "bookings:read",
+      },
     ],
   },
   {
     label: "Finance",
     items: [
-      { label: "Payments", to: "/admin/payments", icon: CreditCard },
-      { label: "Reports", to: "/admin/reports", icon: BarChart3 },
+      { label: "Payments", to: "/admin/payments", icon: CreditCard, permission: "payments:read" },
+      { label: "Reports", to: "/admin/reports", icon: BarChart3, permission: "reports:read" },
     ],
   },
 ];

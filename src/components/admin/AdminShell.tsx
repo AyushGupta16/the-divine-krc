@@ -3,6 +3,7 @@ import { Link, Outlet, useNavigate, useRouter, useRouterState } from "@tanstack/
 import { Menu, LogOut, ChevronDown, ChevronsLeft, UserPlus, Check, X, Search } from "lucide-react";
 
 import krcLogo from "@/assets/krc-logo.jpg";
+import { can, type TeamAccount } from "@/lib/team";
 import {
   ADMIN_NAV,
   BOTTOM_NAV,
@@ -11,7 +12,13 @@ import {
   type CountKey,
   type NavItem,
 } from "@/components/admin/admin-nav";
-import { logoutFn, type SessionUser } from "@/lib/auth";
+import {
+  logoutAccountFn,
+  logoutAllFn,
+  logoutFn,
+  switchAccountFn,
+  type SessionUser,
+} from "@/lib/auth";
 import type { NotificationsData } from "@/lib/notifications-data";
 import { NotificationsBell } from "@/components/admin/NotificationsBell";
 import { BookingEntryForm } from "@/components/admin/BookingEntryForm";
@@ -111,23 +118,39 @@ function NavRow({
 /** Full sidebar body — brand + nav + settings + account — for rail and drawer. */
 function SidebarBody({
   user,
+  member,
+  allAccounts = [],
   collapsed,
   counts,
   onNavigate,
 }: {
   user: SessionUser | null;
+  member?: TeamAccount | null;
+  allAccounts?: SessionUser[];
   collapsed: boolean;
   counts: Counts;
   onNavigate?: () => void;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
+  const filteredNav = ADMIN_NAV.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => {
+      if (!item.permission) return true;
+      if (!member) return false;
+      return can(member.role, item.permission);
+    }),
+  })).filter((group) => group.items.length > 0);
+
+  const canViewSettings =
+    member && (can(member.role, "settings:write") || can(member.role, "team:manage"));
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-obsidian px-4 py-5.5 text-ivory">
       <SidebarBrand collapsed={collapsed} />
 
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto">
-        {ADMIN_NAV.map((group) => (
+        {filteredNav.map((group) => (
           <div key={group.label} className="flex flex-col gap-0.5">
             {!collapsed && (
               <p className="px-2.5 pb-2 pt-3 text-[10px] uppercase tracking-[0.22em] text-[#6d675c] first:pt-1">
@@ -149,13 +172,20 @@ function SidebarBody({
       </nav>
 
       <div className="mt-2 flex flex-col gap-0.5">
-        <NavRow
-          item={SETTINGS_ITEM}
-          active={isActive(pathname, SETTINGS_ITEM)}
+        {canViewSettings && (
+          <NavRow
+            item={SETTINGS_ITEM}
+            active={isActive(pathname, SETTINGS_ITEM)}
+            collapsed={collapsed}
+            onNavigate={onNavigate}
+          />
+        )}
+        <SidebarAccount
+          user={user}
+          allAccounts={allAccounts}
           collapsed={collapsed}
           onNavigate={onNavigate}
         />
-        <SidebarAccount user={user} collapsed={collapsed} onNavigate={onNavigate} />
       </div>
     </div>
   );
@@ -176,10 +206,12 @@ function initialsOf(user: SessionUser | null): string {
  */
 function SidebarAccount({
   user,
+  allAccounts = [],
   collapsed,
   onNavigate,
 }: {
   user: SessionUser | null;
+  allAccounts?: SessionUser[];
   collapsed: boolean;
   onNavigate?: () => void;
 }) {
@@ -187,19 +219,37 @@ function SidebarAccount({
   const router = useRouter();
   const [busy, setBusy] = useState(false);
 
-  async function signOut() {
+  async function handleSwitch(email: string) {
     setBusy(true);
-    await logoutFn();
+    const res = await switchAccountFn({ data: { email } });
+    if (res.ok) {
+      await router.invalidate();
+      onNavigate?.();
+    }
+    setBusy(false);
+  }
+
+  async function handleSignOutCurrent() {
+    setBusy(true);
+    await logoutAccountFn({ data: { email: user?.email } });
+    await router.invalidate();
+    onNavigate?.();
+  }
+
+  async function handleSignOutAll() {
+    setBusy(true);
+    await logoutAllFn();
     await router.invalidate();
     onNavigate?.();
     navigate({ to: "/admin/login" });
   }
 
   function addAccount() {
-    // Signing in with another account reuses the login screen.
     onNavigate?.();
     navigate({ to: "/admin/login" });
   }
+
+  const accountList = allAccounts.length > 0 ? allAccounts : user ? [user] : [];
 
   return (
     <div className="mt-1">
@@ -233,18 +283,35 @@ function SidebarAccount({
           <DropdownMenuLabel className="text-[10px] uppercase tracking-[0.16em] text-warm-gray">
             Accounts
           </DropdownMenuLabel>
-          <DropdownMenuItem className="gap-2.5" disabled>
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-gold text-[11px] font-bold text-obsidian">
-              {initialsOf(user)}
-            </span>
-            <span className="min-w-0 flex-1 leading-tight">
-              <span className="block truncate text-[12px] font-semibold text-obsidian">
-                {user?.name ?? "Admin"}
-              </span>
-              <span className="block truncate text-[10px] text-warm-gray">{user?.email}</span>
-            </span>
-            <Check className="size-4 shrink-0 text-gold" />
-          </DropdownMenuItem>
+
+          {accountList.map((acc) => {
+            const isActiveAccount = acc.email === user?.email;
+            return (
+              <DropdownMenuItem
+                key={acc.email}
+                className="cursor-pointer gap-2.5"
+                disabled={busy}
+                onSelect={(e) => {
+                  e.preventDefault();
+                  if (!isActiveAccount) {
+                    void handleSwitch(acc.email);
+                  }
+                }}
+              >
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-gold text-[11px] font-bold text-obsidian">
+                  {initialsOf(acc)}
+                </span>
+                <span className="min-w-0 flex-1 leading-tight">
+                  <span className="block truncate text-[12px] font-semibold text-obsidian">
+                    {acc.name}
+                  </span>
+                  <span className="block truncate text-[10px] text-warm-gray">{acc.email}</span>
+                </span>
+                {isActiveAccount && <Check className="size-4 shrink-0 text-gold" />}
+              </DropdownMenuItem>
+            );
+          })}
+
           <DropdownMenuSeparator />
           <DropdownMenuItem
             className="cursor-pointer"
@@ -260,13 +327,26 @@ function SidebarAccount({
             disabled={busy}
             onSelect={(e) => {
               e.preventDefault();
-              void signOut();
+              void handleSignOutCurrent();
             }}
             className="cursor-pointer text-destructive focus:text-destructive"
           >
             <LogOut className="size-4" />
-            {busy ? "Signing out…" : "Sign out"}
+            {busy ? "Signing out…" : "Sign out current account"}
           </DropdownMenuItem>
+          {accountList.length > 1 && (
+            <DropdownMenuItem
+              disabled={busy}
+              onSelect={(e) => {
+                e.preventDefault();
+                void handleSignOutAll();
+              }}
+              className="cursor-pointer text-destructive focus:text-destructive"
+            >
+              <LogOut className="size-4" />
+              {busy ? "Signing out…" : "Sign out of all accounts"}
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
@@ -473,10 +553,14 @@ function BottomNav({ onMore }: { onMore: () => void }) {
  */
 export function AdminShell({
   user,
+  member,
+  allAccounts = [],
   counts = {},
   notifications = { groups: [], unread: 0 },
 }: {
   user: SessionUser | null;
+  member?: TeamAccount | null;
+  allAccounts?: SessionUser[];
   counts?: Counts;
   notifications?: NotificationsData;
 }) {
@@ -539,7 +623,13 @@ export function AdminShell({
     >
       {/* Desktop rail */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[var(--rail-w)] transition-[width] duration-200 md:block">
-        <SidebarBody user={user} collapsed={collapsed} counts={counts} />
+        <SidebarBody
+          user={user}
+          member={member}
+          allAccounts={allAccounts}
+          collapsed={collapsed}
+          counts={counts}
+        />
       </aside>
 
       {/* Mobile off-canvas drawer */}
@@ -567,6 +657,8 @@ export function AdminShell({
         </button>
         <SidebarBody
           user={user}
+          member={member}
+          allAccounts={allAccounts}
           collapsed={false}
           counts={counts}
           onNavigate={() => setDrawerOpen(false)}

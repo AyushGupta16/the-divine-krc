@@ -22,6 +22,10 @@ function Card({ className, children }: { className?: string; children: React.Rea
   );
 }
 
+/** "Not available" for a stat this role/response doesn't carry — never `0`,
+ *  which would claim a real (zero) count rather than an absent one. */
+const NOT_AVAILABLE = "—";
+
 // ── Stat cards ────────────────────────────────────────────────────────────
 // "Unassigned rooms" is the hero — the single figure that drives the daily
 // job on a 14-room property (assign rooms), ahead of a passive occupancy %.
@@ -33,7 +37,7 @@ function StatCards({ data }: { data: DashboardData }) {
       <StatCard
         variant="hero"
         label="Unassigned rooms"
-        value={unassignedRooms}
+        value={unassignedRooms ?? NOT_AVAILABLE}
         meta={
           <>
             Needs allocation ·{" "}
@@ -49,29 +53,37 @@ function StatCards({ data }: { data: DashboardData }) {
       />
       <StatCard
         label="Check-ins today"
-        value={checkInsToday.total}
+        value={checkInsToday?.total ?? NOT_AVAILABLE}
         meta={
-          <>
-            {checkInsToday.arrived} arrived ·{" "}
-            <span className="font-semibold text-[#a8863f]">{checkInsToday.pending} pending</span>
-          </>
+          checkInsToday ? (
+            <>
+              {checkInsToday.arrived} arrived ·{" "}
+              <span className="font-semibold text-[#a8863f]">{checkInsToday.pending} pending</span>
+            </>
+          ) : (
+            NOT_AVAILABLE
+          )
         }
       />
       <StatCard
         label="Check-outs today"
-        value={checkOutsToday.total}
+        value={checkOutsToday?.total ?? NOT_AVAILABLE}
         meta={
-          <>
-            {checkOutsToday.settled} settled ·{" "}
-            <span className="font-semibold text-[#b4553f]">{checkOutsToday.late} late</span>
-          </>
+          checkOutsToday ? (
+            <>
+              {checkOutsToday.settled} settled ·{" "}
+              <span className="font-semibold text-[#b4553f]">{checkOutsToday.late} late</span>
+            </>
+          ) : (
+            NOT_AVAILABLE
+          )
         }
       />
       <StatCard
         label="Expected arrivals"
-        value={expectedArrivals.total}
+        value={expectedArrivals?.total ?? NOT_AVAILABLE}
         meta={
-          expectedArrivals.nextLabel ? (
+          expectedArrivals?.nextLabel ? (
             <>
               {/* No arrival time of day in the data yet (spec 19), so name the
                   guest who is due rather than invent a clock time. */}
@@ -84,8 +96,10 @@ function StatCards({ data }: { data: DashboardData }) {
               )}
               {expectedArrivals.nextLabel} due
             </>
-          ) : (
+          ) : expectedArrivals ? (
             "None still expected"
+          ) : (
+            NOT_AVAILABLE
           )
         }
       />
@@ -117,7 +131,21 @@ function LegendRow({
   );
 }
 
-function OccupancyCard({ occupancy }: { occupancy: Occupancy }) {
+function OccupancyCard({ occupancy }: { occupancy: Occupancy | undefined }) {
+  if (!occupancy) {
+    return (
+      <Card>
+        <div className="flex items-baseline justify-between">
+          <h2 className="font-display text-lg font-semibold">Occupancy</h2>
+          <span className="text-[10px] uppercase tracking-[0.18em] text-[#a49d8d]">tonight</span>
+        </div>
+        <div className="mt-4 flex min-h-33 items-center justify-center text-[12.5px] text-[#a49d8d]">
+          {NOT_AVAILABLE}
+        </div>
+      </Card>
+    );
+  }
+
   const r = 52;
   const circumference = 2 * Math.PI * r;
   const filled = (occupancy.pct / 100) * circumference;
@@ -372,16 +400,20 @@ function ArrivalsCard({ items }: { items: ArrivalItem[] }) {
 // The greeting/date line lives in the shell header (see AdminShell), so the body
 // carries only the panels — kept to a single desktop screen with tight gaps.
 export function Dashboard({ data }: { data: DashboardData }) {
+  const showRevenue = Boolean(data.revenue && data.revenue.length > 0);
+
   return (
     <div className="flex flex-col gap-4 p-4 sm:p-5 lg:h-[calc(100dvh-4rem)] lg:overflow-hidden">
       <StatCards data={data} />
-      <div className="grid shrink-0 grid-cols-1 gap-4 lg:grid-cols-[380px_1fr]">
+      <div
+        className={cn("grid shrink-0 grid-cols-1 gap-4", showRevenue && "lg:grid-cols-[380px_1fr]")}
+      >
         <OccupancyCard occupancy={data.occupancy} />
-        <RevenueCard periods={data.revenue} />
+        {showRevenue && <RevenueCard periods={data.revenue} />}
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
-        <ActivityCard items={data.activity} />
-        <ArrivalsCard items={data.arrivals} />
+        <ActivityCard items={data.activity ?? []} />
+        <ArrivalsCard items={data.arrivals ?? []} />
       </div>
     </div>
   );
