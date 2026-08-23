@@ -227,6 +227,13 @@ export const team = pgTable("team", {
   passwordHash: text("password_hash"),
 });
 
+export const sessions = pgTable("sessions", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+
 export const invites = pgTable("invites", {
   /** The accept link's secret. Single-use, and the primary key. */
   token: text("token").primaryKey(),

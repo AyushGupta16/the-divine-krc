@@ -148,6 +148,13 @@
       "when": 1786967662688,
       "tag": "0020_glossy_captain_cross",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1787475417266,
+      "tag": "0021_magical_rage",
+      "breakpoints": true
     }
   ]
 }
