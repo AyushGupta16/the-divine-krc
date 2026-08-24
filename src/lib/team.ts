@@ -33,10 +33,21 @@
 // place, `acceptInviteFn`, which sets both or neither.
 
 /** Roles are fixed: permissions are code, not data, so a role cannot be invented. */
-export type Role = "Owner" | "Manager" | "Front desk" | "Accounts";
+export type Role = "Owner" | "Manager" | "Front desk" | "Accounts" | "Superadmin";
 
-/** The Owner is the property. It is not a seat you can be invited into. */
-export const INVITABLE_ROLES: Role[] = ["Manager", "Front desk", "Accounts"];
+/**
+ * The Owner is the property. It is not a seat you can be invited into.
+ *
+ * `Superadmin` is deliberately absent too — it has no invite, no picker entry,
+ * and no `ROLE_HINTS` prose to explain it. The only door in is an operator
+ * hand-editing `team.role` in the database directly, the same way
+ * `scripts/prod-cleanup.ts` hand-edited `password_hash`. `createInvite`
+ * enforces this the same way it already refuses "Owner": by never finding
+ * "Superadmin" in this list.
+ */
+export type InvitableRole = Exclude<Role, "Owner" | "Superadmin">;
+
+export const INVITABLE_ROLES: InvitableRole[] = ["Manager", "Front desk", "Accounts"];
 
 export type Permission =
   | "bookings:read"
@@ -74,10 +85,19 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   Manager: ALL,
   "Front desk": ["bookings:read", "bookings:write", "rooms:write", "guests:read"],
   Accounts: ["bookings:read", "rooms:read", "payments:read", "payments:write", "reports:read"],
+  Superadmin: ALL,
 };
 
-/** The prose beside the role picker. Kept next to the grants it describes. */
-export const ROLE_HINTS: Record<Role, string> = {
+/**
+ * The prose beside the role picker. Kept next to the grants it describes.
+ *
+ * `Superadmin` has no entry here on purpose — `ROLE_HINTS` is read only by the
+ * invite-role picker (`invites.ts`'s `RoleOption[]`), and that picker is built
+ * from `INVITABLE_ROLES`, which never contains `Superadmin`. A hint would be
+ * dead prose nobody sees; the missing key is what keeps `Record<Role, string>`
+ * honest about that instead of quietly padding it out.
+ */
+export const ROLE_HINTS: Record<Exclude<Role, "Superadmin">, string> = {
   Owner: "The property account — full access, and the only role that cannot be invited.",
   Manager: "Full access — bookings, rooms, payments, reports, settings & team.",
   "Front desk":
@@ -220,7 +240,7 @@ export function createInvite(
 ): Result<{ invite: Invite }> {
   const email = normalizeEmail(input.email);
   if (!EMAIL_RE.test(email)) return { ok: false, error: "Enter a valid email address." };
-  if (!INVITABLE_ROLES.includes(input.role)) {
+  if (!(INVITABLE_ROLES as readonly Role[]).includes(input.role)) {
     return { ok: false, error: "Pick a role for this invite." };
   }
   const member = findMember(state.roster, email);
