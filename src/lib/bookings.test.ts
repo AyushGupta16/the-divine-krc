@@ -9,6 +9,7 @@ import {
   EARLY_CHECKIN_FEE,
   EXTRA_MATTRESS_FEE,
   getBookingsPageData,
+  GST_PCT,
   markBookingPaid,
   MAX_PARTY_HALL_GUESTS,
   resolveRequestedService,
@@ -130,6 +131,14 @@ describe("createBooking", () => {
     expect(res.booking.status).toBe("pending_payment");
     expect(res.booking.collection.pending).toBe(res.booking.totalBill);
     expect(res.booking.totalBill).toBe(computeTotalBill(res.booking.revenue));
+  });
+
+  it("bills a new booking at the live GST override, not the GST_PCT fallback default", () => {
+    const res = createBooking({ ...fixtures, gstRateOverride: 5 }, NEW_BOOKING, "2026-08-01");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.booking.revenue.taxPct).toBe(5);
+    expect(res.booking.revenue.taxPct).not.toBe(GST_PCT);
   });
 
   it("reuses an existing guest matched by phone instead of duplicating them", () => {

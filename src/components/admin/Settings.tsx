@@ -22,6 +22,7 @@ import {
   removeRoomFn,
   updateAddOnSettingsFn,
   updateGstSettingsFn,
+  updatePartyHallGstSettingsFn,
   updatePartyHallRateSettingsFn,
   updateRoomDetailsFn,
   updateRoomTypeSettingsFn,
@@ -659,7 +660,57 @@ function GstRateRow({ gst, onSaved }: { gst: GstSetting; onSaved: () => void }) 
         onBlur={() => void save()}
       />
       <p className="mt-1.25 text-[10.5px] leading-tight text-[#a8863f]">
-        Affects all future invoices — confirm with your accountant.
+        Affects all invoices — every invoice reads the live rate, not just future bookings. Confirm
+        with your accountant.
+      </p>
+    </div>
+  );
+}
+
+/** Party-hall's own GST rate — same blur-to-save shape as `GstRateRow`, its
+ *  own independent `partyHallGstPct` `addon_settings` row. */
+function PartyHallGstRateRow({ gst, onSaved }: { gst: GstSetting; onSaved: () => void }) {
+  const [pct, setPct] = useState(String(gst.pct));
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => setPct(String(gst.pct)), [gst.pct]);
+
+  async function save() {
+    const next = Number(pct);
+    if (!Number.isFinite(next) || next <= 0 || next > 100) {
+      toast.error("GST rate must be greater than 0 and no more than 100.");
+      setPct(String(gst.pct));
+      return;
+    }
+    if (next === gst.pct) return;
+    const res = await runWrite(setBusy, () =>
+      updatePartyHallGstSettingsFn({ data: { pct: next } }),
+    );
+    if (!res?.ok) {
+      setPct(String(gst.pct));
+      return;
+    }
+    onSaved();
+  }
+
+  return (
+    <div>
+      <label className={LABEL} htmlFor="charge-ph-gst">
+        Party hall GST rate (%)
+      </label>
+      <Input
+        id="charge-ph-gst"
+        className={FIELD}
+        type="number"
+        min="0"
+        step="1"
+        disabled={busy}
+        value={pct}
+        onChange={(e) => setPct(e.target.value)}
+        onBlur={() => void save()}
+      />
+      <p className="mt-1.25 text-[10.5px] leading-tight text-[#a8863f]">
+        Independent of the room GST rate — affects all party-hall invoices immediately.
       </p>
     </div>
   );
@@ -669,7 +720,13 @@ function GstRateRow({ gst, onSaved }: { gst: GstSetting; onSaved: () => void }) 
  *  write to — verified against `updateAddOnSettingsFn`/
  *  `updatePartyHallRateSettingsFn`/`updateGstSettingsFn` before this panel
  *  was wired, so a case typo here can't silently create a parallel row. */
-const EXTRA_CHARGE_KEYS = ["earlyCheckIn", "lateCheckOut", "phAdvancePct", "gstPct"] as const;
+const EXTRA_CHARGE_KEYS = [
+  "earlyCheckIn",
+  "lateCheckOut",
+  "phAdvancePct",
+  "gstPct",
+  "partyHallGstPct",
+] as const;
 
 function PricingPanel({
   tariffs,
@@ -731,9 +788,11 @@ function PricingPanel({
 function PartyHallRatesPanel({
   partyHallRates,
   partyHallRatesArePlaceholder,
+  partyHallGst,
 }: {
   partyHallRates: PartyHallRateSetting[];
   partyHallRatesArePlaceholder: boolean;
+  partyHallGst: GstSetting;
 }) {
   const router = useRouter();
   const refresh = () => void router.invalidate();
@@ -755,6 +814,7 @@ function PartyHallRatesPanel({
         {partyHallRates.map((rate) => (
           <PartyHallRateRow key={rate.key} rate={rate} onSaved={refresh} />
         ))}
+        <PartyHallGstRateRow gst={partyHallGst} onSaved={refresh} />
       </div>
     </section>
   );
@@ -1010,6 +1070,7 @@ export function Settings({ data }: { data: SettingsPageData }) {
           <PartyHallRatesPanel
             partyHallRates={data.pricing.partyHallRates}
             partyHallRatesArePlaceholder={data.pricing.partyHallRatesArePlaceholder}
+            partyHallGst={data.pricing.partyHallGst}
           />
 
           <section id="payments" className={PANEL}>

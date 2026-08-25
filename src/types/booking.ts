@@ -936,6 +936,8 @@ export interface PartyHallRateSetting {
 export interface PricingSettings {
   tariffs: RoomTariff[];
   gst: GstSetting;
+  /** Independent of `gst` — the party-hall rate is its own live setting. */
+  partyHallGst: GstSetting;
   addOnRates: AddOnRateSetting[];
   partyHallRates: PartyHallRateSetting[];
   /** True while any of the eight placeholder-eligible party-hall rates still
