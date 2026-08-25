@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { createBooking, resolveRequestedService, type NewBookingInput } from "@/lib/bookings";
-import { buildRoomInvoice, resolveInvoiceParty } from "@/lib/invoices";
+import {
+  createBooking,
+  GST_PCT,
+  resolveRequestedService,
+  type NewBookingInput,
+} from "@/lib/bookings";
+import { buildPartyHallInvoice, buildRoomInvoice, resolveInvoiceParty } from "@/lib/invoices";
+import { fixtures } from "@/lib/__fixtures__/bookings";
 import type { Booking, Guest } from "@/types/booking";
 
 const BASE_INPUT: NewBookingInput = {
@@ -130,7 +136,13 @@ describe("buildRoomInvoice — Slice B add-on charges", () => {
       revenueOtherNote: resolved.note,
     };
 
-    const invoice = buildRoomInvoice("INV-1", "2026-08-01T00:00:00Z", chargedBooking, guests[0]);
+    const invoice = buildRoomInvoice(
+      "INV-1",
+      "2026-08-01T00:00:00Z",
+      chargedBooking,
+      guests[0],
+      GST_PCT,
+    );
     const otherLine = invoice.sections[0].lines.find((l) => l.name === "Other charges");
     expect(otherLine?.note).toBe("Extra mattress ×2");
   });
@@ -145,7 +157,32 @@ describe("buildRoomInvoice — Slice B add-on charges", () => {
     if (!resolved.ok) return;
     const declinedBooking: Booking = { ...booking, revenue: resolved.revenue };
 
-    const invoice = buildRoomInvoice("INV-2", "2026-08-01T00:00:00Z", declinedBooking, guests[0]);
+    const invoice = buildRoomInvoice(
+      "INV-2",
+      "2026-08-01T00:00:00Z",
+      declinedBooking,
+      guests[0],
+      GST_PCT,
+    );
     expect(invoice.sections[0].lines.some((l) => l.name === "Early check-in")).toBe(false);
+  });
+
+  it("bills at whatever gstPct the caller resolves from the live setting, not a hardcoded default", () => {
+    const guests: Guest[] = [];
+    const bookings: Booking[] = [];
+    const booking = makeBooking(guests, bookings);
+
+    const invoice = buildRoomInvoice("INV-3", "2026-08-01T00:00:00Z", booking, guests[0], 5);
+    expect(invoice.gstRate).toBe(5);
+    expect(invoice.gstRate).not.toBe(GST_PCT);
+  });
+});
+
+describe("buildPartyHallInvoice", () => {
+  it("bills at whatever gstPct the caller resolves from the live party-hall setting", () => {
+    const enquiry = fixtures.partyHall[0];
+    const invoice = buildPartyHallInvoice("INV-PH-1", "2026-08-01T00:00:00Z", enquiry, 5);
+    expect(invoice.gstRate).toBe(5);
+    expect(invoice.gstRate).not.toBe(18);
   });
 });

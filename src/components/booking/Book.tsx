@@ -20,7 +20,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 
 import type { GuestPreference, MealPlan, PayMethod, RoomType } from "@/types/booking";
 import { GUEST_PREFERENCES } from "@/types/booking";
-import { GST_PCT, ROOM_TYPES, type AddOnRates, type RoomTypeInfo } from "@/lib/bookings";
+import { ROOM_TYPES, type AddOnRates, type RoomTypeInfo } from "@/lib/bookings";
 import { computeTotalBill, formatINR, urn } from "@/lib/booking-math";
 import {
   createGuestBookingFn,
@@ -165,9 +165,11 @@ interface CartLine {
 export function Book({
   roomTypes: liveRoomTypes,
   addOnRates,
+  gstRates,
 }: {
   roomTypes: PublicRoomType[];
   addOnRates: AddOnRates;
+  gstRates: { roomGstPct: number; partyHallGstPct: number };
 }) {
   const [step, setStep] = useState(0);
   const [cart, setCart] = useState<Record<RoomType, number>>(EMPTY_CART);
@@ -218,7 +220,7 @@ export function Book({
           lateCheckOut: 0,
           other: 0,
           discount: 0,
-          taxPct: GST_PCT,
+          taxPct: gstRates.roomGstPct,
         })
       : 0;
 
@@ -404,6 +406,7 @@ export function Book({
             nights={nights}
             subtotal={subtotal}
             total={total}
+            roomGstPct={gstRates.roomGstPct}
             onBack={() => setStep(0)}
             onContinue={() => setStep(2)}
           />
@@ -422,6 +425,7 @@ export function Book({
             nights={nights}
             subtotal={subtotal}
             total={total}
+            roomGstPct={gstRates.roomGstPct}
             busy={busy}
             error={error}
             onBack={() => setStep(1)}
@@ -760,6 +764,7 @@ function Summary({
   nights,
   subtotal,
   total,
+  roomGstPct,
 }: {
   cartLines: CartLine[];
   checkIn: string;
@@ -767,6 +772,7 @@ function Summary({
   nights: number;
   subtotal: number;
   total: number;
+  roomGstPct: number;
 }) {
   const coverImage = cartLines.length > 0 ? ROOM_IMAGES[cartLines[0].type] : undefined;
 
@@ -791,7 +797,7 @@ function Summary({
             </div>
           ))}
           <div className="flex justify-between text-ivory/80">
-            <span>Taxes & fees ({GST_PCT}%)</span>
+            <span>Taxes & fees ({roomGstPct}%)</span>
             <span>{formatINR(total - subtotal)}</span>
           </div>
         </div>
@@ -824,6 +830,7 @@ function DetailsStep({
   nights,
   subtotal,
   total,
+  roomGstPct,
   onBack,
   onContinue,
 }: {
@@ -846,6 +853,7 @@ function DetailsStep({
   nights: number;
   subtotal: number;
   total: number;
+  roomGstPct: number;
   onBack: () => void;
   onContinue: () => void;
 }) {
@@ -1100,6 +1108,7 @@ function DetailsStep({
         nights={nights}
         subtotal={subtotal}
         total={total}
+        roomGstPct={roomGstPct}
       />
     </div>
   );
@@ -1117,6 +1126,7 @@ function PaymentStep({
   nights,
   subtotal,
   total,
+  roomGstPct,
   busy,
   error,
   onBack,
@@ -1133,6 +1143,7 @@ function PaymentStep({
   nights: number;
   subtotal: number;
   total: number;
+  roomGstPct: number;
   busy: boolean;
   error: string | null;
   onBack: () => void;
@@ -1251,6 +1262,7 @@ function PaymentStep({
         nights={nights}
         subtotal={subtotal}
         total={total}
+        roomGstPct={roomGstPct}
       />
     </div>
   );

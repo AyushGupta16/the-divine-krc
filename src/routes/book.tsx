@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Book } from "@/components/booking/Book";
-import { getAddOnRatesFn, getRoomTypesFn } from "@/lib/bookings-data";
+import { getAddOnRatesFn, getGstRatesFn, getRoomTypesFn } from "@/lib/bookings-data";
 import { SITE_URL, OG_IMAGE } from "@/lib/seo";
 
 const PAGE_URL = `${SITE_URL}/book`;
@@ -11,7 +11,7 @@ export const Route = createFileRoute("/book")({
   // just on the marketing pages — a guest should never be quoted a stale
   // price the front desk already changed. Add-on rates (Slice B) follow the
   // same rule.
-  loader: () => Promise.all([getRoomTypesFn(), getAddOnRatesFn()]),
+  loader: () => Promise.all([getRoomTypesFn(), getAddOnRatesFn(), getGstRatesFn()]),
   head: () => ({
     meta: [
       { title: "Book Direct | The Divine KRC, Greater Noida" },
@@ -38,6 +38,6 @@ export const Route = createFileRoute("/book")({
 });
 
 function RouteComponent() {
-  const [roomTypes, addOnRates] = Route.useLoaderData();
-  return <Book roomTypes={roomTypes} addOnRates={addOnRates} />;
+  const [roomTypes, addOnRates, gstRates] = Route.useLoaderData();
+  return <Book roomTypes={roomTypes} addOnRates={addOnRates} gstRates={gstRates} />;
 }

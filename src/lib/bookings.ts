@@ -126,10 +126,14 @@ export interface BookingData {
    *  resolved by `resolvePartyHallRates`. Placeholder until real numbers land —
    *  see `PARTY_HALL_PLACEHOLDER_KEYS`. */
   partyHallRateOverrides?: Partial<Record<PartyHallRateKey, number>>;
-  /** Owner-set GST rate (Room Settings redesign, slice C) — its own
+  /** Owner-set room GST rate (Room Settings redesign, slice C) — its own
    *  `addon_settings` row (`gstPct`), same "override over default" shape as
    *  the others. Missing falls back to `GST_PCT`. */
   gstRateOverride?: number;
+  /** Owner-set party-hall GST rate — its own `addon_settings` row
+   *  (`partyHallGstPct`), independent of the room rate above so the two can
+   *  diverge. Missing falls back to `PARTY_HALL_GST_PCT`. */
+  partyHallGstRateOverride?: number;
 }
 
 export interface AddOnRates {
@@ -196,13 +200,23 @@ export const ROOM_UNITS: RoomUnit[] = [
 export const ROOM_NUMBERS: string[] = ROOM_UNITS.map((r) => r.no);
 
 /**
- * The GST rate the property bills at. Every booking carries its own `taxPct`,
- * because a stay is taxed at the rate in force the day it was billed and an old
- * booking must not silently re-rate itself when the property changes this. The
- * constant is what the current rate *is* — the Settings panel shows it and new
- * bookings take it — so there is one 12 in the code rather than one per seed row.
+ * The room GST rate's fallback-only default (12) — used solely by
+ * `resolveRoomGstPct` when no `gstPct` `addon_settings` row exists yet (a
+ * fresh install). Once a rate is set, every read goes through the live
+ * `addon_settings` row instead: GST is always the live setting, never frozen
+ * at booking-creation time or on an invoice.
  */
 export const GST_PCT = 12;
+
+/**
+ * Party-hall GST rate's fallback-only default (18) — used solely by
+ * `resolvePartyHallGstPct` when no `partyHallGstPct` `addon_settings` row
+ * exists yet. Independent of `GST_PCT`; the two rates can diverge once both
+ * are set. Lives here rather than in `invoices.ts` so `resolvePartyHallGstPct`
+ * can sit next to `resolveRoomGstPct` without a bookings.ts <-> invoices.ts
+ * import cycle.
+ */
+export const PARTY_HALL_GST_PCT = 18;
 
 /** Default add-on rates (Slice B) — what a fresh install bills until the
  *  owner sets a real rate in Settings. Applying a charge always snapshots
@@ -650,6 +664,7 @@ export function createBooking(
     bookings: Booking[];
     rooms?: RoomTile[];
     roomTypeOverrides?: BookingData["roomTypeOverrides"];
+    gstRateOverride?: BookingData["gstRateOverride"];
   },
   input: NewBookingInput,
   today: string = new Date().toISOString().slice(0, 10),
@@ -726,13 +741,18 @@ export function createBooking(
   const nights = nightsBetween(input.checkIn, input.checkOut);
   const roomTypes = resolveRoomTypes(state.rooms ?? defaultRoomTiles(), state.roomTypeOverrides);
   const pricePerNight = roomTypes.find((rt) => rt.type === input.roomType)!.pricePerNight;
+  // `revenue.taxPct` (persisted as `bookings.revenue_tax_pct`, NOT NULL) is a
+  // historical record of the rate in force at creation time only — it is
+  // read by no invoice or price display. The authoritative rate is always
+  // `resolveRoomGstPct`'s live read; do not resurrect this column as a
+  // pricing source.
   const revenue: BookingRevenue = {
     room: pricePerNight * nights,
     earlyCheckIn: 0,
     lateCheckOut: 0,
     other: 0,
     discount: 0,
-    taxPct: GST_PCT,
+    taxPct: resolveRoomGstPct(state.gstRateOverride),
   };
   const collection: BookingCollection = {
     paidToHotel: 0,
@@ -2128,8 +2148,15 @@ export function resolveRoomTypes(
  * so a rate shown in Settings, quoted to a guest, and snapshotted onto a
  * booking can never disagree.
  */
-export function resolveGstPct(override?: BookingData["gstRateOverride"]): number {
+export function resolveRoomGstPct(override?: BookingData["gstRateOverride"]): number {
   return override ?? GST_PCT;
+}
+
+/** Party-hall's own GST rate — independent `addon_settings` row
+ *  (`partyHallGstPct`) from the room rate above, same "override over
+ *  default" shape. Missing falls back to `PARTY_HALL_GST_PCT`. */
+export function resolvePartyHallGstPct(override?: BookingData["partyHallGstRateOverride"]): number {
+  return override ?? PARTY_HALL_GST_PCT;
 }
 
 /**
@@ -3800,7 +3827,8 @@ export async function getSettingsPageData(
     property: PROPERTY,
     pricing: {
       tariffs: tariffSettings(roomTypes),
-      gst: gstSetting(resolveGstPct(data.gstRateOverride)),
+      gst: gstSetting(resolveRoomGstPct(data.gstRateOverride)),
+      partyHallGst: gstSetting(resolvePartyHallGstPct(data.partyHallGstRateOverride)),
       addOnRates: addOnRateSettings(resolveAddOnRates(data.addOnRateOverrides)),
       partyHallRates: partyHallRateSettings(partyHallRates),
       partyHallRatesArePlaceholder: PARTY_HALL_PLACEHOLDER_KEYS.some(
