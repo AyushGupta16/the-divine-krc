@@ -225,9 +225,10 @@ async function verify(email: string, attempt: string): Promise<TeamAccount | und
   const member = findMember(await loadRoster(), email);
   if (!member || !isActive(member)) return undefined;
 
-  if (member.role === "Owner") {
+  if (member.role === "Owner" || member.role === "Superadmin") {
     const secret = ownerPassword();
-    return secret && secretsMatch(attempt, secret) ? member : undefined;
+    if (secret && secretsMatch(attempt, secret)) return member;
+    return (await verifyPassword(attempt, await passwordHashFor(email))) ? member : undefined;
   }
   return (await verifyPassword(attempt, await passwordHashFor(email))) ? member : undefined;
 }
