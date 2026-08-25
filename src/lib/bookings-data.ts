@@ -73,8 +73,10 @@ import {
   reopenPartyHallEnquiry,
   resolveAddOnRates,
   partyHallTransitionAllowed,
+  resolvePartyHallGstPct,
   resolvePartyHallRates,
   resolveRequestedService,
+  resolveRoomGstPct,
   resolveRoomTypes,
   sendPartyHallQuote,
   updateGuest,
@@ -241,6 +243,7 @@ async function load(): Promise<BookingData> {
   ) as BookingData["partyHallRateOverrides"];
   const advancePct = resolvePartyHallRates(partyHallRateOverrides).phAdvancePct;
   const gstRateOverride = addOnRows.find((r) => r.id === "gstPct")?.price;
+  const partyHallGstRateOverride = addOnRows.find((r) => r.id === "partyHallGstPct")?.price;
 
   return {
     guests: guestRows.map(toGuest),
@@ -256,6 +259,7 @@ async function load(): Promise<BookingData> {
     addOnRateOverrides,
     partyHallRateOverrides,
     gstRateOverride,
+    partyHallGstRateOverride,
   };
 }
 
@@ -996,6 +1000,21 @@ async function upsertGstSetting(pct: number): Promise<void> {
     .onConflictDoUpdate({ target: schema.addOnSettings.id, set: { price: pct } });
 }
 
+/** Party-hall's own `addon_settings` row (`partyHallGstPct`) — independent
+ *  of the room `gstPct` row above, same upsert shape. */
+async function upsertPartyHallGstSetting(pct: number): Promise<void> {
+  const conn = db();
+  if (!conn) {
+    noDbInsert();
+    fixtures.partyHallGstRateOverride = pct;
+    return;
+  }
+  await conn
+    .insert(schema.addOnSettings)
+    .values({ id: "partyHallGstPct", label: "Party hall GST rate", price: pct })
+    .onConflictDoUpdate({ target: schema.addOnSettings.id, set: { price: pct } });
+}
+
 /**
  * Slice B's admin resolution write: whatever `resolveRequestedService`
  * decided — the booking's new revenue, `requestedServices`, and (for
@@ -1184,6 +1203,28 @@ export const getAddOnRatesFn = createServerFn({ method: "GET" }).handler(
     } catch (err) {
       console.error("getAddOnRatesFn: DB load failed, serving default rates", err);
       return resolveAddOnRates();
+    }
+  },
+);
+
+/**
+ * The current live GST rates (room and party-hall, independently) for the
+ * guest booking flow — public and read-only, same reasoning as
+ * `getRoomTypesFn`/`getAddOnRatesFn`: GST is always the live setting, never
+ * a build-time constant, so `/book`'s price and tax-label must fetch it
+ * rather than importing `GST_PCT` directly.
+ */
+export const getGstRatesFn = createServerFn({ method: "GET" }).handler(
+  async (): Promise<{ roomGstPct: number; partyHallGstPct: number }> => {
+    try {
+      const current = await load();
+      return {
+        roomGstPct: resolveRoomGstPct(current.gstRateOverride),
+        partyHallGstPct: resolvePartyHallGstPct(current.partyHallGstRateOverride),
+      };
+    } catch (err) {
+      console.error("getGstRatesFn: DB load failed, serving default rates", err);
+      return { roomGstPct: resolveRoomGstPct(), partyHallGstPct: resolvePartyHallGstPct() };
     }
   },
 );
@@ -1636,6 +1677,21 @@ export const updateGstSettingsFn = createServerFn({ method: "POST" })
       const check = validateGstPct(data.pct);
       if (!check.ok) return check;
       await upsertGstSetting(Math.round(data.pct));
+      return { ok: true };
+    }),
+  );
+
+/** Party-hall's own editable GST rate — same round-trip and bounds as
+ *  `updateGstSettingsFn`, independent `addon_settings` row. */
+export const updatePartyHallGstSettingsFn = createServerFn({ method: "POST" })
+  .validator((data: { pct: number }) => data)
+  .handler(({ data }): Promise<Result> =>
+    safely(async () => {
+      const auth = await requireSettingsWriter();
+      if (!auth.ok) return auth;
+      const check = validateGstPct(data.pct);
+      if (!check.ok) return check;
+      await upsertPartyHallGstSetting(Math.round(data.pct));
       return { ok: true };
     }),
   );

@@ -23,7 +23,7 @@ import {
   resolveInvoiceParty,
   type Invoice,
 } from "@/lib/invoices";
-import { withAdvance, withTier } from "@/lib/bookings";
+import { resolvePartyHallGstPct, resolveRoomGstPct, withAdvance, withTier } from "@/lib/bookings";
 import { toBooking } from "@/lib/booking-mappers";
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import { getSessionMember } from "@/lib/auth";
@@ -53,16 +53,25 @@ async function loadInvoiceParty(): Promise<{
   guests: Guest[];
   bookings: Booking[];
   partyHall: PartyHallEnquiry[];
+  roomGstPct: number;
+  partyHallGstPct: number;
 }> {
   const conn = db();
   if (!conn) {
     noDb();
-    return { guests: fixtures.guests, bookings: fixtures.bookings, partyHall: fixtures.partyHall };
+    return {
+      guests: fixtures.guests,
+      bookings: fixtures.bookings,
+      partyHall: fixtures.partyHall,
+      roomGstPct: resolveRoomGstPct(fixtures.gstRateOverride),
+      partyHallGstPct: resolvePartyHallGstPct(fixtures.partyHallGstRateOverride),
+    };
   }
-  const [guestRows, bookingRows, partyHallRows] = await Promise.all([
+  const [guestRows, bookingRows, partyHallRows, addOnRows] = await Promise.all([
     conn.select().from(schema.guests).orderBy(schema.guests.id),
     conn.select().from(schema.bookings).orderBy(schema.bookings.id),
     conn.select().from(schema.partyHallEnquiries).orderBy(schema.partyHallEnquiries.id),
+    conn.select().from(schema.addOnSettings).orderBy(schema.addOnSettings.id),
   ]);
   return {
     guests: guestRows.map((r) =>
@@ -93,6 +102,10 @@ async function loadInvoiceParty(): Promise<{
         contactPhone: r.contactPhone ?? undefined,
         contactEmail: r.contactEmail ?? undefined,
       }),
+    ),
+    roomGstPct: resolveRoomGstPct(addOnRows.find((r) => r.id === "gstPct")?.price),
+    partyHallGstPct: resolvePartyHallGstPct(
+      addOnRows.find((r) => r.id === "partyHallGstPct")?.price,
     ),
   };
 }
@@ -237,14 +250,17 @@ export const getInvoiceFn = createServerFn({ method: "GET" })
     const row = await findInvoiceByNo(invoiceNo);
     if (!row) return { ok: false, error: "No invoice found for this number." };
 
-    const { guests, bookings, partyHall } = await loadInvoiceParty();
+    const { guests, bookings, partyHall, roomGstPct, partyHallGstPct } = await loadInvoiceParty();
     const issuedAt = row.issuedAt.toISOString();
 
     if (row.type === "party_hall") {
       const enquiry = partyHall.find((e) => e.id === row.refId);
       if (!enquiry)
         return { ok: false, error: "The party-hall enquiry behind this invoice was not found." };
-      return { ok: true, invoice: buildPartyHallInvoice(row.invoiceNo, issuedAt, enquiry) };
+      return {
+        ok: true,
+        invoice: buildPartyHallInvoice(row.invoiceNo, issuedAt, enquiry, partyHallGstPct),
+      };
     }
 
     if (row.type === "group") {
@@ -257,7 +273,7 @@ export const getInvoiceFn = createServerFn({ method: "GET" })
       if (!guest) return { ok: false, error: "The guest behind this invoice was not found." };
       return {
         ok: true,
-        invoice: buildGroupInvoice(row.invoiceNo, issuedAt, row.refId, members, guest),
+        invoice: buildGroupInvoice(row.invoiceNo, issuedAt, row.refId, members, guest, roomGstPct),
       };
     }
 
@@ -265,7 +281,10 @@ export const getInvoiceFn = createServerFn({ method: "GET" })
     if (!booking) return { ok: false, error: "The booking behind this invoice was not found." };
     const guest = guests.find((g) => g.id === booking.guestId);
     if (!guest) return { ok: false, error: "The guest behind this invoice was not found." };
-    return { ok: true, invoice: buildRoomInvoice(row.invoiceNo, issuedAt, booking, guest) };
+    return {
+      ok: true,
+      invoice: buildRoomInvoice(row.invoiceNo, issuedAt, booking, guest, roomGstPct),
+    };
   });
 
 async function requireInvoiceReader(): Promise<Result> {

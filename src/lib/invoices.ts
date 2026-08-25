@@ -8,10 +8,8 @@
 // that must stay the same across repeat downloads.
 
 import { computeTotalCollected, formatINR, urn } from "@/lib/booking-math";
-import { GST_PCT, ROOM_TYPES } from "@/lib/bookings";
+import { ROOM_TYPES } from "@/lib/bookings";
 import type { Booking, Guest, PartyHallEnquiry } from "@/types/booking";
-
-export const PARTY_HALL_GST_PCT = 18;
 
 export type InvoiceType = "room" | "group" | "party_hall";
 
@@ -146,19 +144,22 @@ function paymentFor(b: Booking): InvoicePayment {
   };
 }
 
-/** Single-room invoice — one Booking, one section-worth of lines inline. */
+/**
+ * Single-room invoice — one Booking, one section-worth of lines inline.
+ * `gstPct` is the caller-resolved *live* room GST rate (`resolveRoomGstPct`)
+ * — never `booking.revenue.taxPct`, which is only a frozen record of the
+ * rate at booking creation, not the authoritative rate for a document
+ * issued today.
+ */
 export function buildRoomInvoice(
   invoiceNo: string,
   issuedAt: string,
   booking: Booking,
   guest: Guest,
+  gstPct: number,
 ): Invoice {
   const subtotal = bookingSubtotal(booking);
-  const { rows, grandTotal } = totalRowsFor(
-    subtotal,
-    booking.revenue.discount,
-    booking.revenue.taxPct,
-  );
+  const { rows, grandTotal } = totalRowsFor(subtotal, booking.revenue.discount, gstPct);
   const amountPaid = computeTotalCollected(booking.collection);
   return {
     invoiceNo,
@@ -184,7 +185,7 @@ export function buildRoomInvoice(
       },
     ],
     totalRows: rows,
-    gstRate: booking.revenue.taxPct,
+    gstRate: gstPct,
     grandTotal,
     amountPaid,
     balanceDue: Math.max(0, grandTotal - amountPaid),
@@ -192,13 +193,19 @@ export function buildRoomInvoice(
   };
 }
 
-/** Group invoice — one Reservation covering several room Bookings for one guest/stay. */
+/**
+ * Group invoice — one Reservation covering several room Bookings for one
+ * guest/stay. `gstPct` is the caller-resolved live room GST rate, same as
+ * `buildRoomInvoice` — never read from any member booking's frozen
+ * `revenue.taxPct`.
+ */
 export function buildGroupInvoice(
   invoiceNo: string,
   issuedAt: string,
   refId: string,
   bookings: Booking[],
   guest: Guest,
+  gstPct: number,
 ): Invoice {
   const sections: InvoiceSection[] = bookings.map((b) => ({
     title: `${roomTypeName(b.roomType)}${b.roomNo ? ` · Room ${b.roomNo}` : ""}`,
@@ -209,8 +216,7 @@ export function buildGroupInvoice(
   }));
   const subtotal = sections.reduce((sum, s) => sum + s.subtotal, 0);
   const discount = bookings.reduce((sum, b) => sum + b.revenue.discount, 0);
-  const gstRate = bookings[0]?.revenue.taxPct ?? GST_PCT;
-  const { rows, grandTotal } = totalRowsFor(subtotal, discount, gstRate);
+  const { rows, grandTotal } = totalRowsFor(subtotal, discount, gstPct);
   const amountPaid = bookings.reduce((sum, b) => sum + computeTotalCollected(b.collection), 0);
   const totalNights = bookings.reduce((sum, b) => sum + b.urn, 0);
   const paidCount = bookings.filter((b) => b.razorpayPaymentId).length;
@@ -232,11 +238,11 @@ export function buildGroupInvoice(
             ? "Mixed"
             : (bookings[0]?.mealPlan ?? "—"),
       },
-      { label: "GST rate", value: `${gstRate}%` },
+      { label: "GST rate", value: `${gstPct}%` },
     ],
     sections,
     totalRows: rows,
-    gstRate,
+    gstRate: gstPct,
     grandTotal,
     amountPaid,
     balanceDue: Math.max(0, grandTotal - amountPaid),
@@ -255,11 +261,16 @@ const SLOT_LABEL: Record<PartyHallEnquiry["slot"], string> = {
   full_day: "Full day",
 };
 
-/** Party hall invoice — one Enquiry, quoted total + 25% advance/balance split. */
+/**
+ * Party hall invoice — one Enquiry, quoted total + 25% advance/balance split.
+ * `gstPct` is the caller-resolved live party-hall GST rate
+ * (`resolvePartyHallGstPct`) — independent of the room rate.
+ */
 export function buildPartyHallInvoice(
   invoiceNo: string,
   issuedAt: string,
   enquiry: PartyHallEnquiry,
+  gstPct: number,
 ): Invoice {
   const lines: InvoiceLine[] = [
     {
@@ -277,7 +288,7 @@ export function buildPartyHallInvoice(
       amount: "—",
     })),
   ];
-  const { rows, grandTotal } = totalRowsFor(enquiry.amount, 0, PARTY_HALL_GST_PCT);
+  const { rows, grandTotal } = totalRowsFor(enquiry.amount, 0, gstPct);
   const advance = enquiry.advancePaid;
   return {
     invoiceNo,
@@ -307,7 +318,7 @@ export function buildPartyHallInvoice(
       },
     ],
     totalRows: rows,
-    gstRate: PARTY_HALL_GST_PCT,
+    gstRate: gstPct,
     grandTotal,
     amountPaid: advance,
     balanceDue: Math.max(0, grandTotal - advance),
