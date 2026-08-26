@@ -78,6 +78,7 @@ import type {
   RoomType,
   RoomTypeCard,
   ChannelSetting,
+  GstRateHistoryEntry,
   GstSetting,
   PaymentSettings,
   PricingSettings,
@@ -3815,6 +3816,7 @@ function roomSettingsRows(
 export async function getSettingsPageData(
   data: BookingData,
   roster: TeamAccount[],
+  gstHistory: GstRateHistoryEntry[] = [],
   today: string = new Date().toISOString().slice(0, 10),
 ): Promise<SettingsPageData> {
   const bookings = data.bookings;
@@ -3835,6 +3837,7 @@ export async function getSettingsPageData(
         (key) => partyHallRates[key] === PARTY_HALL_RATE_DEFAULTS[key],
       ),
       rooms: roomSettingsRows(tiles, bookings, data.guests, today),
+      gstHistory,
     },
     payments: paymentSettings(),
     channels: channelSettings(bookings),

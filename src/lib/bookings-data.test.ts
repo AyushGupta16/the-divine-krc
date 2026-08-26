@@ -47,15 +47,31 @@ vi.mock("@/lib/auth", async (importOriginal) => {
   };
 });
 
+// Wrapped, not replaced — every other test in this file relies on `db()`'s
+// real no-DATABASE_URL behavior (null, fixtures path). Only the isolation
+// test below queues fake one-off return values via `mockImplementationOnce`,
+// which fall through to `actual.db` once consumed.
+vi.mock("@/lib/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/db")>();
+  return {
+    ...actual,
+    db: vi.fn(actual.db),
+  };
+});
+
 const {
   verifyRazorpayPaymentFn,
   recordCashPaymentFn,
   getOpenBalanceDirectBookingsFn,
   updateBookingStatusFn,
   setBookingPaymentStatusFn,
+  updateGstSettingsFn,
+  updatePartyHallGstSettingsFn,
+  settingsPage,
 } = await import("@/lib/bookings-data");
 const { resolvePaymentMetadata } = await import("@/lib/razorpay");
 const { getSessionMember } = await import("@/lib/auth");
+const { db } = await import("@/lib/db");
 
 const PENDING_BOOKING_ID = "KRC-20260715-003";
 const CONFIRMED_WITH_BALANCE_ID = "KRC-20260714-007";
@@ -439,5 +455,120 @@ describe("status history", () => {
     await updateBookingStatusFn({ data: { id: CONFIRMED_WITH_BALANCE_ID, status: "cancelled" } });
 
     expect(fixtures.statusHistory[0].changedBy).toBe(OTHER.email);
+  });
+});
+
+describe("gst rate history", () => {
+  const WRITER = {
+    email: "owner@thedivinekrc.in",
+    name: "Owner",
+    role: "Owner" as const,
+  };
+
+  beforeEach(() => {
+    fixtures.gstRateHistory.length = 0;
+    fixtures.gstRateOverride = undefined;
+    fixtures.partyHallGstRateOverride = undefined;
+  });
+
+  afterEach(() => {
+    vi.mocked(getSessionMember).mockReset();
+    fixtures.gstRateHistory.length = 0;
+    fixtures.gstRateOverride = undefined;
+    fixtures.partyHallGstRateOverride = undefined;
+  });
+
+  it("updateGstSettingsFn: a real change logs one row with rate_type room and the right from/to/changedBy", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+
+    const res = await updateGstSettingsFn({ data: { pct: 5 } });
+
+    expect(res.ok).toBe(true);
+    expect(fixtures.gstRateHistory.length).toBe(1);
+    expect(fixtures.gstRateHistory[0]).toMatchObject({
+      rateType: "room",
+      fromPct: 12,
+      toPct: 5,
+      changedBy: WRITER.email,
+    });
+  });
+
+  it("updateGstSettingsFn: a no-op save (same pct) logs nothing", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+    fixtures.gstRateOverride = 12;
+
+    const res = await updateGstSettingsFn({ data: { pct: 12 } });
+
+    expect(res.ok).toBe(true);
+    expect(fixtures.gstRateHistory.length).toBe(0);
+  });
+
+  it("updatePartyHallGstSettingsFn: a real change logs one row with rate_type party_hall and the right from/to/changedBy", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+
+    const res = await updatePartyHallGstSettingsFn({ data: { pct: 5 } });
+
+    expect(res.ok).toBe(true);
+    expect(fixtures.gstRateHistory.length).toBe(1);
+    expect(fixtures.gstRateHistory[0]).toMatchObject({
+      rateType: "party_hall",
+      fromPct: 18,
+      toPct: 5,
+      changedBy: WRITER.email,
+    });
+  });
+
+  it("updatePartyHallGstSettingsFn: a no-op save (same pct) logs nothing", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+    fixtures.partyHallGstRateOverride = 18;
+
+    const res = await updatePartyHallGstSettingsFn({ data: { pct: 18 } });
+
+    expect(res.ok).toBe(true);
+    expect(fixtures.gstRateHistory.length).toBe(0);
+  });
+
+  it("both rate types can appear together in the same history feed", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+
+    await updateGstSettingsFn({ data: { pct: 5 } });
+    await updatePartyHallGstSettingsFn({ data: { pct: 9 } });
+
+    expect(fixtures.gstRateHistory.map((h) => h.rateType).sort()).toEqual(["party_hall", "room"]);
+  });
+
+  it("settingsPage: a failed history read degrades to an empty list without breaking the rest of the settings payload", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+    // `load()`'s own `db()` call goes first (settingsPage's Promise.all
+    // evaluates `load()` before `recentGstRateHistory`) — let it take the
+    // real fixtures path so tariffs/rooms/rates come back genuine, not
+    // faked. Only the second `db()` call, `recentGstRateHistory`'s, gets a
+    // connection whose query rejects, forcing its try/catch.
+    vi.mocked(db)
+      .mockImplementationOnce(() => null)
+      .mockImplementationOnce(
+        () =>
+          ({
+            select: () => ({
+              from: () => ({
+                orderBy: () => ({
+                  limit: () =>
+                    Promise.reject(new Error('relation "gst_rate_history" does not exist')),
+                }),
+              }),
+            }),
+          }) as unknown as ReturnType<typeof db>,
+      );
+
+    const data = await settingsPage();
+
+    // The failure is contained: history is empty, but nothing else on the
+    // page is missing, empty-by-coincidence, or thrown away with it.
+    expect(data.pricing.gstHistory).toEqual([]);
+    expect(data.pricing.tariffs.length).toBeGreaterThan(0);
+    expect(data.pricing.addOnRates.length).toBeGreaterThan(0);
+    expect(data.pricing.gst.pct).toBeGreaterThan(0);
+    expect(data.pricing.partyHallGst.pct).toBeGreaterThan(0);
+    expect(data.pricing.rooms.length).toBeGreaterThan(0);
   });
 });
