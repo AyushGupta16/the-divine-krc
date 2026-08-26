@@ -179,10 +179,67 @@ describe("buildRoomInvoice — Slice B add-on charges", () => {
 });
 
 describe("buildPartyHallInvoice", () => {
-  it("bills at whatever gstPct the caller resolves from the live party-hall setting", () => {
+  it("bills at whatever gstPct the caller resolves from the live party-hall setting, for an enquiry with no frozen quote to fall back to", () => {
     const enquiry = fixtures.partyHall[0];
     const invoice = buildPartyHallInvoice("INV-PH-1", "2026-08-01T00:00:00Z", enquiry, 5);
     expect(invoice.gstRate).toBe(5);
     expect(invoice.gstRate).not.toBe(18);
+  });
+
+  it("renders every line from a complete frozen quote, ignoring the live rate entirely", () => {
+    const enquiry = {
+      ...fixtures.partyHall[0],
+      quoteBreakdown: [
+        { label: "Platinum package", amount: 45000 },
+        { label: "DJ", amount: 8000 },
+        { label: "GST (18%)", amount: 9540 }, // round(53000 * 0.18)
+      ],
+    };
+    // Live rate has since changed to 5% — must not affect this invoice.
+    const invoice = buildPartyHallInvoice("INV-PH-2", "2026-08-01T00:00:00Z", enquiry, 5);
+    expect(invoice.gstRate).toBe(18);
+    expect(invoice.sections[0].lines).toEqual([
+      { name: "Platinum package", note: "Quoted", qty: "1", rate: "₹45,000", amount: "₹45,000" },
+      { name: "DJ", note: "Quoted", qty: "1", rate: "₹8,000", amount: "₹8,000" },
+    ]);
+    expect(invoice.sections[0].subtotal).toBe(53000);
+    expect(invoice.grandTotal).toBe(53000 + 9540);
+    // Total reconciles with the sum of the rendered lines, not a live recompute.
+    const renderedLineTotal = invoice.sections[0].lines.reduce(
+      (sum, line) => sum + Number(line.amount.replace(/[₹,]/g, "")),
+      0,
+    );
+    expect(renderedLineTotal + 9540).toBe(invoice.grandTotal);
+  });
+
+  it("falls back to live computation for a not-yet-quoted enquiry (no quoteBreakdown)", () => {
+    const enquiry = { ...fixtures.partyHall[0], quoteBreakdown: undefined, amount: 40000 };
+    const invoice = buildPartyHallInvoice("INV-PH-3", "2026-08-01T00:00:00Z", enquiry, 12);
+    expect(invoice.gstRate).toBe(12);
+    expect(invoice.grandTotal).toBe(40000 + Math.round(40000 * 0.12));
+  });
+
+  it("falls back to live computation for an empty quoteBreakdown array", () => {
+    const enquiry = { ...fixtures.partyHall[0], quoteBreakdown: [], amount: 40000 };
+    const invoice = buildPartyHallInvoice("INV-PH-4", "2026-08-01T00:00:00Z", enquiry, 12);
+    expect(invoice.gstRate).toBe(12);
+    expect(invoice.grandTotal).toBe(40000 + Math.round(40000 * 0.12));
+  });
+
+  it("falls back to live computation (whole invoice, not per-field) for an old-path quote with price lines but no frozen GST line", () => {
+    const enquiry = {
+      ...fixtures.partyHall[0],
+      amount: 53000,
+      quoteBreakdown: [
+        { label: "Platinum package", amount: 45000 },
+        { label: "DJ", amount: 8000 },
+        // No GST line — this is what every enquiry quoted before this change looks like.
+      ],
+    };
+    const invoice = buildPartyHallInvoice("INV-PH-5", "2026-08-01T00:00:00Z", enquiry, 18);
+    // Must render a complete, correct invoice — not one missing its GST row.
+    expect(invoice.gstRate).toBe(18);
+    expect(invoice.totalRows.some((r) => r.label.includes("GST"))).toBe(true);
+    expect(invoice.grandTotal).toBe(53000 + Math.round(53000 * 0.18));
   });
 });

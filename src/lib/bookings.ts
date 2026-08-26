@@ -1055,26 +1055,46 @@ function findPartyHallEnquiry(
   return { ok: true, enquiry };
 }
 
+/** Label prefix `sendPartyHallQuote` writes for the GST line it appends to
+ *  `quoteBreakdown` — `buildPartyHallInvoice` matches on this same prefix to
+ *  tell a post-this-change quote (has one) from a pre-this-change one
+ *  (doesn't), so keep the two in sync. */
+export const QUOTE_GST_LABEL_PREFIX = "GST (";
+
 /**
  * Slice 2a's first real pipeline action: quotes a fresh enquiry at its
  * package + add-ons, snapshotting the rate in force right now — same
  * snapshot-at-charge-time discipline as `resolveRequestedService`, so a later
  * rate change (once real numbers replace the placeholders) never reprices an
  * enquiry that was already quoted against the ₹1 stand-ins.
+ *
+ * `quoteBreakdown` gets one extra line beyond the price lines: a frozen GST
+ * line at whatever `gstPct` is live right now. `amount` stays the pre-tax
+ * sum of the price lines only (unchanged) — advance %, `collectedFor`, and
+ * every other reader of `amount` keep meaning "pre-tax total", so this can't
+ * silently reprice the advance. The GST line exists purely for
+ * `buildPartyHallInvoice` to render the tax faithfully instead of
+ * recomputing it live once the event is quoted.
  */
 export function sendPartyHallQuote(
   state: { partyHall: PartyHallEnquiry[] },
   id: string,
   rates: PartyHallRates,
   advancePct: number = PARTY_HALL_ADVANCE_PCT,
+  gstPct: number = PARTY_HALL_GST_PCT,
 ): Result<{ enquiry: PartyHallEnquiry }> {
   const found = findPartyHallEnquiry(state, id);
   if (!found.ok) return found;
   if (found.enquiry.status !== "enquiry") {
     return { ok: false, error: "Only a new enquiry can be quoted." };
   }
-  const quoteBreakdown = computePartyHallQuoteBreakdown(found.enquiry, rates);
-  const amount = quoteBreakdown.reduce((sum, line) => sum + line.amount, 0);
+  const priceLines = computePartyHallQuoteBreakdown(found.enquiry, rates);
+  const amount = priceLines.reduce((sum, line) => sum + line.amount, 0);
+  const gstAmount = Math.round(amount * (gstPct / 100));
+  const quoteBreakdown: QuotePriceLine[] = [
+    ...priceLines,
+    { label: `${QUOTE_GST_LABEL_PREFIX}${gstPct}%)`, amount: gstAmount },
+  ];
   return {
     ok: true,
     enquiry: withAdvance(

@@ -691,6 +691,7 @@ export const sendPartyHallQuoteFn = createServerFn({ method: "POST" })
         data.id,
         resolvePartyHallRates(current.partyHallRateOverrides),
         resolvePartyHallRates(current.partyHallRateOverrides).phAdvancePct,
+        resolvePartyHallGstPct(current.partyHallGstRateOverride),
       ),
     ),
   );

@@ -8,7 +8,7 @@
 // that must stay the same across repeat downloads.
 
 import { computeTotalCollected, formatINR, urn } from "@/lib/booking-math";
-import { ROOM_TYPES } from "@/lib/bookings";
+import { QUOTE_GST_LABEL_PREFIX, ROOM_TYPES } from "@/lib/bookings";
 import type { Booking, Guest, PartyHallEnquiry } from "@/types/booking";
 
 export type InvoiceType = "room" | "group" | "party_hall";
@@ -262,9 +262,35 @@ const SLOT_LABEL: Record<PartyHallEnquiry["slot"], string> = {
 };
 
 /**
+ * A quote is faithfully renderable only as a whole — never lines-from-snapshot
+ * plus a live-computed total, which would just move the mismatch this exists
+ * to close. Renderable requires: a non-empty breakdown, a GST line in it
+ * (rows quoted before `sendPartyHallQuote` started appending one don't have
+ * this — that's the signal they predate the fix), and a positive total.
+ * Anything short of all three falls back to live computation, whole-invoice.
+ */
+function isRenderableQuote(
+  breakdown: PartyHallEnquiry["quoteBreakdown"],
+): breakdown is { label: string; amount: number }[] {
+  if (!breakdown || breakdown.length === 0) return false;
+  if (!breakdown.some((line) => line.label.startsWith(QUOTE_GST_LABEL_PREFIX))) return false;
+  const total = breakdown.reduce((sum, line) => sum + line.amount, 0);
+  return total > 0;
+}
+
+/**
  * Party hall invoice — one Enquiry, quoted total + 25% advance/balance split.
- * `gstPct` is the caller-resolved live party-hall GST rate
- * (`resolvePartyHallGstPct`) — independent of the room rate.
+ *
+ * Two modes, chosen once and applied to the whole invoice (never mixed):
+ *  - Quoted, with a GST line on record (`isRenderableQuote`): every rupee on
+ *    the invoice — line items, subtotal, GST, grand total — comes straight
+ *    out of `quoteBreakdown`, the frozen record of what was actually quoted.
+ *    `gstPct` (the live rate) is ignored entirely in this branch.
+ *  - Not yet quoted, or quoted before this snapshot existed: falls back to
+ *    the old behavior — recompute from `enquiry.amount` at the live
+ *    `gstPct` (`resolvePartyHallGstPct`), same as every invoice before this
+ *    change. Correct for an unquoted estimate; the best available answer for
+ *    a pre-existing quote with nothing frozen to read.
  */
 export function buildPartyHallInvoice(
   invoiceNo: string,
@@ -272,23 +298,58 @@ export function buildPartyHallInvoice(
   enquiry: PartyHallEnquiry,
   gstPct: number,
 ): Invoice {
-  const lines: InvoiceLine[] = [
-    {
-      name: `Party Hall — ${enquiry.package} package`,
-      note: `${SLOT_LABEL[enquiry.slot]} slot · up to ${enquiry.guests} guests`,
-      qty: "1",
-      rate: formatINR(enquiry.amount),
-      amount: formatINR(enquiry.amount),
-    },
-    ...enquiry.addOns.map((addOn): InvoiceLine => ({
-      name: addOn,
-      note: "Included in package",
-      qty: "1",
-      rate: "—",
-      amount: "—",
-    })),
-  ];
-  const { rows, grandTotal } = totalRowsFor(enquiry.amount, 0, gstPct);
+  const renderable = isRenderableQuote(enquiry.quoteBreakdown);
+
+  const priceLines = renderable
+    ? enquiry.quoteBreakdown!.filter((line) => !line.label.startsWith(QUOTE_GST_LABEL_PREFIX))
+    : null;
+  const gstLine = renderable
+    ? enquiry.quoteBreakdown!.find((line) => line.label.startsWith(QUOTE_GST_LABEL_PREFIX))!
+    : null;
+  const subtotal = priceLines ? priceLines.reduce((sum, line) => sum + line.amount, 0) : null;
+
+  const lines: InvoiceLine[] = priceLines
+    ? priceLines.map((line) => ({
+        name: line.label,
+        note: "Quoted",
+        qty: "1",
+        rate: formatINR(line.amount),
+        amount: formatINR(line.amount),
+      }))
+    : [
+        {
+          name: `Party Hall — ${enquiry.package} package`,
+          note: `${SLOT_LABEL[enquiry.slot]} slot · up to ${enquiry.guests} guests`,
+          qty: "1",
+          rate: formatINR(enquiry.amount),
+          amount: formatINR(enquiry.amount),
+        },
+        ...enquiry.addOns.map((addOn): InvoiceLine => ({
+          name: addOn,
+          note: "Included in package",
+          qty: "1",
+          rate: "—",
+          amount: "—",
+        })),
+      ];
+
+  // Faithful branch: total rows and grandTotal are built from the same
+  // rendered lines above, so they can never disagree with what's on screen.
+  // gstRate is reverse-derived from the frozen line for display only (the
+  // frozen amount is what's authoritative, not this recovered percentage).
+  const { rows, grandTotal, gstRate } =
+    renderable && gstLine !== null && subtotal !== null
+      ? {
+          rows: [
+            { label: "Subtotal", value: formatINR(subtotal) },
+            { label: "Taxable value", value: formatINR(subtotal) },
+            { label: gstLine.label, value: formatINR(gstLine.amount) },
+          ] as InvoiceTotalRow[],
+          grandTotal: subtotal + gstLine.amount,
+          gstRate: Math.round((gstLine.amount / subtotal) * 100),
+        }
+      : { ...totalRowsFor(enquiry.amount, 0, gstPct), gstRate: gstPct };
+
   const advance = enquiry.advancePaid;
   return {
     invoiceNo,
@@ -314,11 +375,11 @@ export function buildPartyHallInvoice(
         refId: enquiry.id,
         meta: SLOT_LABEL[enquiry.slot],
         lines,
-        subtotal: enquiry.amount,
+        subtotal: subtotal ?? enquiry.amount,
       },
     ],
     totalRows: rows,
-    gstRate: gstPct,
+    gstRate,
     grandTotal,
     amountPaid: advance,
     balanceDue: Math.max(0, grandTotal - advance),
