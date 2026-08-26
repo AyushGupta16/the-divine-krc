@@ -135,9 +135,6 @@ export interface BookingData {
    *  (`partyHallGstPct`), independent of the room rate above so the two can
    *  diverge. Missing falls back to `PARTY_HALL_GST_PCT`. */
   partyHallGstRateOverride?: number;
-  /** Last N GST rate changes (both types), newest first — the Settings
-   *  panel's history list. Missing/empty for an install with no changes yet. */
-  gstHistory?: GstRateHistoryEntry[];
 }
 
 export interface AddOnRates {
@@ -3819,6 +3816,7 @@ function roomSettingsRows(
 export async function getSettingsPageData(
   data: BookingData,
   roster: TeamAccount[],
+  gstHistory: GstRateHistoryEntry[] = [],
   today: string = new Date().toISOString().slice(0, 10),
 ): Promise<SettingsPageData> {
   const bookings = data.bookings;
@@ -3839,7 +3837,7 @@ export async function getSettingsPageData(
         (key) => partyHallRates[key] === PARTY_HALL_RATE_DEFAULTS[key],
       ),
       rooms: roomSettingsRows(tiles, bookings, data.guests, today),
-      gstHistory: data.gstHistory ?? [],
+      gstHistory,
     },
     payments: paymentSettings(),
     channels: channelSettings(bookings),

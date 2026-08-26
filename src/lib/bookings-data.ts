@@ -116,6 +116,7 @@ import type {
   DashboardData,
   Guest,
   GuestsPageData,
+  GstRateHistoryEntry,
   PartyHallEnquiry,
   PartyHallPageData,
   PartyHallRateKey,
@@ -227,7 +228,7 @@ async function load(): Promise<BookingData> {
   // order (see `bookingNumber` and the sorts in `bookings.ts`), so this is not
   // what makes the screens deterministic; it is what stops the *query* from
   // being a coin flip, which matters the moment anyone debugs one or pages it.
-  const [guestRows, bookingRows, partyHallRows, roomRows, roomTypeRows, addOnRows, gstHistoryRows] =
+  const [guestRows, bookingRows, partyHallRows, roomRows, roomTypeRows, addOnRows] =
     await Promise.all([
       conn.select().from(schema.guests).orderBy(schema.guests.id),
       conn.select().from(schema.bookings).orderBy(schema.bookings.id),
@@ -235,11 +236,6 @@ async function load(): Promise<BookingData> {
       conn.select().from(schema.rooms).orderBy(schema.rooms.no),
       conn.select().from(schema.roomTypeSettings).orderBy(schema.roomTypeSettings.type),
       conn.select().from(schema.addOnSettings).orderBy(schema.addOnSettings.id),
-      conn
-        .select()
-        .from(schema.gstRateHistory)
-        .orderBy(desc(schema.gstRateHistory.changedAt))
-        .limit(GST_HISTORY_LIMIT),
     ]);
 
   // Every addon_settings row lands in both maps — room add-on ids and Party
@@ -269,14 +265,39 @@ async function load(): Promise<BookingData> {
     partyHallRateOverrides,
     gstRateOverride,
     partyHallGstRateOverride,
-    gstHistory: gstHistoryRows.map((r) => ({
+  };
+}
+
+/**
+ * The Settings panel's GST history list — deliberately NOT part of `load()`'s
+ * shared `Promise.all`. Every other `load()` caller (the public `/book` flow,
+ * every admin page) never reads this data, so it must never be able to break
+ * them: a missing table or a failed query here degrades to an empty list,
+ * exactly like `getRoomTypesFn`'s DB-failure tolerance, and Settings still
+ * renders everything else. See PR #158's postmortem — this table's read used
+ * to sit inside `load()` and took the public homepage down with it in a
+ * deploy-before-migrate race.
+ */
+async function recentGstRateHistory(limit: number): Promise<GstRateHistoryEntry[]> {
+  const conn = db();
+  if (!conn) return fixtures.gstRateHistory;
+  try {
+    const rows = await conn
+      .select()
+      .from(schema.gstRateHistory)
+      .orderBy(desc(schema.gstRateHistory.changedAt))
+      .limit(limit);
+    return rows.map((r) => ({
       rateType: r.rateType as "room" | "party_hall",
       fromPct: r.fromPct,
       toPct: r.toPct,
       changedBy: r.changedBy,
       changedAt: r.changedAt.toISOString(),
-    })),
-  };
+    }));
+  } catch (err) {
+    console.error("recentGstRateHistory: read failed, serving empty history", err);
+    return [];
+  }
 }
 
 /**
@@ -1588,9 +1609,13 @@ export const settingsPage = createServerFn({ method: "GET" }).handler(
     // browser — the same class of leak `auth.ts` avoids the same way for
     // `requireAuth`. A dynamic `import()` runs only inside this handler, so
     // nothing follows it into a client chunk.
-    const [data, { loadRoster }] = await Promise.all([load(), import("@/lib/roster")]);
+    const [data, gstHistory, { loadRoster }] = await Promise.all([
+      load(),
+      recentGstRateHistory(GST_HISTORY_LIMIT),
+      import("@/lib/roster"),
+    ]);
     const roster = await loadRoster();
-    return getSettingsPageData(data, roster);
+    return getSettingsPageData(data, roster, gstHistory);
   },
 );
 

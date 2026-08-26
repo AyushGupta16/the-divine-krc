@@ -47,6 +47,18 @@ vi.mock("@/lib/auth", async (importOriginal) => {
   };
 });
 
+// Wrapped, not replaced — every other test in this file relies on `db()`'s
+// real no-DATABASE_URL behavior (null, fixtures path). Only the isolation
+// test below queues fake one-off return values via `mockImplementationOnce`,
+// which fall through to `actual.db` once consumed.
+vi.mock("@/lib/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/db")>();
+  return {
+    ...actual,
+    db: vi.fn(actual.db),
+  };
+});
+
 const {
   verifyRazorpayPaymentFn,
   recordCashPaymentFn,
@@ -55,9 +67,11 @@ const {
   setBookingPaymentStatusFn,
   updateGstSettingsFn,
   updatePartyHallGstSettingsFn,
+  settingsPage,
 } = await import("@/lib/bookings-data");
 const { resolvePaymentMetadata } = await import("@/lib/razorpay");
 const { getSessionMember } = await import("@/lib/auth");
+const { db } = await import("@/lib/db");
 
 const PENDING_BOOKING_ID = "KRC-20260715-003";
 const CONFIRMED_WITH_BALANCE_ID = "KRC-20260714-007";
@@ -521,5 +535,40 @@ describe("gst rate history", () => {
     await updatePartyHallGstSettingsFn({ data: { pct: 9 } });
 
     expect(fixtures.gstRateHistory.map((h) => h.rateType).sort()).toEqual(["party_hall", "room"]);
+  });
+
+  it("settingsPage: a failed history read degrades to an empty list without breaking the rest of the settings payload", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+    // `load()`'s own `db()` call goes first (settingsPage's Promise.all
+    // evaluates `load()` before `recentGstRateHistory`) — let it take the
+    // real fixtures path so tariffs/rooms/rates come back genuine, not
+    // faked. Only the second `db()` call, `recentGstRateHistory`'s, gets a
+    // connection whose query rejects, forcing its try/catch.
+    vi.mocked(db)
+      .mockImplementationOnce(() => null)
+      .mockImplementationOnce(
+        () =>
+          ({
+            select: () => ({
+              from: () => ({
+                orderBy: () => ({
+                  limit: () =>
+                    Promise.reject(new Error('relation "gst_rate_history" does not exist')),
+                }),
+              }),
+            }),
+          }) as unknown as ReturnType<typeof db>,
+      );
+
+    const data = await settingsPage();
+
+    // The failure is contained: history is empty, but nothing else on the
+    // page is missing, empty-by-coincidence, or thrown away with it.
+    expect(data.pricing.gstHistory).toEqual([]);
+    expect(data.pricing.tariffs.length).toBeGreaterThan(0);
+    expect(data.pricing.addOnRates.length).toBeGreaterThan(0);
+    expect(data.pricing.gst.pct).toBeGreaterThan(0);
+    expect(data.pricing.partyHallGst.pct).toBeGreaterThan(0);
+    expect(data.pricing.rooms.length).toBeGreaterThan(0);
   });
 });

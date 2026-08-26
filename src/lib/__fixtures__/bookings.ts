@@ -1059,9 +1059,10 @@ export interface BookingStatusHistoryRow {
 export const statusHistory: BookingStatusHistoryRow[] = [];
 
 /** The GST settings' audit log, no-DB dev path — fixtures-mutation
- *  counterpart of the `gst_rate_history` table. Unlike `statusHistory`, this
- *  one IS read back for display (the Settings panel's history list), so it's
- *  threaded through `BookingData` below rather than left orphaned. */
+ *  counterpart of the `gst_rate_history` table. Read back by
+ *  `recentGstRateHistory`'s no-DB branch, same "own extension field on
+ *  `fixtures`, not part of `BookingData`" shape as `statusHistory` — it's
+ *  Settings-only data, not something every `load()` caller should carry. */
 export const gstRateHistory: GstRateHistoryEntry[] = [];
 
 /** The whole seeded world, in the shape every derivation function reads.
