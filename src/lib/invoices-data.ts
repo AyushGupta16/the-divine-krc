@@ -243,6 +243,19 @@ export const issueInvoiceForPartyHallFn = createServerFn({ method: "POST" })
     return { ok: true, invoiceNo };
   });
 
+/**
+ * A settled booking's invoice must reconcile against what was actually
+ * collected, not against whatever the setting reads today — `revenue.taxPct`
+ * is stamped once at `createBooking` and every payment path (Razorpay order
+ * amount, cash settlement) charges against that same frozen `totalBill`, so
+ * it's already the true charged rate, not just the rate at creation. A
+ * booking still owing money hasn't been charged anything yet, so it's fine
+ * (and correct) for its invoice to preview the live rate.
+ */
+export function invoiceRoomGstPct(booking: Booking, liveRoomGstPct: number): number {
+  return booking.collection.pending === 0 ? booking.revenue.taxPct : liveRoomGstPct;
+}
+
 /** The public `/invoice/:invoiceNo` route's read — no login, matches the README's endpoint. */
 export const getInvoiceFn = createServerFn({ method: "GET" })
   .validator((invoiceNo: string) => invoiceNo)
@@ -257,6 +270,12 @@ export const getInvoiceFn = createServerFn({ method: "GET" })
       const enquiry = partyHall.find((e) => e.id === row.refId);
       if (!enquiry)
         return { ok: false, error: "The party-hall enquiry behind this invoice was not found." };
+      // Known gap, not an oversight: `partyHallEnquiries` has no
+      // `revenue.taxPct`-equivalent column to freeze against, so a paid event
+      // whose rate later changes will under/over-report against what was
+      // actually collected, same as rooms did before this fix. Closing this
+      // needs a schema change (a frozen rate/amount-at-quote column) and is
+      // deferred to a separate schema PR — this call site stays live-always.
       return {
         ok: true,
         invoice: buildPartyHallInvoice(row.invoiceNo, issuedAt, enquiry, partyHallGstPct),
@@ -271,9 +290,15 @@ export const getInvoiceFn = createServerFn({ method: "GET" })
         return { ok: false, error: "The bookings behind this invoice were not found." };
       const guest = guests.find((g) => g.id === members[0].guestId);
       if (!guest) return { ok: false, error: "The guest behind this invoice was not found." };
+      // The group is "paid" only if every member is settled — one still-owing
+      // room keeps the whole invoice on the live preview rate, same reasoning
+      // as the single-booking case below.
+      const groupGstPct = members.every((b) => b.collection.pending === 0)
+        ? members[0].revenue.taxPct
+        : roomGstPct;
       return {
         ok: true,
-        invoice: buildGroupInvoice(row.invoiceNo, issuedAt, row.refId, members, guest, roomGstPct),
+        invoice: buildGroupInvoice(row.invoiceNo, issuedAt, row.refId, members, guest, groupGstPct),
       };
     }
 
@@ -283,7 +308,13 @@ export const getInvoiceFn = createServerFn({ method: "GET" })
     if (!guest) return { ok: false, error: "The guest behind this invoice was not found." };
     return {
       ok: true,
-      invoice: buildRoomInvoice(row.invoiceNo, issuedAt, booking, guest, roomGstPct),
+      invoice: buildRoomInvoice(
+        row.invoiceNo,
+        issuedAt,
+        booking,
+        guest,
+        invoiceRoomGstPct(booking, roomGstPct),
+      ),
     };
   });
 
