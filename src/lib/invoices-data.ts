@@ -270,12 +270,11 @@ export const getInvoiceFn = createServerFn({ method: "GET" })
       const enquiry = partyHall.find((e) => e.id === row.refId);
       if (!enquiry)
         return { ok: false, error: "The party-hall enquiry behind this invoice was not found." };
-      // Known gap, not an oversight: `partyHallEnquiries` has no
-      // `revenue.taxPct`-equivalent column to freeze against, so a paid event
-      // whose rate later changes will under/over-report against what was
-      // actually collected, same as rooms did before this fix. Closing this
-      // needs a schema change (a frozen rate/amount-at-quote column) and is
-      // deferred to a separate schema PR — this call site stays live-always.
+      // buildPartyHallInvoice reads the frozen quoteBreakdown (including its
+      // GST line) when one exists, so a quoted event's invoice no longer
+      // drifts from a later rate change. `partyHallGstPct` here is only the
+      // fallback for an enquiry with nothing frozen to read yet (unquoted,
+      // or quoted before quoteBreakdown carried a GST line).
       return {
         ok: true,
         invoice: buildPartyHallInvoice(row.invoiceNo, issuedAt, enquiry, partyHallGstPct),
