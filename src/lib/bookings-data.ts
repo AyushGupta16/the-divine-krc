@@ -36,7 +36,7 @@
 // `npm run check:bundle` on a clean build before exporting anything new here.
 
 import { createServerFn } from "@tanstack/react-start";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import {
   assignBookingRoom,
@@ -205,6 +205,10 @@ export function toPartyHall(r: PartyHallRow, advancePct: number): PartyHallEnqui
  * it is what makes local dev and the test suite work with no database, which the
  * blank local env and `vitest.config` both assume.
  */
+/** Last N GST rate changes shown on the Settings panel — "keep it simple",
+ *  no pagination. */
+const GST_HISTORY_LIMIT = 10;
+
 async function load(): Promise<BookingData> {
   const conn = db();
   if (!conn) {
@@ -223,7 +227,7 @@ async function load(): Promise<BookingData> {
   // order (see `bookingNumber` and the sorts in `bookings.ts`), so this is not
   // what makes the screens deterministic; it is what stops the *query* from
   // being a coin flip, which matters the moment anyone debugs one or pages it.
-  const [guestRows, bookingRows, partyHallRows, roomRows, roomTypeRows, addOnRows] =
+  const [guestRows, bookingRows, partyHallRows, roomRows, roomTypeRows, addOnRows, gstHistoryRows] =
     await Promise.all([
       conn.select().from(schema.guests).orderBy(schema.guests.id),
       conn.select().from(schema.bookings).orderBy(schema.bookings.id),
@@ -231,6 +235,11 @@ async function load(): Promise<BookingData> {
       conn.select().from(schema.rooms).orderBy(schema.rooms.no),
       conn.select().from(schema.roomTypeSettings).orderBy(schema.roomTypeSettings.type),
       conn.select().from(schema.addOnSettings).orderBy(schema.addOnSettings.id),
+      conn
+        .select()
+        .from(schema.gstRateHistory)
+        .orderBy(desc(schema.gstRateHistory.changedAt))
+        .limit(GST_HISTORY_LIMIT),
     ]);
 
   // Every addon_settings row lands in both maps — room add-on ids and Party
@@ -260,6 +269,13 @@ async function load(): Promise<BookingData> {
     partyHallRateOverrides,
     gstRateOverride,
     partyHallGstRateOverride,
+    gstHistory: gstHistoryRows.map((r) => ({
+      rateType: r.rateType as "room" | "party_hall",
+      fromPct: r.fromPct,
+      toPct: r.toPct,
+      changedBy: r.changedBy,
+      changedAt: r.changedAt.toISOString(),
+    })),
   };
 }
 
@@ -793,13 +809,15 @@ async function requireRoomWriter(): Promise<Result> {
   return { ok: true };
 }
 
-async function requireSettingsWriter(): Promise<Result> {
+async function requireSettingsWriter(): Promise<
+  Result<{ member: NonNullable<Awaited<ReturnType<typeof getSessionMember>>> }>
+> {
   const member = await getSessionMember();
   if (!member) return { ok: false, error: "Sign in to change settings." };
   if (!can(member.role, "settings:write")) {
     return { ok: false, error: `A ${member.role} account cannot change settings.` };
   }
-  return { ok: true };
+  return { ok: true, member };
 }
 
 /**
@@ -1013,6 +1031,68 @@ async function upsertPartyHallGstSetting(pct: number): Promise<void> {
     .insert(schema.addOnSettings)
     .values({ id: "partyHallGstPct", label: "Party hall GST rate", price: pct })
     .onConflictDoUpdate({ target: schema.addOnSettings.id, set: { price: pct } });
+}
+
+/**
+ * The true prior rate for a history row's `fromPct` — read fresh rather than
+ * trusted from the client, and resolved through the same
+ * `resolveRoomGstPct`/`resolvePartyHallGstPct` fallback the rest of the app
+ * uses, so a missing row (no change ever made) still yields the correct
+ * default rather than `undefined`. The no-DB branch mirrors this off
+ * `fixtures` directly — `fixtures.gstRateOverride`/`partyHallGstRateOverride`
+ * are the exact same fields `upsertGstSetting`/`upsertPartyHallGstSetting`
+ * mutate above, not a guessed shape.
+ */
+async function currentGstPct(rateType: "room" | "party_hall"): Promise<number> {
+  const conn = db();
+  if (!conn) {
+    return rateType === "room"
+      ? resolveRoomGstPct(fixtures.gstRateOverride)
+      : resolvePartyHallGstPct(fixtures.partyHallGstRateOverride);
+  }
+  const id = rateType === "room" ? "gstPct" : "partyHallGstPct";
+  const row = await conn.select().from(schema.addOnSettings).where(eq(schema.addOnSettings.id, id));
+  const price = row[0]?.price;
+  return rateType === "room" ? resolveRoomGstPct(price) : resolvePartyHallGstPct(price);
+}
+
+/**
+ * Best-effort audit row for a GST rate change — called after the upsert
+ * already succeeded, never before. Same shape as `recordStatusChange` above:
+ * the rate change itself is the durable write, this is deliberately
+ * non-atomic with it (Neon's HTTP driver has no multi-statement transaction
+ * here), and every error is swallowed and logged rather than rethrown — a
+ * failed insert here is a gap in the log, never a reason to fail the setting
+ * write the owner actually asked for. Skips the insert entirely when
+ * `fromPct === toPct`: not a change, so logging one would fabricate history
+ * that never happened.
+ */
+async function insertGstRateHistory(
+  rateType: "room" | "party_hall",
+  fromPct: number,
+  toPct: number,
+  changedBy: string | null,
+): Promise<void> {
+  if (fromPct === toPct) return;
+  try {
+    const conn = db();
+    const changedAt = new Date();
+    if (!conn) {
+      fixtures.gstRateHistory.push({
+        rateType,
+        fromPct,
+        toPct,
+        changedBy,
+        changedAt: changedAt.toISOString(),
+      });
+      return;
+    }
+    await conn
+      .insert(schema.gstRateHistory)
+      .values({ rateType, fromPct, toPct, changedBy, changedAt });
+  } catch (err) {
+    console.error(`Failed to record GST rate history (${rateType}):`, err);
+  }
 }
 
 /**
@@ -1676,7 +1756,10 @@ export const updateGstSettingsFn = createServerFn({ method: "POST" })
       if (!auth.ok) return auth;
       const check = validateGstPct(data.pct);
       if (!check.ok) return check;
-      await upsertGstSetting(Math.round(data.pct));
+      const fromPct = await currentGstPct("room");
+      const toPct = Math.round(data.pct);
+      await upsertGstSetting(toPct);
+      await insertGstRateHistory("room", fromPct, toPct, auth.member.email);
       return { ok: true };
     }),
   );
@@ -1691,7 +1774,10 @@ export const updatePartyHallGstSettingsFn = createServerFn({ method: "POST" })
       if (!auth.ok) return auth;
       const check = validateGstPct(data.pct);
       if (!check.ok) return check;
-      await upsertPartyHallGstSetting(Math.round(data.pct));
+      const fromPct = await currentGstPct("party_hall");
+      const toPct = Math.round(data.pct);
+      await upsertPartyHallGstSetting(toPct);
+      await insertGstRateHistory("party_hall", fromPct, toPct, auth.member.email);
       return { ok: true };
     }),
   );

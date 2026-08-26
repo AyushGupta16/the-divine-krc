@@ -53,6 +53,8 @@ const {
   getOpenBalanceDirectBookingsFn,
   updateBookingStatusFn,
   setBookingPaymentStatusFn,
+  updateGstSettingsFn,
+  updatePartyHallGstSettingsFn,
 } = await import("@/lib/bookings-data");
 const { resolvePaymentMetadata } = await import("@/lib/razorpay");
 const { getSessionMember } = await import("@/lib/auth");
@@ -439,5 +441,85 @@ describe("status history", () => {
     await updateBookingStatusFn({ data: { id: CONFIRMED_WITH_BALANCE_ID, status: "cancelled" } });
 
     expect(fixtures.statusHistory[0].changedBy).toBe(OTHER.email);
+  });
+});
+
+describe("gst rate history", () => {
+  const WRITER = {
+    email: "owner@thedivinekrc.in",
+    name: "Owner",
+    role: "Owner" as const,
+  };
+
+  beforeEach(() => {
+    fixtures.gstRateHistory.length = 0;
+    fixtures.gstRateOverride = undefined;
+    fixtures.partyHallGstRateOverride = undefined;
+  });
+
+  afterEach(() => {
+    vi.mocked(getSessionMember).mockReset();
+    fixtures.gstRateHistory.length = 0;
+    fixtures.gstRateOverride = undefined;
+    fixtures.partyHallGstRateOverride = undefined;
+  });
+
+  it("updateGstSettingsFn: a real change logs one row with rate_type room and the right from/to/changedBy", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+
+    const res = await updateGstSettingsFn({ data: { pct: 5 } });
+
+    expect(res.ok).toBe(true);
+    expect(fixtures.gstRateHistory.length).toBe(1);
+    expect(fixtures.gstRateHistory[0]).toMatchObject({
+      rateType: "room",
+      fromPct: 12,
+      toPct: 5,
+      changedBy: WRITER.email,
+    });
+  });
+
+  it("updateGstSettingsFn: a no-op save (same pct) logs nothing", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+    fixtures.gstRateOverride = 12;
+
+    const res = await updateGstSettingsFn({ data: { pct: 12 } });
+
+    expect(res.ok).toBe(true);
+    expect(fixtures.gstRateHistory.length).toBe(0);
+  });
+
+  it("updatePartyHallGstSettingsFn: a real change logs one row with rate_type party_hall and the right from/to/changedBy", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+
+    const res = await updatePartyHallGstSettingsFn({ data: { pct: 5 } });
+
+    expect(res.ok).toBe(true);
+    expect(fixtures.gstRateHistory.length).toBe(1);
+    expect(fixtures.gstRateHistory[0]).toMatchObject({
+      rateType: "party_hall",
+      fromPct: 18,
+      toPct: 5,
+      changedBy: WRITER.email,
+    });
+  });
+
+  it("updatePartyHallGstSettingsFn: a no-op save (same pct) logs nothing", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+    fixtures.partyHallGstRateOverride = 18;
+
+    const res = await updatePartyHallGstSettingsFn({ data: { pct: 18 } });
+
+    expect(res.ok).toBe(true);
+    expect(fixtures.gstRateHistory.length).toBe(0);
+  });
+
+  it("both rate types can appear together in the same history feed", async () => {
+    vi.mocked(getSessionMember).mockResolvedValue(WRITER);
+
+    await updateGstSettingsFn({ data: { pct: 5 } });
+    await updatePartyHallGstSettingsFn({ data: { pct: 9 } });
+
+    expect(fixtures.gstRateHistory.map((h) => h.rateType).sort()).toEqual(["party_hall", "room"]);
   });
 });

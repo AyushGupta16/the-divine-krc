@@ -933,6 +933,16 @@ export interface PartyHallRateSetting {
   unit: "₹" | "%";
 }
 
+/** One row of the GST audit log — either rate type, shared shape (rule 1:
+ *  one chronological feed, not two lists to cross-reference). */
+export interface GstRateHistoryEntry {
+  rateType: "room" | "party_hall";
+  fromPct: number;
+  toPct: number;
+  changedBy: string | null;
+  changedAt: string;
+}
+
 export interface PricingSettings {
   tariffs: RoomTariff[];
   gst: GstSetting;
@@ -945,6 +955,8 @@ export interface PricingSettings {
   partyHallRatesArePlaceholder: boolean;
   /** The full floor board, so the panel can add/remove/edit individual rooms. */
   rooms: RoomSettingsRow[];
+  /** Last N GST rate changes, both types, newest first. */
+  gstHistory: GstRateHistoryEntry[];
 }
 
 /** An on/off property setting. The screen controls these locally; Save is stubbed. */

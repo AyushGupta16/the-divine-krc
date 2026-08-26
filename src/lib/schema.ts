@@ -353,3 +353,25 @@ export const bookingStatusHistory = pgTable("booking_status_history", {
   changedBy: text("changed_by"),
   changedAt: timestamp("changed_at", { withTimezone: true }).notNull(),
 });
+
+/**
+ * The GST settings' own audit log — one row per actual rate change, for
+ * either of the two independent `addon_settings` rows (`gstPct` /
+ * `partyHallGstPct`). Shared table with a `rate_type` discriminator rather
+ * than two tables: an accountant reconciling the books wants one
+ * chronological feed of every GST change, not two lists to cross-reference.
+ * Same serial-surrogate reasoning as `bookingStatusHistory` above — no
+ * natural key candidate for a history row.
+ */
+export const gstRateHistory = pgTable("gst_rate_history", {
+  id: serial("id").primaryKey(),
+  /** 'room' | 'party_hall'. */
+  rateType: text("rate_type").notNull(),
+  fromPct: integer("from_pct").notNull(),
+  toPct: integer("to_pct").notNull(),
+  /** Same nullability reasoning as `bookingStatusHistory.changedBy` — every
+   *  write path today requires a signed-in session, so this is never
+   *  actually null yet. */
+  changedBy: text("changed_by"),
+  changedAt: timestamp("changed_at", { withTimezone: true }).notNull(),
+});
