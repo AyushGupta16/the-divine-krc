@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import type {
   AddOnRateSetting,
   ChannelSetting,
+  GstRateHistoryEntry,
   GstSetting,
   PartyHallRateSetting,
   PropertyProfile,
@@ -620,14 +621,18 @@ function PartyHallRateRow({ rate, onSaved }: { rate: PartyHallRateSetting; onSav
 
 /** GST's own blur-to-save row (Room Settings redesign, slice C) — was a
  *  read-only `${GST_PCT}%` display; now round-trips through `gstPct` the
- *  same way every other rate on this panel does. */
+ *  same way every other rate on this panel does. A confirm step sits between
+ *  blur and the actual write (Room Settings redesign, slice D) — same
+ *  `AlertDialog` the room-remove control uses above, same revert-on-cancel
+ *  path the invalid-input case already had. */
 function GstRateRow({ gst, onSaved }: { gst: GstSetting; onSaved: () => void }) {
   const [pct, setPct] = useState(String(gst.pct));
   const [busy, setBusy] = useState(false);
+  const [confirmNext, setConfirmNext] = useState<number | null>(null);
 
   useEffect(() => setPct(String(gst.pct)), [gst.pct]);
 
-  async function save() {
+  function onBlurValidate() {
     const next = Number(pct);
     if (!Number.isFinite(next) || next <= 0 || next > 100) {
       toast.error("GST rate must be greater than 0 and no more than 100.");
@@ -635,7 +640,13 @@ function GstRateRow({ gst, onSaved }: { gst: GstSetting; onSaved: () => void }) 
       return;
     }
     if (next === gst.pct) return;
-    const res = await runWrite(setBusy, () => updateGstSettingsFn({ data: { pct: next } }));
+    setConfirmNext(next);
+  }
+
+  async function confirmSave() {
+    if (confirmNext === null) return;
+    const res = await runWrite(setBusy, () => updateGstSettingsFn({ data: { pct: confirmNext } }));
+    setConfirmNext(null);
     if (!res?.ok) {
       setPct(String(gst.pct));
       return;
@@ -657,25 +668,55 @@ function GstRateRow({ gst, onSaved }: { gst: GstSetting; onSaved: () => void }) 
         disabled={busy}
         value={pct}
         onChange={(e) => setPct(e.target.value)}
-        onBlur={() => void save()}
+        onBlur={onBlurValidate}
       />
       <p className="mt-1.25 text-[10.5px] leading-tight text-[#a8863f]">
-        Affects all invoices — every invoice reads the live rate, not just future bookings. Confirm
-        with your accountant.
+        Changing this updates unpaid and future room bookings — already-paid invoices keep the rate
+        they were charged at.
       </p>
+      <AlertDialog
+        open={confirmNext !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setConfirmNext(null);
+            setPct(String(gst.pct));
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Change room GST rate to {confirmNext}%?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This updates unpaid and future room bookings — their invoices will reflect the new
+              rate. Already-paid bookings keep the rate they were actually charged; their invoices
+              don&apos;t change.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={busy} onClick={() => void confirmSave()}>
+              Change rate
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
 
 /** Party-hall's own GST rate — same blur-to-save shape as `GstRateRow`, its
- *  own independent `partyHallGstPct` `addon_settings` row. */
+ *  own independent `partyHallGstPct` `addon_settings` row, and its own
+ *  confirm step (the warning copy differs — party-hall invoices stay
+ *  live-always, unlike rooms, so there's no "already-paid keeps its rate"
+ *  carve-out to state here). */
 function PartyHallGstRateRow({ gst, onSaved }: { gst: GstSetting; onSaved: () => void }) {
   const [pct, setPct] = useState(String(gst.pct));
   const [busy, setBusy] = useState(false);
+  const [confirmNext, setConfirmNext] = useState<number | null>(null);
 
   useEffect(() => setPct(String(gst.pct)), [gst.pct]);
 
-  async function save() {
+  function onBlurValidate() {
     const next = Number(pct);
     if (!Number.isFinite(next) || next <= 0 || next > 100) {
       toast.error("GST rate must be greater than 0 and no more than 100.");
@@ -683,9 +724,15 @@ function PartyHallGstRateRow({ gst, onSaved }: { gst: GstSetting; onSaved: () =>
       return;
     }
     if (next === gst.pct) return;
+    setConfirmNext(next);
+  }
+
+  async function confirmSave() {
+    if (confirmNext === null) return;
     const res = await runWrite(setBusy, () =>
-      updatePartyHallGstSettingsFn({ data: { pct: next } }),
+      updatePartyHallGstSettingsFn({ data: { pct: confirmNext } }),
     );
+    setConfirmNext(null);
     if (!res?.ok) {
       setPct(String(gst.pct));
       return;
@@ -707,11 +754,38 @@ function PartyHallGstRateRow({ gst, onSaved }: { gst: GstSetting; onSaved: () =>
         disabled={busy}
         value={pct}
         onChange={(e) => setPct(e.target.value)}
-        onBlur={() => void save()}
+        onBlur={onBlurValidate}
       />
       <p className="mt-1.25 text-[10.5px] leading-tight text-[#a8863f]">
-        Independent of the room GST rate — affects all party-hall invoices immediately.
+        Independent of the room GST rate — affects all party-hall invoices immediately, including
+        ones already paid.
       </p>
+      <AlertDialog
+        open={confirmNext !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setConfirmNext(null);
+            setPct(String(gst.pct));
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Change party-hall GST rate to {confirmNext}%?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This affects every party-hall invoice immediately, including ones already paid —
+              party-hall invoices always show the current rate (there&apos;s no per-event frozen
+              rate yet). Confirm with your accountant before changing.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={busy} onClick={() => void confirmSave()}>
+              Change rate
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -734,12 +808,14 @@ function PricingPanel({
   addOnRates,
   partyHallRates,
   rooms,
+  gstHistory,
 }: {
   tariffs: RoomTariff[];
   gst: GstSetting;
   addOnRates: AddOnRateSetting[];
   partyHallRates: PartyHallRateSetting[];
   rooms: RoomSettingsRow[];
+  gstHistory: GstRateHistoryEntry[];
 }) {
   const router = useRouter();
   const refresh = () => void router.invalidate();
@@ -780,8 +856,55 @@ function PricingPanel({
           <GstRateRow gst={gst} onSaved={refresh} />
           {advance && <PartyHallRateRow rate={advance} onSaved={refresh} />}
         </div>
+        <GstRateHistoryList history={gstHistory} />
       </div>
     </section>
+  );
+}
+
+const RATE_TYPE_LABEL: Record<GstRateHistoryEntry["rateType"], string> = {
+  room: "Room",
+  party_hall: "Party hall",
+};
+
+/** Last N GST rate changes, room and party-hall combined — one chronological
+ *  feed rather than two lists, since an accountant reconciling the books
+ *  wants every GST change in order, not to cross-reference by eye. Sits
+ *  under the Extra Charges grid (where the room GST control lives), even
+ *  though the party-hall control is in its own panel below — one list for
+ *  both types, one home for the list. */
+function GstRateHistoryList({ history }: { history: GstRateHistoryEntry[] }) {
+  if (history.length === 0) return null;
+
+  return (
+    <div className="mt-4 border-t border-[#f0ebe0] pt-3.5">
+      <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[#7a746a]">
+        Recent GST changes
+      </div>
+      <div className="flex flex-col gap-1.5 text-[12px]">
+        {history.map((h, i) => (
+          <div
+            key={`${h.changedAt}-${i}`}
+            className="grid grid-cols-[1fr_auto_auto] items-center gap-2 border-b border-[#f6f2ea] pb-1.5 last:border-b-0"
+          >
+            <span className="text-[#8a8578]">
+              {new Date(h.changedAt).toLocaleDateString("en-IN", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })}{" "}
+              · {h.changedBy ?? "—"}
+            </span>
+            <span className="rounded-full bg-[#f2ede2] px-2 py-0.5 text-[10.5px] font-semibold text-[#7a746a]">
+              {RATE_TYPE_LABEL[h.rateType]}
+            </span>
+            <span className="font-semibold">
+              {h.fromPct}% → {h.toPct}%
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1065,6 +1188,7 @@ export function Settings({ data }: { data: SettingsPageData }) {
             addOnRates={data.pricing.addOnRates}
             partyHallRates={data.pricing.partyHallRates}
             rooms={data.pricing.rooms}
+            gstHistory={data.pricing.gstHistory}
           />
 
           <PartyHallRatesPanel

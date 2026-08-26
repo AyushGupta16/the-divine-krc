@@ -12,7 +12,13 @@
 // instead, and this file goes back to being what its name says: test fixtures
 // and a local seed.
 
-import type { Booking, BookingStatus, Guest, PartyHallEnquiry } from "@/types/booking";
+import type {
+  Booking,
+  BookingStatus,
+  GstRateHistoryEntry,
+  Guest,
+  PartyHallEnquiry,
+} from "@/types/booking";
 import {
   defaultRoomTiles,
   GST_PCT,
@@ -1052,6 +1058,13 @@ export interface BookingStatusHistoryRow {
 
 export const statusHistory: BookingStatusHistoryRow[] = [];
 
+/** The GST settings' audit log, no-DB dev path — fixtures-mutation
+ *  counterpart of the `gst_rate_history` table. Read back by
+ *  `recentGstRateHistory`'s no-DB branch, same "own extension field on
+ *  `fixtures`, not part of `BookingData`" shape as `statusHistory` — it's
+ *  Settings-only data, not something every `load()` caller should carry. */
+export const gstRateHistory: GstRateHistoryEntry[] = [];
+
 /** The whole seeded world, in the shape every derivation function reads.
  *  `rooms` and `roomTypeOverrides` are always present here (unlike the
  *  optional fields on `BookingData`), since this is the no-DB dev path's own
@@ -1062,6 +1075,7 @@ export const fixtures: BookingData & {
   addOnRateOverrides: NonNullable<BookingData["addOnRateOverrides"]>;
   partyHallRateOverrides: NonNullable<BookingData["partyHallRateOverrides"]>;
   statusHistory: BookingStatusHistoryRow[];
+  gstRateHistory: GstRateHistoryEntry[];
 } = {
   bookings,
   guests,
@@ -1071,4 +1085,5 @@ export const fixtures: BookingData & {
   addOnRateOverrides: {},
   partyHallRateOverrides: {},
   statusHistory,
+  gstRateHistory,
 };
