@@ -509,14 +509,17 @@ describe("computePartyHallQuote", () => {
 });
 
 describe("quoteBreakdown persistence", () => {
-  it("sendPartyHallQuote freezes a breakdown whose lines sum to the frozen amount", () => {
+  it("sendPartyHallQuote freezes a breakdown whose price lines sum to the frozen (pre-tax) amount, plus a GST line", () => {
     const state = { partyHall: [enquiry({})] };
     const rates = resolvePartyHallRates({ phBaseGold: 60000, phDecor: 5000, phCatering: 450 });
-    const res = sendPartyHallQuote(state, "PH-TEST-001", rates);
+    const res = sendPartyHallQuote(state, "PH-TEST-001", rates, PARTY_HALL_ADVANCE_PCT, 18);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    const sum = (res.enquiry.quoteBreakdown ?? []).reduce((s, line) => s + line.amount, 0);
-    expect(sum).toBe(res.enquiry.amount);
+    const breakdown = res.enquiry.quoteBreakdown ?? [];
+    const gstLine = breakdown.find((line) => line.label.startsWith("GST ("));
+    const priceLines = breakdown.filter((line) => line !== gstLine);
+    expect(priceLines.reduce((s, line) => s + line.amount, 0)).toBe(res.enquiry.amount);
+    expect(gstLine).toEqual({ label: "GST (18%)", amount: Math.round(res.enquiry.amount * 0.18) });
   });
 
   it("hydrates a null quoteBreakdown without throwing, for rows that predate the column", () => {
