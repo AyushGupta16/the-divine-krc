@@ -1,12 +1,21 @@
 // The server boundary + row store for invoices (design_handoff_krc_invoices).
 //
-// Reads `guests`/`bookings`/`partyHallEnquiries` directly rather than
-// importing a loader from `bookings-data.ts`: that file's contract is "every
-// export is a `createServerFn` handler" — a plain exported function there
-// would carry its body, and the `fixtures` it reaches, straight into the
-// client bundle unstripped. `notifications-data.ts` hit this first; owning
-// the query here keeps the invariant intact. `invoices` itself is this
-// module's own table, so it owns get-or-create for that one outright.
+// Reads `guests`/`bookings`/`partyHallEnquiries` directly rather than calling
+// into `bookings-data.ts`'s `load()`: that file's contract is "every export is
+// a `createServerFn` handler" — a plain exported function there would carry
+// its body, and the `fixtures` it reaches, straight into the client bundle
+// unstripped. `notifications-data.ts` hit this first; owning the query here
+// keeps the invariant intact. `invoices` itself is this module's own table,
+// so it owns get-or-create for that one outright.
+//
+// The one exception is `toPartyHall`: it's a plain row mapper that only
+// touches its typed argument (no `fixtures`/`db` at module scope — see the
+// LANDMINE note on `bookings-data.ts`), so importing it is safe and it's the
+// single source of truth for a `party_hall_enquiries` row → `PartyHallEnquiry`.
+// A second, hand-rolled copy of that mapping used to live here and silently
+// dropped `quoteBreakdown`/`advanceAmount`/etc., which forced every
+// party-hall invoice to re-derive GST and advance figures live instead of
+// rendering the frozen quote.
 //
 // An invoice number is the one thing that must survive repeat downloads
 // unchanged, so issuing is get-or-create: the first request for a given
@@ -23,20 +32,20 @@ import {
   resolveInvoiceParty,
   type Invoice,
 } from "@/lib/invoices";
-import { resolvePartyHallGstPct, resolveRoomGstPct, withAdvance, withTier } from "@/lib/bookings";
+import {
+  resolvePartyHallGstPct,
+  resolvePartyHallRates,
+  resolveRoomGstPct,
+  withTier,
+} from "@/lib/bookings";
 import { toBooking } from "@/lib/booking-mappers";
+import { toPartyHall } from "@/lib/bookings-data";
 import { fixtures } from "@/lib/__fixtures__/bookings";
 import { getSessionMember } from "@/lib/auth";
 import { db, missingDbInProduction } from "@/lib/db";
 import { can, type Result } from "@/lib/team";
 import * as schema from "@/lib/schema";
-import type {
-  Booking,
-  Guest,
-  PartyHallEnquiry,
-  PartyHallSlot,
-  PartyHallStatus,
-} from "@/types/booking";
+import type { Booking, Guest, PartyHallEnquiry } from "@/types/booking";
 
 type InvoiceRow = typeof schema.invoices.$inferSelect;
 
@@ -73,6 +82,12 @@ async function loadInvoiceParty(): Promise<{
     conn.select().from(schema.partyHallEnquiries).orderBy(schema.partyHallEnquiries.id),
     conn.select().from(schema.addOnSettings).orderBy(schema.addOnSettings.id),
   ]);
+  // Same map `bookings-data.ts`'s `load()` builds from the same rows — every
+  // Party Hall rate id (including `phAdvancePct`) lives in this one table.
+  const partyHallRateOverrides = Object.fromEntries(
+    addOnRows.map((r) => [r.id, r.price]),
+  ) as Parameters<typeof resolvePartyHallRates>[0];
+  const advancePct = resolvePartyHallRates(partyHallRateOverrides).phAdvancePct;
   return {
     guests: guestRows.map((r) =>
       withTier({
@@ -86,23 +101,7 @@ async function loadInvoiceParty(): Promise<{
       }),
     ),
     bookings: bookingRows.map(toBooking),
-    partyHall: partyHallRows.map((r) =>
-      withAdvance({
-        id: r.id,
-        title: r.title,
-        // 5d contract (0020): native date column is the sole source now.
-        date: r.enquiryDate,
-        slot: r.slot as PartyHallSlot,
-        guests: r.guests,
-        package: r.package,
-        addOns: r.addOns,
-        status: r.status as PartyHallStatus,
-        amount: r.amount,
-        contactName: r.contactName ?? undefined,
-        contactPhone: r.contactPhone ?? undefined,
-        contactEmail: r.contactEmail ?? undefined,
-      }),
-    ),
+    partyHall: partyHallRows.map((r) => toPartyHall(r, advancePct)),
     roomGstPct: resolveRoomGstPct(addOnRows.find((r) => r.id === "gstPct")?.price),
     partyHallGstPct: resolvePartyHallGstPct(
       addOnRows.find((r) => r.id === "partyHallGstPct")?.price,
