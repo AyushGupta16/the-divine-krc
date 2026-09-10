@@ -48,4 +48,8 @@ This repo is both:
 
 ---
 
+Copyright (c) 2026 The Divine KRC / Ayush Gupta. All Rights Reserved.
+This repository is for portfolio display and code review only. 
+No permission is granted to copy, modify, deploy, or distribute this software for commercial or non-commercial purposes.
+
 Built by [Ayush Gupta](https://linkedin.com/in/ayushgupta1606)
